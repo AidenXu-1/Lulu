@@ -11,11 +11,33 @@
 <p align="center">
   <a href="https://github.com/AidenXu-1/lulu-releases/releases/latest"><strong>下载最新版</strong></a>
   &nbsp;·&nbsp;
+  <a href="#用-ai-一键完成首次安装">让 AI 安装</a>
+  &nbsp;·&nbsp;
   <a href="https://github.com/AidenXu-1/lulu-releases/releases">查看历史版本</a>
 </p>
 
-> [!IMPORTANT]
-> 本仓库是 Lulu 的官方安装包与签名更新清单仓库，不包含应用源代码，也不表示 Lulu 是开源项目。
+## 用 AI 一键完成首次安装
+
+如果你使用的 AI 可以操作这台 Mac 的终端和文件，把下面整段提示词复制给它。AI 会从本仓库取得最新版 Lulu，完成校验、备份和安装。
+
+```text
+请帮我在这台 Mac 上安装 Lulu 最新稳定版，官方仓库只有：
+https://github.com/AidenXu-1/lulu-releases
+
+请直接完成安装，但必须严格遵守以下边界：
+
+1. 只使用这个官方仓库及其 Latest Release。不要使用搜索引擎、第三方镜像、转载下载站或其他仓库中的安装包。
+2. 先确认这台 Mac 使用 Apple Silicon（arm64）。如果不是，请停止并告诉我当前版本不适用。
+3. 从 Latest Release 读取最新版本和构建号，选择对应的 arm64 DMG 与 `.sha256` 文件，下载到权限收紧的临时目录。完整计算 SHA-256，并同时核对校验文件和 GitHub 提供的服务器摘要；任一不一致立即停止。
+4. 安装前只检查标准安装位置中的 Lulu。若 Lulu 正在运行，只正常退出该 Lulu 进程；不要终止其他应用。若已有旧版，先将旧 App 移到带时间戳的可恢复备份目录，保留原有用户数据，不要先删除旧版。
+5. 只读挂载已验证的 DMG，核对其中 App 的名称、版本、构建号与架构。使用暂存目录完成安装，并尽可能采用同卷原子替换；如果无法安全替换，请停止并说明原因。
+6. 不要读取、记录或输出钥匙串、授权码、Cookie、Token、浏览器资料、逐字稿或其他业务内容。不要上传任何本地文件。
+7. 不要运行 `xattr -dr`、不要关闭 Gatekeeper、不要重新签名或伪造签名，也不要用其他方式绕过 macOS 安全机制。如果系统要求确认，请暂停并告诉我如何在“隐私与安全性”中手动允许打开。
+8. 安装后卸载本次 DMG，确认 `/Applications` 中的 Lulu 版本和构建号与 Latest Release 一致。启动一次 Lulu，确认只有一个 Lulu 实例、有可见窗口，并在约 2 秒和 8–10 秒后仍正常运行；出现崩溃或异常就停止并保留现场。
+9. 最后只向我报告：官方 Release 地址、安装包 SHA-256、安装路径、安装后的版本与构建号、旧版备份路径，以及是否需要我完成 macOS 手动允许。不要删除备份。
+```
+
+这段提示词适合**第一次安装或需要重新安装**时使用。安装完成后，后续版本请优先使用 Lulu App 内置的更新功能，无需再次让 AI 替换应用；只有内置更新无法使用时，再回到本仓库的 [Latest Release](https://github.com/AidenXu-1/lulu-releases/releases/latest)。
 
 ## Lulu 可以做什么
 
