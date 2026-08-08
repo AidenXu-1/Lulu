@@ -9,11 +9,11 @@
 <p align="center">macOS · Apple Silicon · 本地优先 · 无遥测</p>
 
 <p align="center">
-  <a href="https://github.com/AidenXu-1/lulu-releases/releases/latest"><strong>下载最新版</strong></a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases/latest"><strong>下载最新版</strong></a>
   &nbsp;·&nbsp;
   <a href="#用-ai-一键完成首次安装">让 AI 安装</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/AidenXu-1/lulu-releases/releases">查看历史版本</a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases">查看历史版本</a>
 </p>
 
 ## 用 AI 一键完成首次安装
@@ -22,7 +22,7 @@
 
 ```text
 请帮我在这台 Mac 上安装 Lulu 最新稳定版，官方仓库只有：
-https://github.com/AidenXu-1/lulu-releases
+https://github.com/AidenXu-1/Lulu
 
 请直接完成安装，但必须严格遵守以下边界：
 
@@ -37,7 +37,7 @@ https://github.com/AidenXu-1/lulu-releases
 9. 最后只向我报告：官方 Release 地址、安装包 SHA-256、安装路径、安装后的版本与构建号、旧版备份路径，以及是否需要我完成 macOS 手动允许。不要删除备份。
 ```
 
-这段提示词适合**第一次安装或需要重新安装**时使用。安装完成后，后续版本请优先使用 Lulu App 内置的更新功能，无需再次让 AI 替换应用；只有内置更新无法使用时，再回到本仓库的 [Latest Release](https://github.com/AidenXu-1/lulu-releases/releases/latest)。
+这段提示词适合**第一次安装或需要重新安装**时使用。安装完成后，后续版本请优先使用 Lulu App 内置的更新功能，无需再次让 AI 替换应用；只有内置更新无法使用时，再回到本仓库的 [Latest Release](https://github.com/AidenXu-1/Lulu/releases/latest)。
 
 ## Lulu 可以做什么
 
@@ -51,7 +51,7 @@ https://github.com/AidenXu-1/lulu-releases
 
 ## 四步开始使用
 
-1. 前往 [Latest Release](https://github.com/AidenXu-1/lulu-releases/releases/latest) 下载 Apple Silicon 版本的 DMG。
+1. 前往 [Latest Release](https://github.com/AidenXu-1/Lulu/releases/latest) 下载 Apple Silicon 版本的 DMG。
 2. 打开 DMG，将 `Lulu.app` 拖入“应用程序”。
 3. 首次打开时，根据下方说明完成 macOS 手动允许。
 4. 导入本地文件或粘贴内容链接，选择保存位置后开始处理。
@@ -65,7 +65,7 @@ https://github.com/AidenXu-1/lulu-releases
 - 在访达的“应用程序”中按住 Control 点击 `Lulu.app`，选择“打开”，然后再次确认。
 - 打开“系统设置 → 隐私与安全性”，在安全提示处选择“仍要打开”。
 
-请始终从本仓库的 [Releases](https://github.com/AidenXu-1/lulu-releases/releases) 下载 Lulu，不要使用第三方转载的安装包。
+请始终从本仓库的 [Releases](https://github.com/AidenXu-1/Lulu/releases) 下载 Lulu，不要使用第三方转载的安装包。
 
 ## 本地与隐私
 
@@ -79,7 +79,7 @@ https://github.com/AidenXu-1/lulu-releases
 
 Lulu 通过本仓库发布 production 更新清单。更新清单带有独立 RSA-3072 签名，应用会在下载前校验版本、文件大小和 SHA-256，避免安装到不完整或被替换的包。
 
-如果自动更新暂时不可用，可以随时回到 [Releases](https://github.com/AidenXu-1/lulu-releases/releases) 手动下载当前 Latest 版本。
+如果自动更新暂时不可用，可以随时回到 [Releases](https://github.com/AidenXu-1/Lulu/releases) 手动下载当前 Latest 版本。
 
 ## 系统与分发范围
 
