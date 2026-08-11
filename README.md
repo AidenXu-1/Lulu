@@ -7,31 +7,32 @@
 <p align="center"><strong>把散落在视频里的内容，安静地带回你的 Mac。</strong></p>
 
 <p align="center">
-  <strong>当前版本 v0.2.14 · Build 20260808.4</strong><br>
+  <strong>当前版本 v0.2.15 · Build 20260811.1</strong><br>
   macOS · Apple Silicon · 本地优先 · 无遥测
 </p>
 
 <p align="center">
   <a href="https://github.com/AidenXu-1/Lulu/releases/latest"><strong>下载最新版</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/AidenXu-1/Lulu/releases/tag/v0.2.14">查看本版更新</a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases/tag/v0.2.15">查看本版更新</a>
   &nbsp;·&nbsp;
   <a href="#用-ai-完成首次安装">让 AI 安装</a>
 </p>
 
 Lulu 是一款运行在 Mac 上的本地内容工作台。你可以导入音视频或粘贴内容链接，将它们转成逐字稿，再继续完成批量采集、素材管理、文案处理、配音与飞书整理。
 
-## v0.2.14 更新重点
+## v0.2.15 更新重点
 
-这一版把注意力放在任务恢复、素材状态一致性与日常使用稳定性上：
+这一版重点解决下载失败、任务重开丢失和进度看不懂的问题：
 
-- **未完成任务可恢复**：增加未完成转录任务的本地恢复能力。
-- **更新过程更稳妥**：更新缓存会自动清理，失败现场仍会保留。
-- **状态同步更准确**：修正主页采集、飞书写入与文稿库的状态同步问题。
-- **选中反馈更清楚**：优化素材、文件夹与表格行的选中反馈。
-- **更新路径更兼容**：更新检查兼容 `AidenXu-1/Lulu` 与 `AidenXu-1/lulu-releases` 两个仓库路径。
+- **未完成任务可恢复**：关闭 Lulu 后，待处理和中断任务会在下次打开时回到“待继续”，已完成任务不再长期占用列表。
+- **进度更真实**：下载、转录和模型安装有真实进度时显示百分比；无法准确估算时，明确显示当前阶段和已用时间。
+- **下载与模型安装更稳**：修复断网、官方 CDN 跳转和安装中断后的失败问题，已下载部分可以安全续传。
+- **抖音链接兼容性提升**：修复部分新版抖音分享链接无法抓取的问题。
+- **更新缓存自动收尾**：安装成功后自动清理本次下载包和解压缓存；暂停时保留可续传进度，不影响当前可用版本。
+- **日常使用细节更顺手**：同步优化主页采集、素材库选择、文件定位和飞书写入，并收紧模型与更新链路的安全边界。
 
-[查看 v0.2.14 完整 Release](https://github.com/AidenXu-1/Lulu/releases/tag/v0.2.14)
+[查看 v0.2.15 完整 Release](https://github.com/AidenXu-1/Lulu/releases/tag/v0.2.15)
 
 ## 从内容到可用资料
 
@@ -112,6 +113,8 @@ https://github.com/AidenXu-1/Lulu
 
 Lulu 通过本仓库发布 production 更新清单。更新清单带有独立 RSA-3072 签名，应用会在下载前校验版本、文件大小与 SHA-256，避免安装到不完整或被替换的包。
 
+安装成功并确认新版本可启动后，Lulu 会自动清理本次更新的下载包和解压缓存。如果用户暂停下载，已下载部分会为续传而保留，不会删除模型、素材库、文稿或音色。
+
 如果自动更新暂时不可用，可以随时回到 [Releases](https://github.com/AidenXu-1/Lulu/releases) 手动下载当前 Latest 版本。
 
 ## 系统与分发范围
@@ -156,7 +159,7 @@ Lulu 通过本仓库发布 production 更新清单。更新清单带有独立 RS
 
 <p align="center">
   <strong>Lulu，让内容回到你手里。</strong><br>
-  <a href="https://github.com/AidenXu-1/Lulu/releases/latest">下载 v0.2.14</a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases/latest">下载 v0.2.15</a>
   &nbsp;·&nbsp;
   <a href="https://github.com/AidenXu-1/Lulu/releases">查看全部版本</a>
 </p>
