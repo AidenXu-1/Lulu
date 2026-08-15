@@ -7,32 +7,33 @@
 <p align="center"><strong>把散落在视频里的内容，安静地带回你的 Mac。</strong></p>
 
 <p align="center">
-  <strong>当前版本 v0.2.15 · Build 20260811.1</strong><br>
+  <strong>当前版本 v0.3.1 · Build 20260815.3</strong><br>
   macOS · Apple Silicon · 本地优先 · 无遥测
 </p>
 
 <p align="center">
   <a href="https://github.com/AidenXu-1/Lulu/releases/latest"><strong>下载最新版</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/AidenXu-1/Lulu/releases/tag/v0.2.15">查看本版更新</a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases/tag/v0.3.1">查看本版更新</a>
   &nbsp;·&nbsp;
   <a href="#用-ai-完成首次安装">让 AI 安装</a>
 </p>
 
 Lulu 是一款运行在 Mac 上的本地内容工作台。你可以导入音视频或粘贴内容链接，将它们转成逐字稿，再继续完成批量采集、素材管理、文案处理、配音与飞书整理。
 
-## v0.2.15 更新重点
+## v0.3.1 更新重点
 
-这一版重点解决下载失败、任务重开丢失和进度看不懂的问题：
+这一版集中提升采集、转录、文案处理、本地模型和配音的连续使用体验：
 
-- **未完成任务可恢复**：关闭 Lulu 后，待处理和中断任务会在下次打开时回到“待继续”，已完成任务不再长期占用列表。
-- **进度更真实**：下载、转录和模型安装有真实进度时显示百分比；无法准确估算时，明确显示当前阶段和已用时间。
-- **下载与模型安装更稳**：修复断网、官方 CDN 跳转和安装中断后的失败问题，已下载部分可以安全续传。
-- **抖音链接兼容性提升**：修复部分新版抖音分享链接无法抓取的问题。
-- **更新缓存自动收尾**：安装成功后自动清理本次下载包和解压缓存；暂停时保留可续传进度，不影响当前可用版本。
-- **日常使用细节更顺手**：同步优化主页采集、素材库选择、文件定位和飞书写入，并收紧模型与更新链路的安全边界。
+- **采集和封面更稳定**：修复抖音视频、封面与断点续传问题，补齐小红书、B站和 YouTube 封面的本地保存与右侧预览。
+- **长逐字稿完整显示**：少数长任务不再只显示开头；完整成稿写入并复读成功后才会标记完成。
+- **文案处理可连续完成**：修复长文本偶发返回不完整的问题，错别字校正还能自动缩小失败段重试，同时继续保护数字与链接。
+- **模型管理更可靠**：加强安装、续传、校验、修复和卸载，允许用户自由卸载全部模型；新增兼容 macOS 15 的本地转录选择。
+- **配音链路修复**：修复 IndexTTS2 运行环境识别与正文提取，避免标题、链接和作品信息被误读进配音。
+- **进度与任务更清楚**：转录、模型下载和更新显示真实阶段、百分比与耗时；未完成任务重开后仍可继续。
+- **更新包自动收尾**：应用内更新继续校验签名、大小与摘要，安装成功后自动清理无用安装包和解压缓存。
 
-[查看 v0.2.15 完整 Release](https://github.com/AidenXu-1/Lulu/releases/tag/v0.2.15)
+[查看 v0.3.1 完整 Release](https://github.com/AidenXu-1/Lulu/releases/tag/v0.3.1)
 
 ## 从内容到可用资料
 
@@ -159,7 +160,7 @@ Lulu 通过本仓库发布 production 更新清单。更新清单带有独立 RS
 
 <p align="center">
   <strong>Lulu，让内容回到你手里。</strong><br>
-  <a href="https://github.com/AidenXu-1/Lulu/releases/latest">下载 v0.2.15</a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases/latest">下载 v0.3.1</a>
   &nbsp;·&nbsp;
   <a href="https://github.com/AidenXu-1/Lulu/releases">查看全部版本</a>
 </p>
