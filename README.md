@@ -7,7 +7,7 @@
 <p align="center"><strong>把散落在视频里的内容，安静地带回你的 Mac。</strong></p>
 
 <p align="center">
-  <strong>当前版本 v4.0.1 · Build 20260926.18</strong><br>
+  <strong>当前版本 v4.0.1 · Build 20260926.19</strong><br>
   macOS · Apple Silicon · 本地优先 · 无遥测
 </p>
 
@@ -160,3 +160,5 @@ Lulu 通过本仓库发布 production 更新清单。更新清单带有独立 RS
   &nbsp;·&nbsp;
   <a href="https://github.com/AidenXu-1/Lulu/releases">查看全部版本</a>
 </p>
+
+加强 macOS 安装包更新验证文件的定位，并增加包内默认公钥读取检查。
