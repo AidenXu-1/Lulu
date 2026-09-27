@@ -1,0 +1,26 @@
+name: Assemble Lulu 4.0.1 distribution
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: AidenXu-1/Lulu
+    steps:
+      - name: Reuse verified draft package and apply signed file changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh release view v4.0.1 --json isDraft --jq .isDraft)" = true
+          mkdir work
+          cd work
+          gh release download v4.0.1 --pattern Lulu-4.0.1-20260926.18-arm64.dmg --pattern lulu-rebuild-20260926.19.zip
+          echo 'bc6ebfc38788a1ef5b9430f4dd1a76f6dcdb9d105d0630903eb3493d1a36d3d5  lulu-rebuild-20260926.19.zip' | shasum -a 256 -c -
+          python3 -m zipfile -e lulu-rebuild-20260926.19.zip .
+          python3 assemble.py
+          test "$(gh release view v4.0.1 --json isDraft --jq .isDraft)" = true
+          gh release upload v4.0.1 output/Lulu-4.0.1-20260926.19-arm64.dmg output/Lulu-4.0.1-20260926.19-arm64.dmg.sha256 output/Lulu-4.0.1-20260926.19-arm64.zip output/Lulu-4.0.1-20260926.19-arm64.zip.sha256 output/remote-assembly-proof.json
