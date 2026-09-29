@@ -17,6 +17,8 @@
   <a href="https://github.com/AidenXu-1/Lulu/releases/tag/v4.0.2">查看本版更新</a>
   &nbsp;·&nbsp;
   <a href="#用-ai-完成首次安装">让 AI 安装</a>
+  &nbsp;·&nbsp;
+  <a href="#让-ai-调用-lulu">Agent Skill</a>
 </p>
 
 Lulu 是一款运行在 Mac 上的本地内容工作台。你可以导入音视频或粘贴内容链接，将它们转成逐字稿，再继续完成批量采集、素材管理、文案处理、配音与飞书整理。
@@ -92,7 +94,25 @@ https://github.com/AidenXu-1/Lulu
 
 </details>
 
-ZIP 是应用更新校验资产，普通用户请使用 DMG。
+Lulu Release 中的 App ZIP 是应用更新校验资产，安装 App 请使用 DMG；下面的 Skill ZIP 用于安装 AI 助手的调用技能。
+
+## 让 AI 调用 Lulu
+
+安装 **Lulu Agent Skill** 后，你可以让支持本地 Skill 和终端操作的 AI 助手调用这台 Mac 上的 Lulu，查找文稿、转录录音、生成配音或下载链接素材。
+
+**[查看 Skill 与安装说明](https://github.com/AidenXu-1/lulu-agent) · [下载完整 Skill 包（ZIP）](https://github.com/AidenXu-1/lulu-agent/archive/refs/heads/main.zip)**
+
+1. 先安装并打开 Lulu，完成系统授权。CLI 已随 Lulu 提供，无需另下一个命令行程序。
+2. 把下面的提示词交给你常用的 AI 助手，让它安装 Skill 并检查连接。
+3. 连接成功后，直接描述任务，例如“用 Lulu 把这段录音转成文字”。
+
+```text
+请从 https://github.com/AidenXu-1/lulu-agent 阅读安装说明，下载完整 Skill 并安装到你当前使用的技能目录。先检查兼容性和已有同名技能，保留 scripts 与 references，不覆盖 Lulu 管理的旧副本。按 SKILL.md 验证本机 Lulu，再查询实际可用功能；如果发现两个同名入口，按说明选择唯一启用项。本次只安装和检查连接，不下载模型、不修改文稿、不执行转录、配音或云端调用。
+```
+
+也可以手动下载 ZIP，解压后按其中的 README 安装；请保留整个 `lulu-agent` 文件夹，只下载 `SKILL.md` 会缺少必要文件。Codex 的安装示例及其他 Agent 的目录选择均在 [Skill 安装说明](https://github.com/AidenXu-1/lulu-agent#安装) 中。
+
+使用示例：“在 Lulu 里找上周的访谈文稿”“用我保存的音色朗读这篇文稿”“下载这个作品链接的封面”。实际可用功能和模型以本机 Lulu 检查结果为准。Skill 可独立更新、卸载，不附带模型；仅安装 Skill 不会自动执行这些任务。
 
 ## 本地、联网与隐私边界
 
