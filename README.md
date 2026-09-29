@@ -7,30 +7,29 @@
 <p align="center"><strong>把散落在视频里的内容，安静地带回你的 Mac。</strong></p>
 
 <p align="center">
-  <strong>当前版本 v4.0.1 · Build 20260926.19</strong><br>
+  <strong>当前版本 v4.0.2 · Build 20260929.9</strong><br>
   macOS · Apple Silicon · 本地优先 · 无遥测
 </p>
 
 <p align="center">
   <a href="https://github.com/AidenXu-1/Lulu/releases/latest"><strong>下载最新版</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/AidenXu-1/Lulu/releases/tag/v4.0.1">查看本版更新</a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases/tag/v4.0.2">查看本版更新</a>
   &nbsp;·&nbsp;
   <a href="#用-ai-完成首次安装">让 AI 安装</a>
 </p>
 
 Lulu 是一款运行在 Mac 上的本地内容工作台。你可以导入音视频或粘贴内容链接，将它们转成逐字稿，再继续完成批量采集、素材管理、文案处理、配音与飞书整理。
 
-## v4.0.1 更新重点
+## v4.0.2 更新重点
 
-- **文稿与 AI 一起工作**：直接编辑、多段引用、连续改稿、修改记录和撤销，选段范围持续可见。
-- **对话更连贯**：技能选择、仅讨论、任务阶段与排队补充；修复排队要求使用旧选段的问题。
-- **本地技能可管理**：六项系统技能随包提供，用户技能从本地导入，关闭状态持续保留。
-- **资料管理更顺手**：完善文稿库、音频库和最近删除，减少切页及发送时的重复等待；修复磁盘重新挂载后旧删除记录无法恢复的问题。
-- **本地模型识别更稳定**：完善转录模型选择与配音模型识别，减少已有模型被误判需要重装。
-- **Agent 可调用**：扩展本地转录、配音和作品素材提取 CLI，并提供独立的 [lulu-agent 技能](https://github.com/AidenXu-1/lulu-agent)。
+- **新任务更容易找到**：新加入的任务显示在最前面，卡片采用 0.5 秒上沿翻落，遵循系统减少动态效果设置。
+- **文件夹删除有选择**：可以仅删除文件夹并保留素材，也可以删除文件夹及所属素材。
+- **飞书整理更顺手**：改进连接与保存界面、字段对应及批量写入。
+- **界面响应更轻快**：减少侧栏切换和任务列表的重复绘制。
+- **升级恢复更可靠**：修复历史任务恢复无法收尾的问题，保护尚未保存的内容；更新 CLI 配套校验与使用指引。
 
-[查看 v4.0.1 完整 Release](https://github.com/AidenXu-1/Lulu/releases/tag/v4.0.1)
+[查看 v4.0.2 完整 Release](https://github.com/AidenXu-1/Lulu/releases/tag/v4.0.2)
 
 ## 从内容到可用资料
 
@@ -53,10 +52,12 @@ Lulu 是一款运行在 Mac 上的本地内容工作台。你可以导入音视�
 
 ## 四步开始使用
 
-1. 前往 [Latest Release](https://github.com/AidenXu-1/Lulu/releases/latest)，下载 Apple Silicon 版本的 DMG 和同名 `.sha256` 校验文件，放在同一文件夹。
-2. 退出已有 Lulu，打开 DMG，双击其中的 **Install Lulu / 安装 Lulu**，由标准安装器完成替换及后台注册。请勿拖拽覆盖 App。
-3. 首次打开时，按下方说明完成 macOS 手动允许。
+1. 前往 [Latest Release](https://github.com/AidenXu-1/Lulu/releases/latest)，下载 Apple Silicon 版本的 **DMG**。
+2. 退出已有 Lulu，打开 DMG，将 **Lulu.app 拖入 Applications**；已有版本时确认替换。
+3. 从“应用程序”打开 Lulu，按系统提示亲自完成首次打开或系统授权。
 4. 导入本地文件或粘贴内容链接，选择保存位置后开始处理。
+
+本次 4.0.1 和 0.3.1 用户均通过 DMG 手动升级。程序替换保留本地文稿、音频、模型与设置；升级前请先保存当前编辑并完成或自行取消待处理任务。校验文件仍提供给需要自行核验的用户，普通安装只需下载 DMG。
 
 ### macOS 首次打开说明
 
@@ -64,38 +65,34 @@ Lulu 是一款运行在 Mac 上的本地内容工作台。你可以导入音视�
 
 请先确认安装包来自本仓库，再使用下面任一方式打开：
 
-- 在访达中按住 Control 点击安装器或已安装的 `Lulu.app`，选择“打开”，然后按系统提示确认。
+- 在访达中按住 Control 点击已安装的 `Lulu.app`，选择“打开”，然后按系统提示确认。
 - 打开“系统设置 → 隐私与安全性”，在安全提示处选择“仍要打开”。
 
 不要关闭 Gatekeeper，不要重新签名，也不要使用 `xattr -dr` 绕过系统安全机制。
 
 ## 用 AI 完成首次安装
 
-如果你使用的 AI 可以操作这台 Mac 的终端和文件，可以展开并复制完整提示词。它会要求 AI 只从本仓库取得 Latest Release，并完成校验、备份、安装与启动复查。
+如果你使用的 AI 可以操作这台 Mac 的终端和文件，可以展开并复制下方提示词。
 
 <details>
-<summary><strong>展开完整 AI 安装提示词</strong></summary>
+<summary><strong>展开 AI 安装提示词</strong></summary>
 
 ```text
-请帮我在这台 Mac 上安装 Lulu 最新稳定版，官方仓库只有：
+请帮我安装 Lulu 最新稳定版，官方分发仓库只有：
 https://github.com/AidenXu-1/Lulu
 
-请直接完成安装，但必须严格遵守以下边界：
-
-1. 只使用这个官方仓库及其 Latest Release。不要使用搜索引擎、第三方镜像、转载下载站或其他仓库中的安装包。
-2. 先确认这台 Mac 使用 Apple Silicon（arm64）。如果不是，请停止并告诉我当前版本不适用。
-3. 从 Latest Release 读取最新版本和构建号，选择对应的 arm64 DMG 与 `.sha256` 文件，下载到权限收紧的临时目录。完整计算 SHA-256，并同时核对校验文件和 GitHub 提供的服务器摘要；任一不一致立即停止。
-4. 安装前只检查标准安装位置中的 Lulu。若 Lulu 正在运行，只正常退出该 Lulu 进程；不要终止其他应用。保留原有 App 和用户数据，由标准安装器负责备份及事务替换；不要手工移动或删除旧版。
-5. 只读挂载已验证的 DMG，核对其中 App 的名称、版本、构建号与架构。启动其中的 Install Lulu / 安装 Lulu 标准安装器，完成后台服务与历史任务交接；不要自行复制 App、注册后台或改写安装记录。安装器拒绝时保留现场并说明原因。
-6. 不要读取、记录或输出钥匙串、授权码、Cookie、Token、浏览器资料、逐字稿或其他业务内容。不要上传任何本地文件。
-7. 不要运行 `xattr -dr`、不要关闭 Gatekeeper、不要重新签名或伪造签名，也不要用其他方式绕过 macOS 安全机制。如果系统要求确认，请暂停并告诉我如何在“隐私与安全性”中手动允许打开。
-8. 安装后卸载本次 DMG，确认 `/Applications` 中的 Lulu 版本和构建号与 Latest Release 一致。启动一次 Lulu，确认只有一个 Lulu 实例、有可见窗口，并在约 2 秒和 8–10 秒后仍正常运行；出现崩溃或异常就停止并保留现场。
-9. 最后只向我报告：官方 Release 地址、安装包 SHA-256、安装路径、安装后的版本与构建号、旧版备份路径，以及是否需要我完成 macOS 手动允许。不要删除备份。
+1. 先确认 Mac 使用 Apple Silicon（arm64），然后从官方 Latest Release 读取版本、构建号和 arm64 DMG。
+2. 下载到权限收紧的临时目录，核对完整 SHA-256 与 GitHub 资产摘要及同名校验文件。不一致就停止。
+3. 检查 /Applications/Lulu.app。已有版本时先保存编辑并正常退出，确认没有正在执行的任务；不要擅自取消任务。保留可恢复的旧 App 副本。
+4. 只读挂载 DMG，核对包内 Lulu.app 的版本、构建号和完整签名。通过标准拖拽或保留符号链接及权限的复制安装到 /Applications，保持用户资料原位，不手工注册后台或改写安装记录。
+5. 不读取或输出密钥、Cookie、Token 或业务内容，不上传本地文件，不关闭 Gatekeeper、不重签名、不用 xattr 绕过系统安全保护。系统授权由我亲自完成。
+6. 从 /Applications 启动一次 Lulu，检查安装版本、可见主窗口以及启动后 2 秒和 8–10 秒的运行情况。异常则保留现场，说明原因，不循环重装。
+7. 卸载本次 DMG，报告官方 Release、包体摘要、安装路径、版本及旧 App 副本位置。不要删除用户资料或回退副本。
 ```
 
 </details>
 
-这段提示词适合首次安装及本次升级。上一正式版 0.3.1 会收到手动升级提示，请使用 DMG 内的标准安装器；ZIP 供更新链校验使用，不要手动解压覆盖。
+ZIP 是应用更新校验资产，普通用户请使用 DMG。
 
 ## 本地、联网与隐私边界
 
@@ -110,9 +107,9 @@ https://github.com/AidenXu-1/Lulu
 
 ## 应用内更新
 
-Lulu 通过本仓库发布 production 更新清单。更新清单带有独立 RSA-3072 签名，应用会在下载前校验版本、文件大小与 SHA-256，避免安装到不完整或被替换的包。
+Lulu 从本仓库获取带 RSA-3072 签名的更新清单，核验版本、文件大小和 SHA-256。
 
-本次 上一正式版 0.3.1升级会提示手动下载 DMG，交由包内标准安装器完成后台注册、历史任务交接与可回退替换。请将 DMG 与同名 `.sha256` 文件保留在同一文件夹。已有模型和资料保留。
+本次旧版用户会看到手动升级提示：下载 DMG，将 Lulu.app 拖入 Applications。旧版自动更新等待系统授权的时间较短，本次不向旧版推送自动替换。请按系统提示完成授权，模型和资料保持原位。
 
 ## 系统与分发范围
 
@@ -156,9 +153,8 @@ Lulu 通过本仓库发布 production 更新清单。更新清单带有独立 RS
 
 <p align="center">
   <strong>Lulu，让内容回到你手里。</strong><br>
-  <a href="https://github.com/AidenXu-1/Lulu/releases/latest">下载 v4.0.1</a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases/latest">下载 v4.0.2</a>
   &nbsp;·&nbsp;
   <a href="https://github.com/AidenXu-1/Lulu/releases">查看全部版本</a>
 </p>
 
-加强 macOS 安装包更新验证文件的定位，并增加包内默认公钥读取检查。
