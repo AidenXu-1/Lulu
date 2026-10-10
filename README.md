@@ -7,14 +7,14 @@
 <p align="center"><strong>把散落在视频里的内容，安静地带回你的 Mac。</strong></p>
 
 <p align="center">
-  <strong>当前版本 v4.1.1 · Build 20261010.2</strong><br>
+  <strong>当前版本 v4.1.2 · Build 20261010.4</strong><br>
   macOS · Apple Silicon · 本地优先 · 无遥测
 </p>
 
 <p align="center">
   <a href="https://github.com/AidenXu-1/Lulu/releases/latest"><strong>下载最新版</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/AidenXu-1/Lulu/releases/tag/v4.1.1">查看本版更新</a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases/tag/v4.1.2">查看本版更新</a>
   &nbsp;·&nbsp;
   <a href="#用-ai-完成首次安装">让 AI 安装</a>
   &nbsp;·&nbsp;
@@ -23,14 +23,16 @@
 
 Lulu 是一款运行在 Mac 上的本地内容工作台。你可以导入音视频或粘贴内容链接，将它们转成逐字稿，再继续完成批量采集、素材管理、文案处理、配音与飞书整理。
 
-## v4.1.1 更新重点
+## v4.1.2 更新重点
 
-- **更新更可靠**：修复重开后更新卡住、下载续传、失败重试和部分按钮无响应；加强换包中断后的恢复。
-- **原有文稿正常显示**：单篇文稿、会话或登记损坏时，其他健康文稿继续可读；保留的独立正文可另存恢复副本，原文件不覆盖。
-- **旧程序清理更稳妥**：确认新版可用后清理本次旧程序备份；无法确认归属的残留保留，清理失败不再误报更新失败。
-- **断盘录像继续恢复**：外置盘接回后，重新打开 Lulu 可继续扫描中断时未登记的录像分段，界面保留中断提示。
+- **授权等待更从容**：新更新器延长系统授权准备时间，完成资料和任务读取后才确认安装成功；超时仍保留回退能力。
+- **失败后能够重试**：每次准备使用新临时目录，修复旧缓存链接残留造成的“安装包结构异常”。
+- **错误原因更准确**：区分安装包损坏、临时目录冲突、空间不足和写入权限问题。
+- **保留原有资料**：继续保留文稿独立读取、原正文恢复预览和不覆盖原件的保护。
 
-[查看 v4.1.1 完整 Release](https://github.com/AidenXu-1/Lulu/releases/tag/v4.1.1)
+**4.1.1 及更早版本请按下面四步，通过 DMG 手动覆盖更新一次。** 旧更新器自身的等待时限无法被新包修改，4.1.2 起使用新的更新流程。
+
+[查看 v4.1.2 完整 Release](https://github.com/AidenXu-1/Lulu/releases/tag/v4.1.2)
 
 ## 从内容到可用资料
 
@@ -59,7 +61,7 @@ Lulu 是一款运行在 Mac 上的本地内容工作台。你可以导入音视�
 3. 从“应用程序”打开 Lulu，按系统提示亲自完成首次打开或系统授权。
 4. 导入本地文件或粘贴内容链接，选择保存位置后开始处理。
 
-4.0.2 及以上版本用户可使用应用内更新；4.0.1 和 0.3.1 用户请通过 DMG 手动升级。程序替换保留本地文稿、音频、模型与设置；升级前请先保存当前编辑并完成或自行取消待处理任务。普通安装只需下载 DMG，其余三个附件供应用内更新使用。更新说明可直接在本页和各版本 Release 正文查看。
+4.1.2 起可使用修复后的应用内更新；4.1.1 及更早版本请通过 DMG 手动覆盖一次。程序替换保留本地文稿、音频、模型与设置；升级前请先保存当前编辑并完成或自行取消待处理任务。普通安装只需下载 DMG，其余三个附件供应用内更新使用。更新说明可直接在本页和各版本 Release 正文查看。
 
 ### macOS 首次打开说明
 
@@ -174,7 +176,7 @@ Lulu 从本仓库获取带 RSA-3072 签名的更新清单，核验版本、文�
 
 <p align="center">
   <strong>Lulu，让内容回到你手里。</strong><br>
-  <a href="https://github.com/AidenXu-1/Lulu/releases/latest">下载 v4.1.1</a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases/latest">下载 v4.1.2</a>
   &nbsp;·&nbsp;
   <a href="https://github.com/AidenXu-1/Lulu/releases">查看全部版本</a>
 </p>
