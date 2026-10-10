@@ -1,4 +1,7 @@
 <p align="center">
+
+> 更新提示：4.1.2 在实际升级验证中发现任务记录交接故障，已暂时撤回下载，正在修复。请保留原有文稿、应用支持目录及钥匙串记录，勿通过删除资料排障。
+
   <img src="docs/assets/lulu-mascot.png" width="180" alt="Lulu 吉祥物">
 </p>
 
