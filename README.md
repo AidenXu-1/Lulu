@@ -8,14 +8,14 @@
 <p align="center"><strong>把散落在视频里的内容，安静地带回你的 Mac。</strong></p>
 
 <p align="center">
-  <strong>当前版本 v4.1.4 · Build 20261011.3</strong><br>
+  <strong>当前版本 v4.1.5 · Build 20261011.5</strong><br>
   macOS · Apple Silicon · 本地优先 · 无遥测
 </p>
 
 <p align="center">
-  <a href="https://github.com/AidenXu-1/Lulu/releases/latest"><strong>下载 Lulu v4.1.4</strong></a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases/latest"><strong>下载 Lulu 最新版</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/AidenXu-1/Lulu/releases/tag/v4.1.4">查看本版更新</a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases/tag/v4.1.5">查看本版更新</a>
   &nbsp;·&nbsp;
   <a href="#用-ai-完成首次安装">让 AI 安装</a>
   &nbsp;·&nbsp;
@@ -24,18 +24,17 @@
 
 Lulu 是一款运行在 Mac 上的本地内容工作台。你可以导入音视频或粘贴内容链接，将它们转成逐字稿，再继续完成批量采集、素材管理、文案处理、配音与飞书整理。
 
-## v4.1.4 更新重点
+## v4.1.5 更新重点
 
-- **更新失败后可回退使用**：修复旧版无法识别失败候选的授权身份，以及正常重复授权被误拒绝的问题。
-- **中断后保留下载进度**：清单或签名下载中断后可重新检查、继续下载；恢复时重新验签，下载完成后校验整个安装包。
-- **整体替换程序**：更新前完成交接并停止旧后台，成功后清理本次暂存，避免旧程序文件混入新版。
-- **保留原有资料**：沿用独立保存的文稿、音频、模型与设置，改善健康文稿读取和原正文恢复入口。
+- **任务可以明确恢复**：修复升级后任务保存失败和继续按钮无响应；支持单条继续、继续这组与全部继续，已完成或已取消的任务不会重复执行。
+- **更新操作及时反馈**：检查更新立即显示检查状态；慢网下下载、暂停、继续的按钮与实际状态保持一致。
+- **保留原有资料**：沿用独立保存的文稿、音频、模型与设置，保留安装包校验及更新失败回退保护。
 
-**4.1.3 及更早版本请下载 DMG，退出 Lulu 后手动覆盖安装一次。** 无需先卸载，也不要删除个人资料或钥匙串记录。4.1.4 起使用修复后的应用内更新流程。
+**4.1.4 用户可在应用内检查更新；4.1.3 及更早版本请下载 DMG，退出 Lulu 后手动覆盖安装一次。** 无需先卸载，也不要删除个人资料或钥匙串记录。
 
-本机已验证更新成功、预定失败回退和前后重开，核对原文稿、245 条历史任务及模型目录记录一致；清单、签名中断与重开续传使用包内代码和本机受控传输验证。不同系统环境的结果仍需实际反馈。
+任务故障恢复、批量恢复与慢网中断续传已通过隔离检查；相同功能的本地修复版已验证成功换包、重开及原文稿、历史任务和模型保留。本次 4.1.5 仅更新版本标识并重新打包核验。
 
-[查看 v4.1.4 完整 Release](https://github.com/AidenXu-1/Lulu/releases/tag/v4.1.4)
+[查看 v4.1.5 完整 Release](https://github.com/AidenXu-1/Lulu/releases/tag/v4.1.5)
 
 ## 从内容到可用资料
 
@@ -179,7 +178,7 @@ Lulu 从本仓库获取带 RSA-3072 签名的更新清单，核验版本、文�
 
 <p align="center">
   <strong>Lulu，让内容回到你手里。</strong><br>
-  <a href="https://github.com/AidenXu-1/Lulu/releases/latest">下载 v4.1.4</a>
+  <a href="https://github.com/AidenXu-1/Lulu/releases/latest">下载最新版</a>
   &nbsp;·&nbsp;
   <a href="https://github.com/AidenXu-1/Lulu/releases">查看全部版本</a>
 </p>
