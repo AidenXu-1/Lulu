@@ -66,7 +66,9 @@ class WorkspaceShellTests(unittest.TestCase):
             self.assertLessEqual(box[0][1],box[1][1])
             self.js('document.querySelector("#model").click()')
             self.window.grab().save(str(Path(__file__).resolve().parents[2]/f'scratch/v37-native-{width}.png'))
-        (Path(__file__).resolve().parents[2]/'scratch/v37-native-dimensions.json').write_text(json.dumps(dimensions,indent=2))
+        output = Path(__file__).resolve().parents[2]/'scratch'
+        output.mkdir(parents=True, exist_ok=True)
+        (output/'v37-native-dimensions.json').write_text(json.dumps(dimensions,indent=2))
         self.window.open_library('voice')
         self.until(lambda:self.js('window.lulu.state.kind')=='voice')
         self.assertTrue(self.js('document.getElementById("agent-column").hidden'))

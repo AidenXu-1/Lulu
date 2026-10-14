@@ -2,7 +2,7 @@
   "schema": 1,
   "version": "4.2.1",
   "build": "20261015.1",
-  "maintainer_source_revision": "428e66dcb2878bd50fb307f80f9e41de93bb4a0a",
+  "maintainer_source_revision": "cada47c1730d7ebf6aa05418f726ca74400af0c1",
   "files": [
     {
       "path": ".gitignore",
@@ -3081,8 +3081,8 @@
     },
     {
       "path": "app/tests/test_agent_workspace_shell.py",
-      "sha256": "081ae73cd13a6f2891609a26a400339f5cee7945aa0f1137f4d750827f2c5be2",
-      "size": 10795
+      "sha256": "247b54e20335cd14d83a3c339a55e0676c4ee554f1c961946a235829616b0228",
+      "size": 10871
     },
     {
       "path": "app/tests/test_agent_workspace_text_models.py",
@@ -5036,8 +5036,8 @@
     },
     {
       "path": "app/tests/test_workspace_refinement.py",
-      "sha256": "1ab9a23b971e4a89c033829ef4a0da300dc5b6af62a76e1d3ec414baef333722",
-      "size": 14504
+      "sha256": "e8866164c451ad8f9245f23d39df43e2cc19bc6b2110b67e0373c15ee97b6c37",
+      "size": 14518
     },
     {
       "path": "app/tests/test_workspace_review_regressions.py",

@@ -66,7 +66,7 @@ class RefinementUiTests(unittest.TestCase):
 
     def screenshot(self,name):
         output = Path(__file__).resolve().parents[2]/'scratch/workspace-refinement-20260923'
-        output.mkdir(exist_ok=True)
+        output.mkdir(parents=True, exist_ok=True)
         self.widget.grab().save(str(output/(name+'.png')))
 
     def test_history_human_labels_preview_confirm_restore(self):
