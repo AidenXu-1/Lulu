@@ -2,7 +2,7 @@
   "schema": 1,
   "version": "4.2.1",
   "build": "20261015.1",
-  "maintainer_source_revision": "cada47c1730d7ebf6aa05418f726ca74400af0c1",
+  "maintainer_source_revision": "833709422aa7f3921af56bbc780abe6ba5f5d871",
   "files": [
     {
       "path": ".gitignore",
@@ -5026,8 +5026,8 @@
     },
     {
       "path": "app/tests/test_workspace_interaction_latency.py",
-      "sha256": "4fa18e74db34bae532dd2b4a339f2fc64c3196bf90ecc9c45a4b32ebe3e201b0",
-      "size": 7739
+      "sha256": "3e85e908dd4633c67b8db4847b4f0834416dbff3ecc2d2be992d5b860d827d5e",
+      "size": 8111
     },
     {
       "path": "app/tests/test_workspace_package.py",

@@ -1,11 +1,16 @@
 """Real WebEngine interaction with delayed, isolated services; no model/network."""
+import json
 import time
 from tests.test_agent_workspace_ui import AgentWorkspaceUiTests
 
 class WorkspaceInteractionTests(AgentWorkspaceUiTests):
     def open_document(self):
         self.widget.open_entry(self.eid)
-        self.until(lambda:self.js('Boolean(document.querySelector("#prompt"))'))
+        # The previous composer remains in the DOM while a document is loading.
+        # Synthetic key events bypass inert; wait for the actual editable screen.
+        self.until(lambda:self.js('window.lulu.state.doc?.id === '+json.dumps(self.eid)+
+            ' && !window.lulu.state.loading && Boolean(window.lulu.state.chat?.id)'
+            ' && !document.querySelector("#agent").inert && Boolean(document.querySelector("#prompt"))'))
 
     def test_skill_menu_slash_outside_and_pending_close(self):
         self.open_document()
