@@ -1,0 +1,266 @@
+{
+  "description": "Lulu generated previews of Qwen official speakers, natural expression; packaged audio, no inference required.",
+  "samples": {
+    "Vivian": {
+      "file": "Vivian.wav",
+      "sha256": "74de6db746ffd7aad71077a67538e96ce7004e85337252c49a1e19b8ff4f238e",
+      "text": "欢迎来到 Lulu。让每一段文字，都有自然、清楚的表达。",
+      "duration_seconds": 5.84,
+      "model_revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+      "options": {
+        "mode": "official",
+        "language": "Chinese",
+        "speaker": "Vivian",
+        "instruction": "",
+        "x_vector_only_mode": false,
+        "temperature": 0.9,
+        "repetition_penalty": 1.05,
+        "seed": 1234
+      },
+      "output_level": {
+        "method": "lulu_constant_gain_v1",
+        "applied": true,
+        "target_rms_dbfs": -24.0,
+        "peak_ceiling_dbfs": -1.0,
+        "input_rms_dbfs": -19.639283460545304,
+        "input_peak": 0.53125,
+        "gain_db": -4.360716539454695,
+        "peak_limited": false,
+        "output_rms_dbfs": -24.000012192422115,
+        "output_peak": 0.321563720703125
+      }
+    },
+    "Serena": {
+      "file": "Serena.wav",
+      "sha256": "f0d76a60e25e0ed66495512af38d966ad4ea8bdc59a21e0c66db428022daf66b",
+      "text": "欢迎来到 Lulu。让每一段文字，都有自然、清楚的表达。",
+      "duration_seconds": 6.16,
+      "model_revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+      "options": {
+        "mode": "official",
+        "language": "Chinese",
+        "speaker": "Serena",
+        "instruction": "",
+        "x_vector_only_mode": false,
+        "temperature": 0.9,
+        "repetition_penalty": 1.05,
+        "seed": 1234
+      },
+      "output_level": {
+        "method": "lulu_constant_gain_v1",
+        "applied": true,
+        "target_rms_dbfs": -24.0,
+        "peak_ceiling_dbfs": -1.0,
+        "input_rms_dbfs": -27.927284120131848,
+        "input_peak": 0.419921875,
+        "gain_db": 3.9272841201318482,
+        "peak_limited": false,
+        "output_rms_dbfs": -24.000005666736193,
+        "output_peak": 0.65997314453125
+      }
+    },
+    "Uncle_Fu": {
+      "file": "Uncle_Fu.wav",
+      "sha256": "ca63cefe6c556f2cba0d72d7a7b7981dc92602fce5c7637d87624ad6ea0dc367",
+      "text": "欢迎来到 Lulu。让每一段文字，都有自然、清楚的表达。",
+      "duration_seconds": 7.28,
+      "model_revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+      "options": {
+        "mode": "official",
+        "language": "Chinese",
+        "speaker": "Uncle_Fu",
+        "instruction": "",
+        "x_vector_only_mode": false,
+        "temperature": 0.9,
+        "repetition_penalty": 1.05,
+        "seed": 1234
+      },
+      "output_level": {
+        "method": "lulu_constant_gain_v1",
+        "applied": true,
+        "target_rms_dbfs": -24.0,
+        "peak_ceiling_dbfs": -1.0,
+        "input_rms_dbfs": -23.057059651634333,
+        "input_peak": 0.71484375,
+        "gain_db": -0.9429403483656669,
+        "peak_limited": false,
+        "output_rms_dbfs": -24.000005152623313,
+        "output_peak": 0.64129638671875
+      }
+    },
+    "Dylan": {
+      "file": "Dylan.wav",
+      "sha256": "5603b39a7adbcf54580c0c3d5adfd88fb33eccea731463aa105be549e2d14160",
+      "text": "欢迎来到 Lulu。让每一段文字，都有自然、清楚的表达。",
+      "duration_seconds": 6.88,
+      "model_revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+      "options": {
+        "mode": "official",
+        "language": "Chinese",
+        "speaker": "Dylan",
+        "instruction": "",
+        "x_vector_only_mode": false,
+        "temperature": 0.9,
+        "repetition_penalty": 1.05,
+        "seed": 42
+      },
+      "output_level": {
+        "method": "lulu_constant_gain_v1",
+        "applied": true,
+        "target_rms_dbfs": -24.0,
+        "peak_ceiling_dbfs": -1.0,
+        "input_rms_dbfs": -29.355579361146496,
+        "input_peak": 0.34375,
+        "gain_db": 5.355579361146496,
+        "peak_limited": false,
+        "output_rms_dbfs": -23.999993944635442,
+        "output_peak": 0.6368408203125
+      }
+    },
+    "Eric": {
+      "file": "Eric.wav",
+      "sha256": "929655f50beddbbdeceb11c8b20824155b0011597c6f598cf3f025d39a136b9d",
+      "text": "欢迎来到 Lulu。让每一段文字，都有自然、清楚的表达。",
+      "duration_seconds": 5.12,
+      "model_revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+      "options": {
+        "mode": "official",
+        "language": "Chinese",
+        "speaker": "Eric",
+        "instruction": "",
+        "x_vector_only_mode": false,
+        "temperature": 0.9,
+        "repetition_penalty": 1.05,
+        "seed": 1234
+      },
+      "output_level": {
+        "method": "lulu_constant_gain_v1",
+        "applied": true,
+        "target_rms_dbfs": -24.0,
+        "peak_ceiling_dbfs": -1.0,
+        "input_rms_dbfs": -24.618683756979976,
+        "input_peak": 0.625,
+        "gain_db": 0.6186837569799755,
+        "peak_limited": false,
+        "output_rms_dbfs": -23.999997102374966,
+        "output_peak": 0.671142578125
+      }
+    },
+    "Ryan": {
+      "file": "Ryan.wav",
+      "sha256": "c304adff541460f79e805a1f9edeff54a8b87d7158cef3e8f64f69a9344936d2",
+      "text": "Welcome to Lulu. Give every sentence a clear and natural voice.",
+      "duration_seconds": 6.4,
+      "model_revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+      "options": {
+        "mode": "official",
+        "language": "English",
+        "speaker": "Ryan",
+        "instruction": "",
+        "x_vector_only_mode": false,
+        "temperature": 0.9,
+        "repetition_penalty": 1.05,
+        "seed": 1234
+      },
+      "output_level": {
+        "method": "lulu_constant_gain_v1",
+        "applied": true,
+        "target_rms_dbfs": -24.0,
+        "peak_ceiling_dbfs": -1.0,
+        "input_rms_dbfs": -24.186288719946884,
+        "input_peak": 0.5,
+        "gain_db": 0.18628871994688348,
+        "peak_limited": false,
+        "output_rms_dbfs": -24.00000575890668,
+        "output_peak": 0.510833740234375
+      }
+    },
+    "Aiden": {
+      "file": "Aiden.wav",
+      "sha256": "d1b9db135e40bc58fd9cb13951904f87a0b55c973cc4bb20972400572d8b3ea8",
+      "text": "Welcome to Lulu. Give every sentence a clear and natural voice.",
+      "duration_seconds": 5.12,
+      "model_revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+      "options": {
+        "mode": "official",
+        "language": "English",
+        "speaker": "Aiden",
+        "instruction": "",
+        "x_vector_only_mode": false,
+        "temperature": 0.9,
+        "repetition_penalty": 1.05,
+        "seed": 1234
+      },
+      "output_level": {
+        "method": "lulu_constant_gain_v1",
+        "applied": true,
+        "target_rms_dbfs": -24.0,
+        "peak_ceiling_dbfs": -1.0,
+        "input_rms_dbfs": -19.852945142679342,
+        "input_peak": 0.6640625,
+        "gain_db": -4.147054857320659,
+        "peak_limited": false,
+        "output_rms_dbfs": -23.99999629596759,
+        "output_peak": 0.411956787109375
+      }
+    },
+    "Ono_Anna": {
+      "file": "Ono_Anna.wav",
+      "sha256": "f84724982c8667a24d2a88c850ac4c871765a8f42bd51b1371aac07fe84b6257",
+      "text": "こんにちは。今日は、声の小さな違いを一緒に楽しみましょう。",
+      "duration_seconds": 5.36,
+      "model_revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+      "options": {
+        "mode": "official",
+        "language": "Japanese",
+        "speaker": "Ono_Anna",
+        "instruction": "",
+        "x_vector_only_mode": false,
+        "temperature": 0.9,
+        "repetition_penalty": 1.05,
+        "seed": 1234
+      },
+      "output_level": {
+        "method": "lulu_constant_gain_v1",
+        "applied": true,
+        "target_rms_dbfs": -24.0,
+        "peak_ceiling_dbfs": -1.0,
+        "input_rms_dbfs": -27.10676028185402,
+        "input_peak": 0.28515625,
+        "gain_db": 3.1067602818540188,
+        "peak_limited": false,
+        "output_rms_dbfs": -24.000001745227802,
+        "output_peak": 0.40777587890625
+      }
+    },
+    "Sohee": {
+      "file": "Sohee.wav",
+      "sha256": "daf3d1f39712f66c8a2dad9383b2f5e4920b0f09b2f81aa5f9410fa8d651c15b",
+      "text": "안녕하세요. 오늘은 목소리의 작은 차이를 함께 느껴 봅시다.",
+      "duration_seconds": 5.84,
+      "model_revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+      "options": {
+        "mode": "official",
+        "language": "Korean",
+        "speaker": "Sohee",
+        "instruction": "",
+        "x_vector_only_mode": false,
+        "temperature": 0.9,
+        "repetition_penalty": 1.05,
+        "seed": 1234
+      },
+      "output_level": {
+        "method": "lulu_constant_gain_v1",
+        "applied": true,
+        "target_rms_dbfs": -24.0,
+        "peak_ceiling_dbfs": -1.0,
+        "input_rms_dbfs": -20.753774300545786,
+        "input_peak": 0.482421875,
+        "gain_db": -3.2462256994542145,
+        "peak_limited": false,
+        "output_rms_dbfs": -24.000012569986424,
+        "output_peak": 0.33197021484375
+      }
+    }
+  }
+}

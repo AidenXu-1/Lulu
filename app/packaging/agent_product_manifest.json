@@ -1,0 +1,124 @@
+{
+  "schema_id": "lulu.agent-product-manifest/v1",
+  "schema_revision": 1,
+  "product_family": "Lulu",
+  "product_version": "0.3.2",
+  "product_build": "20260823.4",
+  "candidate_identity": {
+    "version": "0.3.2",
+    "build": "20260823.4",
+    "channel": "candidate",
+    "release_state": "non_release",
+    "source_evidence": "source_unverified",
+    "artifact_evidence": "unverified_until_dist_finalize"
+  },
+  "cli_protocol_version": "1.0.0",
+  "installation_identity_scope": "shared_lulu_installation",
+  "supported_profiles": [
+    "external_candidate",
+    "trusted_test"
+  ],
+  "source_identity": {
+    "authority": "sealed_build_profile",
+    "required_fields": [
+      "source_commit",
+      "source_tree",
+      "product_source_sha256"
+    ]
+  },
+  "profile_identities": {
+    "external_candidate": {
+      "app_name": "Lulu",
+      "artifact_prefix": "Lulu",
+      "bundle_id": "com.lulu.transcribe"
+    },
+    "trusted_test": {
+      "app_name": "Lulu Trusted Test",
+      "artifact_prefix": "Lulu-Trusted-Test",
+      "bundle_id": "com.lulu.transcribe.trusted-test"
+    }
+  },
+  "adapters": {
+    "gui": {
+      "executable": "Contents/MacOS/{artifact_prefix}",
+      "mode": "windowed",
+      "stdio": false
+    },
+    "agent_cli": {
+      "executable": "Contents/MacOS/lulu-agent-cli",
+      "mode": "console",
+      "stdio": true
+    }
+  },
+  "shared_runtime": {
+    "analysis": "single",
+    "python": "single",
+    "core": "single",
+    "resources": "single",
+    "storage_layout": "lulu.shared-storage/v1"
+  },
+  "shared_assets": [
+    "Core",
+    "Python runtime",
+    "resources",
+    "models",
+    "authorization identity and cache",
+    "transcripts and library",
+    "voice assets",
+    "configuration",
+    "jobs",
+    "user data"
+  ],
+  "forbidden_duplicates": [
+    "second Core",
+    "second Python or venv",
+    "duplicate model store",
+    "Agent-only authorization",
+    "Agent-only user-data copy"
+  ],
+  "installation_identity": {
+    "scope": "shared_lulu_installation",
+    "status": "unverified_until_real_install",
+    "agent_specific_copy": "forbidden"
+  },
+  "skill_compatibility": {
+    "skill_version": "1.0.0",
+    "accepted_cli_protocol": ">=1.0.0,<2.0.0",
+    "catalog_version": "1.0.0",
+    "schema_id": "lulu.agent/v1",
+    "schema_revision": 1,
+    "installation": "not_performed_by_phase8_source"
+  },
+  "bundled_skill_source": {
+    "relative_path": "skills/lulu-agent",
+    "manifest_schema_id": "lulu.agent-skill-manifest/v1",
+    "skill_version": "1.0.0",
+    "automatic_installation": false
+  },
+  "size_baselines": {
+    "evidence_status": "planning_only",
+    "values": {
+      "base_product_package": "approximately 1.1 GB",
+      "base_plus_local_transcription": "approximately 3.5 GB total",
+      "skill_payload": "less than 1 MB",
+      "optional_local_voice_models": "approximately +12 GB"
+    }
+  },
+  "trust_evidence": {
+    "bundle_signature": "unverified",
+    "designated_requirement": "unverified",
+    "team_id": "unverified",
+    "acl": "unverified",
+    "stdio": "source_contract_only",
+    "package_size": "planning_only",
+    "real_install": "unverified"
+  },
+  "capability_projection": {
+    "unavailable": 135,
+    "gui_only": 8,
+    "available": 0,
+    "degraded": 0,
+    "protected_state": "unavailable",
+    "reason_code": "PACKAGE_TRUST_EVIDENCE_UNAVAILABLE"
+  }
+}

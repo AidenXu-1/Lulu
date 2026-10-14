@@ -1,0 +1,4 @@
+# Anonymous downloader release unit. Upgrade and verify these together.
+yt-dlp==2026.8.19
+yt-dlp-ejs==0.8.0
+deno==2.9.5

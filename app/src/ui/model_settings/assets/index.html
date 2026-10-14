@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self' qrc:; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Lulu · AI 大模型</title>
+<link rel="stylesheet" href="settings.css">
+</head>
+<body>
+<main aria-label="AI 大模型配置">
+  <div id="purpose-tabs" class="tabs" role="tablist" aria-label="模型用途">
+    <button id="tab-extract" data-purpose="extract" role="tab" aria-controls="purpose-content" aria-selected="true">文案提取</button>
+    <button id="tab-voice" data-purpose="voice" role="tab" aria-controls="purpose-content" aria-selected="false" tabindex="-1">文案配音</button>
+    <button id="tab-assistant" data-purpose="assistant" role="tab" aria-controls="purpose-content" aria-selected="false" tabindex="-1">文稿助手</button>
+  </div>
+  <div id="purpose-content" role="tabpanel" aria-labelledby="tab-extract"><p class="loading-state" role="status">正在读取模型…</p></div>
+</main>
+<div id="menu" class="menu" hidden></div>
+<dialog id="modal" aria-labelledby="modal-title"><header><h2 id="modal-title"></h2><button id="modal-close" class="icon-button" aria-label="关闭"></button></header><div id="modal-body"></div></dialog>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<script src="settings.js"></script>
+</body>
+</html>

@@ -1,0 +1,480 @@
+{
+  "providers": [
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "mark": "D",
+      "logo": "deepseek.svg",
+      "modes": [
+        {
+          "id": "api",
+          "label": "按量计费 API",
+          "keys": "https://platform.deepseek.com/api_keys",
+          "base": "https://api.deepseek.com/v1",
+          "catalog": "deepseek"
+        }
+      ]
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi",
+      "mark": "K",
+      "logo": "kimi.png",
+      "regions": [
+        "中国大陆",
+        "国际"
+      ],
+      "modes": [
+        {
+          "id": "api",
+          "label": "按量计费 API",
+          "keys": [
+            "https://platform.kimi.com/console/api-keys",
+            "https://platform.kimi.ai/console/api-keys"
+          ],
+          "base": [
+            "https://api.moonshot.cn/v1",
+            "https://api.moonshot.ai/v1"
+          ],
+          "catalog": "kimi"
+        },
+        {
+          "id": "coding",
+          "label": "Coding Plan API",
+          "detail": "Kimi Code",
+          "keys": [
+            "https://www.kimi.com/code/console",
+            "https://www.kimi.ai/code/console"
+          ],
+          "base": [
+            "https://api.kimi.com/coding/v1",
+            "https://api.kimi.ai/coding/v1"
+          ],
+          "catalog": "kimi:coding",
+          "review": "正式接入前需核对 Kimi Code 对文稿用途的支持。"
+        }
+      ]
+    },
+    {
+      "id": "glm",
+      "name": "智谱 GLM",
+      "mark": "G",
+      "logo": "glm.png",
+      "regions": [
+        "中国大陆",
+        "国际"
+      ],
+      "modes": [
+        {
+          "id": "api",
+          "label": "按量计费 API",
+          "keys": [
+            "https://bigmodel.cn/usercenter/proj-mgmt/apikeys",
+            "https://z.ai/manage-apikey/apikey-list"
+          ],
+          "base": [
+            "https://open.bigmodel.cn/api/paas/v4",
+            "https://api.z.ai/api/paas/v4"
+          ],
+          "catalog": "glm"
+        },
+        {
+          "id": "coding",
+          "label": "Coding Plan API",
+          "keys": [
+            "https://bigmodel.cn/usercenter/proj-mgmt/apikeys",
+            "https://z.ai/manage-apikey/apikey-list"
+          ],
+          "base": [
+            "https://open.bigmodel.cn/api/coding/paas/v4",
+            "https://api.z.ai/api/coding/paas/v4"
+          ],
+          "catalog": "glm",
+          "review": "套餐账号可用型号以测试结果为准。"
+        }
+      ]
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax",
+      "mark": "M",
+      "logo": "minimax.png",
+      "regions": [
+        "中国大陆",
+        "国际"
+      ],
+      "modes": [
+        {
+          "id": "api",
+          "label": "按量计费 API",
+          "keys": [
+            "https://platform.minimax.cn/console/access",
+            "https://platform.minimax.io/console/access"
+          ],
+          "base": [
+            "https://api.minimax.cn/anthropic",
+            "https://api.minimax.io/anthropic"
+          ],
+          "catalog": "minimax"
+        },
+        {
+          "id": "token",
+          "label": "Token Plan API",
+          "detail": "原 Coding Plan",
+          "keys": [
+            "https://platform.minimax.cn/console/plan",
+            "https://platform.minimax.io/console/plan"
+          ],
+          "base": [
+            "https://api.minimax.cn/anthropic",
+            "https://api.minimax.io/anthropic"
+          ],
+          "catalog": "minimax"
+        }
+      ]
+    },
+    {
+      "id": "mimo",
+      "name": "小米 MiMo",
+      "mark": "Mi",
+      "logo": "mimo.png",
+      "modes": [
+        {
+          "id": "api",
+          "label": "按量计费 API",
+          "keys": "https://platform.xiaomimimo.com/#/console/api-keys",
+          "base": "https://api.xiaomimimo.com/v1",
+          "catalog": "mimo"
+        },
+        {
+          "id": "token",
+          "label": "Token Plan API",
+          "keys": "https://platform.xiaomimimo.com/#/console/plan-manage",
+          "base": "https://token-plan-cn.xiaomimimo.com/v1",
+          "catalog": "mimo"
+        }
+      ]
+    },
+    {
+      "id": "qwen",
+      "name": "阿里云百炼",
+      "mark": "Q",
+      "logo": "bailian.png",
+      "modes": [
+        {
+          "id": "api",
+          "label": "按量计费 API",
+          "keys": "https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key",
+          "base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          "catalog": "qwen"
+        },
+        {
+          "id": "token-personal",
+          "label": "Token Plan API",
+          "detail": "个人版",
+          "keys": "https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan/personal",
+          "catalog": "qwen:token-personal",
+          "review": "个人与团队套餐分别连接，不共用密钥。"
+        },
+        {
+          "id": "token-team",
+          "label": "Token Plan API",
+          "detail": "团队版",
+          "keys": "https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan",
+          "catalog": "qwen:token-team"
+        }
+      ]
+    },
+    {
+      "id": "doubao",
+      "name": "火山引擎",
+      "mark": "火",
+      "logo": "volcengine.png",
+      "modes": [
+        {
+          "id": "api",
+          "label": "按量计费 API",
+          "keys": "https://ark.volcengine.com/region:cn-beijing/apikey",
+          "base": "https://ark.cn-beijing.volces.com/api/v3",
+          "catalog": "doubao"
+        },
+        {
+          "id": "coding",
+          "label": "Coding Plan API",
+          "keys": "https://ark.volcengine.com/region:cn-beijing/apikey",
+          "base": "https://ark.cn-beijing.volces.com/api/coding/v3",
+          "catalog": "doubao:coding"
+        }
+      ]
+    },
+    {
+      "id": "openrouter",
+      "name": "Open Router",
+      "mark": "O",
+      "logo": "openrouter.png",
+      "modes": [
+        {
+          "id": "api",
+          "label": "按量计费 API",
+          "keys": "https://openrouter.ai/settings/keys",
+          "base": "https://openrouter.ai/api/v1",
+          "catalog": "openrouter"
+        }
+      ]
+    },
+    {
+      "id": "agnes",
+      "name": "Agnes",
+      "mark": "A",
+      "logo": "agnes.png",
+      "modes": [
+        {
+          "id": "api",
+          "label": "普通 API",
+          "keys": "https://platform.agnes-ai.com/settings/apiKeys",
+          "base": "https://apihub.agnes-ai.com/v1",
+          "catalog": "agnes"
+        },
+        {
+          "id": "token",
+          "label": "Token Plan API",
+          "keys": "https://platform.agnes-ai.com/settings/apiKeys",
+          "base": "https://apihub.agnes-ai.com/v1",
+          "catalog": "agnes"
+        }
+      ]
+    },
+    {
+      "id": "custom",
+      "name": "自定义服务",
+      "mark": "+",
+      "modes": [
+        {
+          "id": "custom",
+          "label": "自定义 API",
+          "keys": "",
+          "catalog": "custom"
+        }
+      ]
+    }
+  ],
+  "asrProviders": [
+    {
+      "id": "dashscope",
+      "name": "阿里云百炼",
+      "mark": "Q",
+      "logo": "bailian.png",
+      "modelLogo": "bailian.png",
+      "model": "Paraformer Realtime V2",
+      "modelId": "paraformer-realtime-v2",
+      "keys": "https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key",
+      "description": "中文语音识别",
+      "base": "由百炼转录接口自动匹配"
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "mark": "O",
+      "logo": "openai.png",
+      "modelLogo": "openai.png",
+      "model": "GPT-4o Transcribe",
+      "modelId": "gpt-4o-transcribe",
+      "keys": "https://platform.openai.com/api-keys",
+      "description": "多语言语音识别",
+      "base": "https://api.openai.com/v1"
+    },
+    {
+      "id": "siliconflow",
+      "name": "硅基流动",
+      "mark": "S",
+      "logo": "siliconflow.png",
+      "modelLogo": "qwenaudio.png",
+      "model": "SenseVoice Small",
+      "modelId": "FunAudioLLM/SenseVoiceSmall",
+      "keys": "https://cloud.siliconflow.cn/account/ak",
+      "description": "中文与多语言语音识别",
+      "base": "https://api.siliconflow.cn/v1"
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "mark": "G",
+      "logo": "groq.svg",
+      "modelLogo": "openai.png",
+      "model": "Whisper Large V3 Turbo",
+      "modelId": "whisper-large-v3-turbo",
+      "keys": "https://console.groq.com/keys",
+      "description": "多语言语音识别",
+      "base": "https://api.groq.com/openai/v1"
+    },
+    {
+      "id": "custom_asr",
+      "name": "自定义服务",
+      "mark": "+",
+      "model": "",
+      "modelId": "",
+      "keys": "",
+      "base": ""
+    }
+  ],
+  "localModels": {
+    "extract": [
+      {
+        "id": "whisper",
+        "name": "Whisper",
+        "version": "large-v3-turbo",
+        "mark": "W",
+        "logo": "openai.png",
+        "subtitle": "多语言 · 带时间戳",
+        "description": "适合外语音视频转写和字幕制作，需使用苹果芯 Mac。",
+        "languages": "多语言",
+        "runtime": "本机 · MLX",
+        "size": "约 1.6 GB",
+        "features": [
+          "自动识别音频中的语言",
+          "转写时保留每句话的时间点",
+          "可导出 SRT 字幕，方便剪辑"
+        ],
+        "source": "OpenAI Whisper · MLX 社区版本"
+      },
+      {
+        "id": "sensevoice",
+        "name": "SenseVoice",
+        "version": "Small",
+        "mark": "S",
+        "logo": "qwenaudio.png",
+        "subtitle": "日常转录 · 中文与粤语",
+        "description": "中文、粤语录音可选；只提取文字，不提供字幕时间点。",
+        "languages": "中 / 英 / 粤 / 日 / 韩",
+        "runtime": "本机 · FunASR",
+        "size": "约 950 MB",
+        "features": [
+          "擅长中文、粤语转写",
+          "可识别说话情绪",
+          "可标出笑声、掌声等声音"
+        ],
+        "source": "阿里 · SenseVoice Small"
+      },
+      {
+        "id": "qwen_asr",
+        "name": "Qwen3-ASR",
+        "version": "0.6B",
+        "mark": "Q",
+        "logo": "qwen.png",
+        "subtitle": "多语言与方言 · 带时间戳",
+        "description": "适合方言录音，也支持多国语言转写。",
+        "languages": "30 种语言 / 22 种中文方言",
+        "runtime": "本机 · Transformers",
+        "size": "约 3 GB",
+        "features": [
+          "支持四川话、闽南语等方言",
+          "自动判断录音里说的语言",
+          "中英等 11 种语言支持字幕时间点"
+        ],
+        "source": "阿里 · Qwen3-ASR"
+      }
+    ],
+    "voice": [
+      {
+        "id": "indextts2",
+        "name": "IndexTTS",
+        "version": "2",
+        "mark": "I",
+        "logo": "bilibili.ico",
+        "subtitle": "中英配音 · 旧版模型",
+        "description": "保留旧版模型管理，方便已有项目继续使用原来的声音方案。",
+        "languages": "中文 / 英文",
+        "runtime": "本机 · Apple Silicon",
+        "size": "约 8.7 GB",
+        "features": [
+          "声音克隆",
+          "情绪控制",
+          "选段试听",
+          "离线使用"
+        ],
+        "source": "IndexTeam · IndexTTS 2",
+        "importOnly": true
+      },
+      {
+        "id": "indextts25",
+        "name": "IndexTTS",
+        "version": "2.5",
+        "mark": "I",
+        "logo": "bilibili.ico",
+        "subtitle": "声音克隆 · 情绪与读音",
+        "description": "适合中、英、日、西、阿五语配音，支持声音克隆、读音标注和情绪控制。",
+        "languages": "中 / 英 / 日 / 西 / 阿",
+        "runtime": "本机 · Apple Silicon",
+        "size": "约 11 GB",
+        "features": [
+          "声音克隆",
+          "情绪控制",
+          "读音标注",
+          "相对语速"
+        ],
+        "source": "IndexTeam · IndexTTS 2.5"
+      },
+      {
+        "id": "voxcpm2",
+        "name": "VoxCPM2",
+        "version": "",
+        "mark": "V",
+        "logo": "openbmb.png",
+        "subtitle": "声音克隆 · 48 kHz",
+        "description": "使用参考音频克隆音色，支持 48 kHz 输出。首次加载与生成需要一些时间。",
+        "languages": "以模型支持为准",
+        "runtime": "本机 · Apple Silicon",
+        "size": "约 5.7 GB",
+        "features": [
+          "声音克隆",
+          "48 kHz 输出",
+          "选段试听",
+          "离线使用"
+        ],
+        "source": "OpenBMB · VoxCPM2",
+        "importOnly": true
+      },
+      {
+        "id": "qwen_tts",
+        "name": "Qwen3-TTS",
+        "version": "1.7B",
+        "mark": "Q",
+        "logo": "qwen.png",
+        "subtitle": "克隆 · 官方音色 · 声音设计",
+        "description": "从熟悉的音色开始，也可以用一句描述设计新声音。三项功能按需安装。",
+        "languages": "多语言",
+        "runtime": "本机 · Apple Silicon",
+        "size": "按功能安装",
+        "features": [
+          "声音克隆",
+          "官方音色",
+          "声音设计"
+        ],
+        "source": "阿里 · Qwen3-TTS"
+      }
+    ]
+  },
+  "voiceFeatures": [
+    {
+      "id": "clone",
+      "name": "声音克隆",
+      "description": "用参考音频复现音色",
+      "size": "3.86 GB",
+      "icon": "mic"
+    },
+    {
+      "id": "preset",
+      "name": "官方音色",
+      "description": "从 9 种官方音色开始配音",
+      "size": "3.83 GB",
+      "icon": "wave"
+    },
+    {
+      "id": "design",
+      "name": "声音设计",
+      "description": "用文字描述创建新音色",
+      "size": "3.83 GB",
+      "icon": "spark"
+    }
+  ]
+}

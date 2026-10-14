@@ -1,0 +1,75 @@
+# 草稿/实验区:整体忽略,仅保留说明文件(任意层级的 scratch/ 都忽略)
+# 当前口径:新实验放本开发仓库 scratch/；正式测试放 app/tests/。
+# Git 忽略不代表可以删除已有证据、备份或用户提供样例。
+**/scratch/
+!/scratch/
+/scratch/*
+!/scratch/README.md
+
+# 历史仅按需追溯，不提交、打包或默认搜索。
+/开发历史/
+/.agent-team
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 编辑器/IDE
+.vscode/
+.idea/
+*.swp
+
+# 环境与密钥
+.env
+.env.local
+*.local
+
+# 本机 production 授权明文台账:只留在项目根私有目录,绝不入库
+/授权管理/授权码台账/
+
+# 媒体大文件(音频/视频/模型权重)默认不入库,避免仓库膨胀
+# 如确需版本化某些样例,再在此处用 ! 例外放行
+*.mp3
+*.wav
+# Product speaker previews are runtime assets, not generated user output.
+!app/src/ui/assets/qwen3_samples/*.wav
+*.m4a
+*.mp4
+*.mov
+*.gguf
+*.bin
+*.pt
+*.onnx
+
+# 日志与临时产物
+*.log
+tmp/
+.tmp/
+
+# PyInstaller 打包产物(体积大,不入库;用 packaging/build_app.sh 现生成)
+app/build/
+app/dist/
+app/release/
+# 仅限本机阶段内 E2E 的内部测试 App，禁止入库或外发
+app/internal-test-builds/
+app/packaging/*.iconset/
+app/packaging/icon_1024.png
+# AppIcon.icns 由 make_icon.py 从品牌 logo 现生成,不入库(git 不支持行内注释,故注释独占一行)
+app/packaging/AppIcon.icns
+
+# ——— 语言/框架相关 ———
+# Python(已选型:见 ADR-0002)
+__pycache__/
+*.pyc
+.venv/
+app/.venv/
+.pytest_cache/
+# 模型权重缓存(FunASR/ModelScope 下载到此,绝不入库)
+.cache/
+~/.cache/modelscope/
+
+# Local Markdown editor build dependencies (runtime assets are committed).
+node_modules/
+# dist/
+# Rust / Tauri(暂未使用)
+# target/

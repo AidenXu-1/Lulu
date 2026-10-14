@@ -1,0 +1,74 @@
+[
+  {
+    "name": "lulu-proofread",
+    "title": "错别字校正",
+    "description": "修正错字、漏字和明显标点错误。仅当用户要求校对纠错时使用，保留原意。",
+    "origin": "system",
+    "author": "Lulu",
+    "version": "1.0.0",
+    "source": "Lulu 随包技能",
+    "compatibility": "支持 Lulu 文稿与引用范围。",
+    "summary": "校对错字和标点，保留原意",
+    "digest": "786d42543daff70842aaf492f208546c5a309c34b030e3455865528c0ecf5bdb"
+  },
+  {
+    "name": "lulu-polish",
+    "title": "口语化润色",
+    "description": "用户要求口语化、顺口或精简表达时使用。保留个人表达，不用于纯校对。",
+    "origin": "system",
+    "author": "Lulu",
+    "version": "1.0.0",
+    "source": "Lulu 随包技能",
+    "compatibility": "支持 Lulu 文稿与引用范围。",
+    "summary": "口语化润色、精简绕口长句",
+    "digest": "8e96c1bf35a1a4d510983ce09c31220c236195f420433f6550627ed030f820f8"
+  },
+  {
+    "name": "lulu-voice",
+    "title": "生成配音",
+    "description": "用户要朗读文稿或生成配音时使用，沿用配音页选择的模型和音色。",
+    "origin": "system",
+    "author": "Lulu",
+    "version": "1.0.0",
+    "source": "Lulu 随包技能",
+    "compatibility": "配音需要在配音页完成配置并启动生成。",
+    "summary": "按用户要求准备文稿配音",
+    "digest": "b41ae3f81771edb656c13e241c9b9d6188a3ba66acbe38ee581054f4b8607c71"
+  },
+  {
+    "name": "lulu-translate",
+    "title": "文案翻译",
+    "description": "用户要翻译当前内容时使用。目标语言以用户要求为先，其次技能配置，默认英语。",
+    "origin": "system",
+    "author": "Lulu",
+    "version": "1.0.0",
+    "source": "Lulu 随包技能",
+    "compatibility": "支持 Lulu 文稿与引用范围。",
+    "summary": "按指定语言翻译文稿",
+    "digest": "fce307890c54110185d70ae385eb88b8edcadcb74ff3eb6ade0b62b9f600d42a"
+  },
+  {
+    "name": "lulu-summary",
+    "title": "智能摘要",
+    "description": "用户要概括、提炼要点或总结内容时使用。",
+    "origin": "system",
+    "author": "Lulu",
+    "version": "1.0.0",
+    "source": "Lulu 随包技能",
+    "compatibility": "支持 Lulu 文稿与引用范围。",
+    "summary": "概括材料主旨与要点",
+    "digest": "9882f02bb656f598e76f09cf1a1dfcec9473bd3e3cfff32dd3db3bc0e344c431"
+  },
+  {
+    "name": "lulu-analysis",
+    "title": "文案拆解",
+    "description": "用户要分析文案结构、表达方法和可复用写法时使用。",
+    "origin": "system",
+    "author": "Lulu",
+    "version": "1.0.0",
+    "source": "Lulu 随包技能",
+    "compatibility": "支持 Lulu 文稿与引用范围。",
+    "summary": "拆解文案结构和表达方法",
+    "digest": "636299be52f01ad3001c06555b4cf7d3d4b30b9be023e3a9822177eb5c8a579b"
+  }
+]

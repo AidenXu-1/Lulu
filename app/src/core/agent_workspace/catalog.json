@@ -1,0 +1,561 @@
+{
+  "date": "2026-09-22",
+  "models": {
+    "deepseek": [
+      {
+        "id": "deepseek-flash",
+        "label": "DeepSeek V4.1 Flash",
+        "window": 1048576,
+        "source": "https://api-docs.deepseek.com/quick_start/agent_integrations/codex/",
+        "note": "",
+        "capacityLabel": "",
+        "max_output": 393216
+      },
+      {
+        "id": "deepseek-v4-pro",
+        "label": "DeepSeek V4 Pro",
+        "window": 1048576,
+        "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+        "note": "",
+        "capacityLabel": "",
+        "max_output": 393216
+      }
+    ],
+    "kimi": [
+      {
+        "id": "kimi-k3",
+        "label": "Kimi K3",
+        "window": 1000000,
+        "source": "https://platform.kimi.com/docs/models",
+        "note": "官方标称 1M；预设按 1,000,000 保守计算，连接后优先使用接口返回的容量。",
+        "capacityLabel": "1M"
+      },
+      {
+        "id": "kimi-k2.6",
+        "label": "Kimi K2.6",
+        "window": 256000,
+        "source": "https://platform.kimi.com/docs/models",
+        "note": "官方标称 256K；预设按 256,000 保守计算。",
+        "capacityLabel": "256K"
+      },
+      {
+        "id": "kimi-k2.7-code",
+        "label": "Kimi K2.7 Code",
+        "window": 256000,
+        "source": "https://platform.kimi.com/docs/models",
+        "note": "官方标称 256K；预设按 256,000 保守计算。",
+        "capacityLabel": "256K"
+      }
+    ],
+    "kimi:coding": [
+      {
+        "id": "k3-256k",
+        "label": "Kimi K3 · 固定 256K",
+        "window": 262144,
+        "source": "https://www.kimi.com/code/docs/en/kimi-code/models.html",
+        "note": "Plus 及以上套餐；使用固定容量型号，避免误把所有套餐都当成 1M。",
+        "capacityLabel": ""
+      },
+      {
+        "id": "k3",
+        "label": "Kimi K3 · 随套餐",
+        "window": 262144,
+        "source": "https://www.kimi.com/code/docs/en/kimi-code/models.html",
+        "note": "Plus / Moderato 为 256K，Pro / Allegretto 及以上为 1M；未识别套餐前按 256K 使用。",
+        "capacityLabel": "256K 起"
+      },
+      {
+        "id": "kimi-for-coding",
+        "label": "Kimi K2.8 Preview",
+        "window": 1048576,
+        "source": "https://www.kimi.com/code/docs/en/kimi-code/models.html",
+        "note": "需匹配账号套餐权限。",
+        "capacityLabel": ""
+      }
+    ],
+    "glm": [
+      {
+        "id": "glm-5.3",
+        "label": "GLM 5.3",
+        "window": 1000000,
+        "source": "https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3",
+        "note": "始终开启思考；正式接入需保留思考参数。",
+        "capacityLabel": ""
+      },
+      {
+        "id": "glm-5.3-flash",
+        "label": "GLM 5.3 Flash",
+        "window": 1000000,
+        "source": "https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash",
+        "note": "",
+        "capacityLabel": ""
+      }
+    ],
+    "minimax": [
+      {
+        "id": "MiniMax-M3",
+        "label": "MiniMax M3",
+        "window": 1000000,
+        "source": "https://platform.minimax.io/docs/guides/text-generation",
+        "note": "",
+        "capacityLabel": ""
+      },
+      {
+        "id": "MiniMax-M2.7",
+        "label": "MiniMax M2.7",
+        "window": 204800,
+        "source": "https://platform.minimax.io/docs/guides/text-generation",
+        "note": "",
+        "capacityLabel": ""
+      },
+      {
+        "id": "MiniMax-M2.7-highspeed",
+        "label": "MiniMax M2.7 Highspeed",
+        "window": 204800,
+        "source": "https://platform.minimax.io/docs/guides/text-generation",
+        "note": "",
+        "capacityLabel": ""
+      }
+    ],
+    "qwen": [
+      {
+        "id": "qwen3.8-flash",
+        "label": "Qwen3.8 Flash",
+        "window": 1000000,
+        "source": "https://help.aliyun.com/zh/model-studio/qwen3-8-flash",
+        "note": "",
+        "capacityLabel": "",
+        "max_input": 983616,
+        "max_output": 131072
+      },
+      {
+        "id": "qwen3.8-max",
+        "label": "Qwen3.8 Max",
+        "window": 1000000,
+        "source": "https://help.aliyun.com/zh/model-studio/qwen3-8-max",
+        "note": "",
+        "capacityLabel": "",
+        "max_input": 983616,
+        "max_output": 131072
+      }
+    ],
+    "qwen:coding": [
+      {
+        "id": "qwen3.7-plus",
+        "label": "Qwen3.7 Plus",
+        "window": 1000000,
+        "source": "https://help.aliyun.com/zh/model-studio/coding-plan",
+        "note": "套餐只支持自己的精确版本列表；不要复用普通 API 的 Qwen3.8 目录。",
+        "capacityLabel": ""
+      }
+    ],
+    "doubao": [
+      {
+        "id": "doubao-seed-2-1-pro-260915",
+        "label": "Doubao Seed 2.1 Pro · 0915",
+        "window": 1000000,
+        "source": "https://docs.volcengine.com/docs/ark/model-release-announcement?lang=zh",
+        "note": "官方发布公告标称 1M，按 1,000,000 保守预设；实际可用性需核对账号与接入点。",
+        "capacityLabel": "1M"
+      }
+    ],
+    "doubao:coding": [],
+    "agnes": [
+      {
+        "id": "agnes-3.0-flash",
+        "label": "Agnes 3.0 Flash",
+        "window": 512000,
+        "source": "https://wiki.agnes-ai.com/en/docs/agnes-30-flash",
+        "note": "官方标称 512K；未公布精确整数，先按 512,000 保守计算。",
+        "capacityLabel": "512K",
+        "max_output": 65536
+      },
+      {
+        "id": "agnes-2.5-flash",
+        "label": "Agnes 2.5 Flash",
+        "window": 512000,
+        "source": "https://wiki.agnes-ai.com/en/docs/agnes-25-flash",
+        "note": "官方标称 512K，预设按 512,000 保守计算。",
+        "capacityLabel": "512K",
+        "max_output": 65536
+      }
+    ],
+    "mimo": [
+      {
+        "id": "mimo-v2.5-pro",
+        "label": "MiMo V2.5 Pro",
+        "window": 1000000,
+        "source": "https://mimo.mi.com/models/en-US/mimo-v2.5-pro",
+        "note": "官方标称 1M，预设按 1,000,000 保守计算。",
+        "capacityLabel": "1M",
+        "max_output": 128000
+      },
+      {
+        "id": "mimo-v2.5",
+        "label": "MiMo V2.5",
+        "window": 1000000,
+        "source": "https://mimo.mi.com/models/en-US/mimo-v2.5",
+        "note": "官方标称 1M，预设按 1,000,000 保守计算。",
+        "capacityLabel": "1M",
+        "max_output": 128000
+      }
+    ],
+    "openrouter": [
+      {
+        "id": "deepseek/deepseek-v4.1-flash",
+        "label": "DeepSeek V4.1 Flash",
+        "window": 1048576,
+        "source": "https://openrouter.ai/api/v1/models",
+        "note": "来自公开目录的 context_length；正式调用还需匹配路由端点限制。",
+        "capacityLabel": ""
+      },
+      {
+        "id": "moonshotai/kimi-k3",
+        "label": "Kimi K3",
+        "window": 1048576,
+        "source": "https://openrouter.ai/api/v1/models",
+        "note": "",
+        "capacityLabel": ""
+      },
+      {
+        "id": "xiaomi/mimo-v2.5",
+        "label": "MiMo V2.5",
+        "window": 1050000,
+        "source": "https://openrouter.ai/api/v1/models",
+        "note": "此处使用 OpenRouter 自己返回的容量，不套用小米直连的预算。",
+        "capacityLabel": ""
+      }
+    ],
+    "custom": [],
+    "qwen:token-personal": [
+      {
+        "id": "qwen3.8-flash",
+        "label": "Qwen3.8 Flash",
+        "window": 1000000,
+        "source": "https://help.aliyun.com/zh/model-studio/qwen3-8-flash",
+        "note": "",
+        "capacityLabel": "",
+        "max_input": 983616,
+        "max_output": 131072
+      },
+      {
+        "id": "qwen3.8-max",
+        "label": "Qwen3.8 Max",
+        "window": 1000000,
+        "source": "https://help.aliyun.com/zh/model-studio/qwen3-8-max",
+        "note": "",
+        "capacityLabel": "",
+        "max_input": 983616,
+        "max_output": 131072
+      }
+    ],
+    "qwen:token-team": [
+      {
+        "id": "qwen3.8-flash",
+        "label": "Qwen3.8 Flash",
+        "window": 1000000,
+        "source": "https://help.aliyun.com/zh/model-studio/qwen3-8-flash",
+        "note": "",
+        "capacityLabel": "",
+        "max_input": 983616,
+        "max_output": 131072
+      },
+      {
+        "id": "qwen3.8-max",
+        "label": "Qwen3.8 Max",
+        "window": 1000000,
+        "source": "https://help.aliyun.com/zh/model-studio/qwen3-8-max",
+        "note": "",
+        "capacityLabel": "",
+        "max_input": 983616,
+        "max_output": 131072
+      }
+    ]
+  },
+  "providers": [
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "mark": "D",
+      "color": "#536bba",
+      "base": "https://api.deepseek.com",
+      "protocol": "openai",
+      "model": "deepseek-flash",
+      "docs": "https://api-docs.deepseek.com/",
+      "plans": [],
+      "key_docs": "https://api-docs.deepseek.com/zh-cn/",
+      "setup_hint": "使用 DeepSeek 开放平台的 API 密钥。网页会员与 API 余额分开。"
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi",
+      "mark": "K",
+      "color": "#516b81",
+      "base": "https://api.moonshot.cn/v1",
+      "protocol": "openai",
+      "model": "填写已开通的 Kimi 模型 ID",
+      "docs": "https://platform.kimi.com/docs/models",
+      "plans": [
+        {
+          "id": "coding",
+          "name": "Kimi Code",
+          "base": "https://api.kimi.com/coding/",
+          "protocol": "anthropic",
+          "note": "会员接入地址与开放平台不同；使用对应会员密钥。Lulu 适用范围待核实。",
+          "available": false,
+          "unavailable_reason": "Lulu 暂未确认此套餐可用于文稿助手，暂不开放接入。可以使用普通 API。"
+        }
+      ],
+      "regions": [
+        {
+          "name": "国内",
+          "base": "https://api.moonshot.cn/v1"
+        },
+        {
+          "name": "国际",
+          "base": "https://api.moonshot.ai/v1"
+        }
+      ],
+      "key_docs": "https://platform.kimi.com/docs/api/list-models",
+      "setup_hint": "密钥须与所选地区一致；Kimi 网页会员与开放平台 API 分开。"
+    },
+    {
+      "id": "glm",
+      "name": "GLM · 智谱",
+      "mark": "G",
+      "color": "#5f6c9f",
+      "base": "https://open.bigmodel.cn/api/paas/v4",
+      "protocol": "openai",
+      "model": "填写已开通的 GLM 模型 ID",
+      "docs": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+      "plans": [
+        {
+          "id": "coding",
+          "name": "GLM Coding Plan",
+          "base": "https://open.bigmodel.cn/api/coding/paas/v4",
+          "protocol": "openai",
+          "note": "使用套餐专属接入。官方限制指定工具环境，Lulu 适用性待核实。",
+          "available": false,
+          "unavailable_reason": "Lulu 暂未确认此套餐可用于文稿助手，暂不开放接入。可以使用普通 API。"
+        }
+      ],
+      "key_docs": "https://docs.bigmodel.cn/cn/guide/start/quick-start",
+      "setup_hint": "使用智谱开放平台的 API 密钥，模型以账号已开通权限为准。"
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax",
+      "mark": "M",
+      "color": "#ba775d",
+      "base": "https://api.minimax.cn/anthropic",
+      "protocol": "anthropic",
+      "model": "填写已开通的 MiniMax 模型 ID",
+      "docs": "https://platform.minimax.cn/docs/api-reference/text-anthropic-api",
+      "plans": [
+        {
+          "id": "token",
+          "name": "Token Plan",
+          "base": "https://api.minimax.cn/anthropic",
+          "protocol": "anthropic",
+          "note": "使用所选地区的 Subscription Key，与按量 API 密钥分开。额度及 Credits 扣费以 MiniMax 账号设置为准。",
+          "available": true,
+          "regions": [
+            {
+              "name": "国内",
+              "base": "https://api.minimax.cn/anthropic"
+            },
+            {
+              "name": "国际",
+              "base": "https://api.minimax.io/anthropic"
+            }
+          ],
+          "key_docs": "https://platform.minimax.io/docs/token-plan/intro"
+        }
+      ],
+      "regions": [
+        {
+          "name": "国内",
+          "base": "https://api.minimax.cn/anthropic"
+        },
+        {
+          "name": "国际",
+          "base": "https://api.minimax.io/anthropic"
+        }
+      ],
+      "key_docs": "https://platform.minimax.cn/docs/guides/quickstart-preparation",
+      "setup_hint": "使用所选地区的按量 API 密钥。Token Plan 请切换服务类型。"
+    },
+    {
+      "id": "qwen",
+      "name": "阿里云百炼 · Qwen",
+      "mark": "Q",
+      "color": "#8b72b1",
+      "base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "protocol": "openai",
+      "model": "填写百炼模型 ID",
+      "docs": "https://help.aliyun.com/zh/model-studio/coding-plan",
+      "plans": [
+        {
+          "id": "token-team",
+          "name": "Token Plan · 团队版",
+          "base": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+          "protocol": "openai",
+          "available": true,
+          "docs": "https://help.aliyun.com/zh/model-studio/cherry-studio",
+          "key_docs": "https://help.aliyun.com/zh/model-studio/cherry-studio",
+          "note": "使用北京地域的Token Plan · 团队版专属密钥。用于本人在文稿助手内交互式使用，不用于后台批量任务；与按量 API、Coding Plan 分开。"
+        },
+        {
+          "id": "token-personal",
+          "name": "Token Plan · 个人版",
+          "base": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+          "protocol": "openai",
+          "available": true,
+          "docs": "https://help.aliyun.com/zh/model-studio/cherry-studio",
+          "key_docs": "https://help.aliyun.com/zh/model-studio/cherry-studio",
+          "note": "使用北京地域的Token Plan · 个人版专属密钥。用于本人在文稿助手内交互式使用，不用于后台批量任务；与按量 API、Coding Plan 分开。"
+        },
+        {
+          "id": "coding",
+          "name": "百炼 Coding Plan",
+          "base": "https://coding.dashscope.aliyuncs.com/v1",
+          "protocol": "openai",
+          "note": "使用 sk-sp 类型的套餐密钥。官方对自定义应用调用有限制，保留设置方案，Lulu 暂不标为可用。",
+          "available": false,
+          "unavailable_reason": "Lulu 暂未确认此套餐可用于文稿助手，暂不开放接入。可以使用普通 API。"
+        }
+      ],
+      "key_docs": "https://help.aliyun.com/zh/model-studio/get-api-key",
+      "setup_hint": "使用百炼按量 API 密钥；当前默认北京地域。订阅套餐请切换服务类型。"
+    },
+    {
+      "id": "doubao",
+      "name": "火山引擎 · 豆包",
+      "mark": "豆",
+      "color": "#78938e",
+      "base": "https://ark.cn-beijing.volces.com/api/v3",
+      "protocol": "openai",
+      "model": "填写模型 ID 或已开通的接入点 ID",
+      "docs": "https://docs.volcengine.com/docs/ark/coding-plan-personal-get-started?lang=zh",
+      "plans": [
+        {
+          "id": "coding",
+          "name": "方舟 Coding Plan",
+          "base": "https://ark.cn-beijing.volces.com/api/coding/v3",
+          "protocol": "openai",
+          "note": "套餐地址与普通 API 分开。官方目录本次未能完整读取，型号与容量待接入时核实；不会用普通 API 的目录代填。",
+          "available": false,
+          "unavailable_reason": "Lulu 暂未确认此套餐可用于文稿助手，暂不开放接入。可以使用普通 API。"
+        }
+      ],
+      "key_docs": "https://www.volcengine.com/docs/82379/1399008",
+      "setup_hint": "先在火山方舟开通模型，再添加 API 密钥。使用推理接入点时可添加 ep- 开头的型号。"
+    },
+    {
+      "id": "agnes",
+      "name": "Agnes AI",
+      "mark": "A",
+      "color": "#ae879a",
+      "base": "https://apihub.agnes-ai.com/v1",
+      "protocol": "openai",
+      "model": "填写账号已开通的 Agnes 模型 ID",
+      "docs": "https://wiki.agnes-ai.com/en/docs/agnes-30-flash",
+      "plans": [
+        {
+          "id": "token",
+          "name": "Token Plan",
+          "base": "https://apihub.agnes-ai.com/v1",
+          "protocol": "openai",
+          "note": "使用独立的 Token Plan Key，对应单独的额度池。官网支持 Agent 工作流；实际模型、接口与账号额度仍需连接验证。",
+          "docs": "https://agnes-ai.com/en/docs/tokenplan",
+          "available": true,
+          "key_docs": "https://agnes-ai.com/en/docs/tokenplan"
+        }
+      ],
+      "key_docs": "https://agnes-ai.com/en/docs/tokenplan",
+      "setup_hint": "使用普通或企业 API 密钥；Token Plan 使用独立密钥和额度。"
+    },
+    {
+      "id": "mimo",
+      "name": "小米 · MiMo",
+      "mark": "Mi",
+      "color": "#b88058",
+      "base": "https://api.xiaomimimo.com/v1",
+      "protocol": "openai",
+      "model": "填写已开通的 MiMo 模型 ID",
+      "docs": "https://mimo.mi.com/docs/zh-CN/tokenplan/integration/tools-overview",
+      "plans": [
+        {
+          "id": "token",
+          "name": "MiMo Token Plan",
+          "base": "https://token-plan-cn.xiaomimimo.com/v1",
+          "protocol": "openai",
+          "note": "使用 tp- 类型的套餐密钥，与按量 API 密钥分开。官方限制明显非 Coding 的自定义应用调用，Lulu 文稿用途暂不标为可用。",
+          "available": false,
+          "unavailable_reason": "Lulu 暂未确认此套餐可用于文稿助手，暂不开放接入。可以使用普通 API。"
+        }
+      ],
+      "key_docs": "https://mimo.mi.com/docs",
+      "setup_hint": "使用小米 MiMo 开放平台的普通 API 密钥。"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "mark": "O",
+      "color": "#747b8a",
+      "base": "https://openrouter.ai/api/v1",
+      "protocol": "openai",
+      "model": "填写 author/model 格式的模型 ID",
+      "docs": "https://openrouter.ai/docs/quickstart",
+      "plans": [],
+      "key_docs": "https://openrouter.ai/docs/quickstart",
+      "setup_hint": "一份 OpenRouter 密钥连接多个厂商；模型和容量以获取的目录为准。"
+    },
+    {
+      "id": "custom",
+      "name": "自定义供应商",
+      "mark": "＋",
+      "color": "#8e887c",
+      "base": "",
+      "protocol": "openai",
+      "model": "填写服务商提供的模型 ID",
+      "docs": "",
+      "plans": [
+        {
+          "id": "custom-plan",
+          "name": "自定义套餐",
+          "base": "",
+          "protocol": "openai",
+          "note": "手动填写套餐接口与模型；独立保存此套餐的配置和密钥。",
+          "available": true
+        }
+      ],
+      "key_docs": "",
+      "setup_hint": "填写服务商提供的接口信息，再添加密钥和模型。"
+    }
+  ],
+  "discovery": {
+    "deepseek": {
+      "url": "https://api.deepseek.com/models",
+      "note": "连接后获取模型 ID，容量与官方规格表匹配。",
+      "source": "https://api-docs.deepseek.com/api/list-models/"
+    },
+    "kimi": {
+      "url": "https://api.moonshot.cn/v1/models",
+      "note": "连接后同时获取模型 ID、上下文长度与能力。",
+      "source": "https://platform.kimi.com/docs/api/list-models"
+    },
+    "qwen": {
+      "url": "https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api/v1/models",
+      "note": "北京地域获取目录还需要业务空间 ID；没有时可直接选择官方预设。",
+      "source": "https://help.aliyun.com/zh/model-studio/list-models"
+    },
+    "openrouter": {
+      "url": "https://openrouter.ai/api/v1/models",
+      "note": "公开目录含模型 ID 与上下文容量；调用权限以账号和路由为准。",
+      "source": "https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties"
+    }
+  },
+  "checked_at": "2026-09-22",
+  "setup_checked_at": "2026-09-23"
+}

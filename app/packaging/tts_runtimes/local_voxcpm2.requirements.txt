@@ -1,0 +1,5 @@
+# VoxCPM2 本地配音 · 独立运行时包依赖(装进运行时包自己的 PBS 解释器,不进主程序)
+# mac-arm64 按同目录 constraints 固定已验证版本；其他平台需单独验证。
+torch
+voxcpm==2.0.3
+soundfile

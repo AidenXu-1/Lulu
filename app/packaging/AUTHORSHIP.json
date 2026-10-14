@@ -1,0 +1,16 @@
+{
+  "project": "Lulu",
+  "package_version": "0.3.2",
+  "author": "兆基",
+  "copyright": "Copyright © 2026 兆基. Lulu.",
+  "build_time_utc": "2026-09-23T14:35:30Z",
+  "build_git_commit": "ff31b77",
+  "build_profile": "external_candidate",
+  "build_profile_sha256": "d94df064ea95518b552d38733dd60266ce42056acc4bbb079a5002690b651445",
+  "source_commit": "ff31b772a8b07f07ee3f5ec7b2ea065a8345e6e3",
+  "source_tree": "a346658af46dbb055b051be93131a011fc9c5855",
+  "product_source_sha256": "1283de46aeb3ceb089460c6a6361b8eba87cf17352dae7321c74de223cfee1f0",
+  "purpose": "作者归属元数据/取证水印",
+  "boundary": "不构成 DRM、加密、反逆向或法律登记。",
+  "privacy_note": "本声明不包含凭据、用户目录、钥匙串或用户数据。"
+}

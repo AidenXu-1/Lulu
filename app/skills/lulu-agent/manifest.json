@@ -1,0 +1,34 @@
+{
+  "schema_id": "lulu.agent-skill-manifest/v1",
+  "schema_revision": 1,
+  "name": "lulu-agent",
+  "skill_version": "1.1.0",
+  "candidate_generation": 9,
+  "product_identity": {
+    "product_version": "0.3.2",
+    "product_build": "20260823.4",
+    "source_revision": "BUILD_SEALED",
+    "installation_profile": "circle_internal"
+  },
+  "cli_protocol": {
+    "minimum": "1.0.0",
+    "maximum_exclusive": "2.0.0"
+  },
+  "catalog_version": "1.0.0",
+  "product_manifest": {
+    "schema_id": "lulu.agent-component-manifest/v1",
+    "candidate_generation": 9
+  },
+  "entry": {
+    "app": "/Applications/Lulu.app",
+    "launcher": "~/.local/bin/lulu",
+    "canonical_cli": "/Applications/Lulu.app/Contents/MacOS/lulu-agent-cli",
+    "fallback": false
+  },
+  "proposal": {
+    "version": "lulu.intent-proposal/v1",
+    "trust_level": "untrusted_data_plane",
+    "dispatchable": false
+  },
+  "contains_secret_material": false
+}

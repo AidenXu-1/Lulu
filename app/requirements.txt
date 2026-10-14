@@ -1,0 +1,57 @@
+# 本地转录 App 依赖(均开源、可本地运行)
+# 安装:python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+# Python 建议 3.10 ~ 3.11(funasr / torch 兼容性最稳)
+
+# 桌面 UI(ADR-0002)
+PySide6>=6.6
+# 既有 Rich 传递依赖；文稿显示字数现直接使用同一个本地 Markdown 解析器。
+markdown-it-py==4.2.0
+
+# 本地转录引擎:SenseVoice via FunASR(ADR-0003)
+funasr>=1.1.0
+torch>=2.2        # Apple Silicon 自带 MPS
+torchaudio>=2.2
+modelscope>=1.15  # FunASR 拉取模型权重
+
+# 链接取音频(ADR-0004),隔离、可关闭、无需登录
+-r requirements-download.txt
+
+# 抖音作者主页采集 · 路 B 登录态全量(ADR-0013):驱动用户本机浏览器,不内置 Chromium。
+# 仅在用户显式选择「全量采集(需登录)」时使用;路 A 匿名采集不需要它。
+DrissionPage==4.1.1.4
+
+# 采集结果导出真·Excel(.xlsx);CSV 不需要它(零依赖)。已随现有包传递安装,此处显式登记。
+openpyxl>=3.1
+
+# 音频转码到 16k 单声道 wav,自带 ffmpeg 二进制(免手装)
+imageio-ffmpeg>=0.5.1
+
+# modelscope 运行期间接依赖,显式列出避免打包后缺失
+addict>=2.4.0
+
+# 云端 ASR API(可选引擎):HTTP 请求 + API Key 安全存储
+requests>=2.31
+keyring>=25.0        # 跨平台:mac 钥匙串 / Windows 凭据管理器 / Linux Secret Service
+dashscope>=1.20      # 阿里云百炼 Paraformer 实时识别(本地 wav 直读)
+
+# 本地多模型(可选,按需下载权重):
+qwen-asr>=0.0.6      # 本地 Qwen3-ASR(注:会把 transformers 锁到 4.57.x,SenseVoice 实测仍正常)
+# Whisper MLX 的原生 wheel 必须固定为 macOS 15 构建，不能让 macOS 26 构建机自行选包
+#（ADR-0033）。URL 片段绑定 PyPI 官方 SHA-256；当前正式 App 仅构建 arm64。
+mlx-whisper @ https://files.pythonhosted.org/packages/22/b7/a35232812a2ccfffcb7614ba96a91338551a660a0e9815cee668bf5743f0/mlx_whisper-0.4.3-py3-none-any.whl#sha256=6b82b6597a994643a3e5496c7bc229a672e5ca308458455bfe276e76ae024489 ; sys_platform == "darwin" and platform_machine == "arm64"
+mlx @ https://files.pythonhosted.org/packages/6a/41/c1907f05f8a3fc54025fb78ad68d3c4a4b931664d03c0a24f7f431cc4087/mlx-0.31.2-cp311-cp311-macosx_15_0_arm64.whl#sha256=70297cbef7479429f69c966bfed10da20a6f0c2aa997eec2b4f6ba1a07caf2ef ; sys_platform == "darwin" and platform_machine == "arm64"
+mlx-metal @ https://files.pythonhosted.org/packages/4f/5d/4c690d5b93c30ba002656c37363159d978705bf8eb801b8481840fb942c2/mlx_metal-0.31.2-py3-none-macosx_15_0_arm64.whl#sha256=e9d4e5fce6ca10a87a0e388597f99519ad594d09e674708b5312bd8bd4f5997d ; sys_platform == "darwin" and platform_machine == "arm64"
+
+# 配音(VoxCPM2 等)已移出主程序:改为独立运行时包按需下载(ADR-0015 / lulu-runtimes Releases),
+# 主进程从不 import voxcpm,通过子进程 adapter 调用。故主环境不再装 voxcpm==2.0.3。
+# fsspec 仍锁 2025.3.0(历史上曾被 voxcpm 锁定;改回 2026.4.0 需回归 ModelScope/HF 下载链路,暂不动)。
+fsspec==2025.3.0
+
+# macOS 原生任务结果提醒（ADR-0024）。只装 UserNotifications 窄桥及其必要组件，
+# 不安装 pyobjc 聚合包 / allbindings；其他平台跳过。
+pyobjc-core==12.2.1; sys_platform == "darwin"
+pyobjc-framework-Cocoa==12.2.1; sys_platform == "darwin"
+pyobjc-framework-UserNotifications==12.2.1; sys_platform == "darwin"
+
+# —— 仅打包 .app 时需要(运行 App 本身不需要)——
+# pyinstaller>=6.20    # 用 packaging/build_app.sh 打包,见 packaging/Lulu.spec
