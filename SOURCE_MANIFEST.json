@@ -5148,6 +5148,11 @@
       "path": "app/workers/license/打开授权码本机管理工具.command",
       "sha256": "19bbd3baadefcebc521ca7859637c2b039ad4edcaa03537d2e2da9baed463f30",
       "size": 123
+    },
+    {
+      "path": "docs/assets/brand/lulu-logo-mascot-transparent-20260718.png",
+      "size": 1926313,
+      "sha256": "52fd54032cae66fc3d7704eaddeac889a9d82417a27b25f447787ff5ea144cb6"
     }
   ]
 }
