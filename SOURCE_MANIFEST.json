@@ -272,8 +272,8 @@
     },
     {
       "path": "app/packaging/phase10_finalize_candidate.py",
-      "size": 21721,
-      "sha256": "033047f05dd35bcae62f46f7f9a5728fa8b112c8b4b8fb72338fcb942f074f01"
+      "size": 4180,
+      "sha256": "4491fac42a385ca28e2dcf3584002cee545724745ab1e4921cec60a51344239e"
     },
     {
       "path": "app/packaging/phase10_prepare_build_roots.py",
@@ -3117,8 +3117,8 @@
     },
     {
       "path": "app/tests/test_feishu_bitable.py",
-      "size": 7453,
-      "sha256": "0d69c5c05fb7219acf9f9ab567ce5e7e553a8c80dee695cb1a5e1eb7cfd10322"
+      "size": 7333,
+      "sha256": "c819e556605a16b2697d4bf5d7eb7fd53bfa4f991fc8dd98e0c851baeda59aae"
     },
     {
       "path": "app/tests/test_first_version_shell.py",

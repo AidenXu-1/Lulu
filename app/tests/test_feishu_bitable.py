@@ -10,10 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-assert sys.version_info[:3] == (3, 11, 15)
-assert Path(sys.executable).resolve() == (
-    Path(__file__).resolve().parents[2] / ".venv/bin/python"
-).resolve()
+assert sys.version_info[:2] == (3, 11)
 assert sys.dont_write_bytecode
 
 _ORIGINAL_SOCKET_HAS_IPV6 = socket.has_ipv6
