@@ -95,7 +95,7 @@ class InstalledRuntimeBootstrapPublicTests(unittest.TestCase):
                                 previous_manifest="d" * 64 if history else None, product_root=support / "Lulu")
         handover_path = manifest.parent / FILENAME
         handover_path.write_text(json.dumps(handover)); handover_path.chmod(0o600)
-        canonical = Path("/Applications/Lulu.app")
+        canonical = self.paths.app_bundle
         # The fixture installs legacy materials; the host's standalone marker
         # must not redirect this synthetic Core into a different generation.
         def measured(app, path):
@@ -108,6 +108,8 @@ class InstalledRuntimeBootstrapPublicTests(unittest.TestCase):
         with patch.object(Path, "home", return_value=self.home), \
              patch.object(sys, "frozen", True, create=True), \
              patch.object(sys, "executable", str(canonical / "Contents/MacOS/lulu-agent-core")), \
+             patch("src.core.agent_entry.standalone_paths.installed_app",
+                   side_effect=lambda app: canonical if app == canonical else self.fail("foreign app")), \
              patch("src.core.agent_entry.standalone_paths.state_for_app", return_value=self.paths.state_root), \
              patch("src.core.cli_runtime.core_task_native.measured_core", return_value="a" * 40), \
              patch("src.core.cli_runtime.core_task_keychain.CoreTaskKeyringStore", return_value=self.keys), \

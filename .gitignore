@@ -73,3 +73,6 @@ node_modules/
 # dist/
 # Rust / Tauri(暂未使用)
 # target/
+
+# Generated for this build; verified in the App.
+app/packaging/AUTHORSHIP.json

@@ -8,12 +8,14 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import subprocess
 import tempfile
 
 
 # Accepted public 4.2.1 product baseline, available in a normal clone.
 COMPLETE_PRODUCT_BASELINE = "710e484e883e8df53f0d733d74fa24d231e6a17d"
+_SOURCE_REPOSITORY = runpy.run_path(str(Path(__file__).with_name("source_repository.py")))
 _OBJECT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -39,9 +41,11 @@ def verify_product_baseline(
     *,
     repo: Path,
     candidate: str = "HEAD",
-    baseline: str = COMPLETE_PRODUCT_BASELINE,
+    baseline: str | None = None,
 ) -> dict:
     repo = Path(repo).resolve()
+    _SOURCE_REPOSITORY["prepare_repository"](repo)
+    baseline = baseline or _SOURCE_REPOSITORY["default_baseline"](repo, COMPLETE_PRODUCT_BASELINE)
     candidate_commit = _resolve_commit(repo, candidate, "候选")
     baseline_commit = _resolve_commit(repo, baseline, "完整产品基线")
     ancestry = _git(
@@ -102,7 +106,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--candidate", default="HEAD")
-    parser.add_argument("--baseline", default=COMPLETE_PRODUCT_BASELINE)
+    parser.add_argument("--baseline")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     receipt = verify_product_baseline(

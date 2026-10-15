@@ -1138,7 +1138,7 @@ class StrictKeyringStore:
         try:
             return PendingDeactivation.from_json(json.loads(raw))
         except Exception as exc:  # noqa: BLE001
-            raise SecureStoreError("停用恢复状态已损坏,Lulu 已保持锁定,请联系授权方。") from exc
+            raise SecureStoreError("停用恢复状态已损坏,Lulu 已保持锁定,请联系开发者。") from exc
 
     def save_pending_deactivation(self, pending: PendingDeactivation) -> None:
         self.set_text(
@@ -1371,7 +1371,7 @@ class MemorySecureStore:
         try:
             return PendingDeactivation.from_json(json.loads(raw))
         except Exception as exc:  # noqa: BLE001
-            raise SecureStoreError("停用恢复状态已损坏,Lulu 已保持锁定,请联系授权方。") from exc
+            raise SecureStoreError("停用恢复状态已损坏,Lulu 已保持锁定,请联系开发者。") from exc
 
     def save_pending_deactivation(self, pending: PendingDeactivation) -> None:
         self.set_text(

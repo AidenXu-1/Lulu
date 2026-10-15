@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
 import json
+import sys
 from unittest.mock import Mock, patch
 
 from src.core.license.models import LicenseCache, LicenseStatus, FULL_ACCESS
@@ -21,21 +22,13 @@ class LicenseSingleOwnerTests(unittest.TestCase):
                 product_identity={}, resource_root=Path(directory), runtime_factory=runtime,
             )
             with patch("src.core.agent_entry.product_install.build_default_product_installer",
-                       side_effect=AssertionError("No installer or credentials")) as installer, patch(
-                "src.core.license.external_service.build_core_license_service",
-                side_effect=AssertionError("No license service"),
-            ) as service:
+                       side_effect=AssertionError("No installer or credentials")) as installer, patch.dict(sys.modules, {"src.core.license.external_service": None}):
                 for action in ("startup_status", "activate", "refresh", "deactivate", "clear_cache"):
                     with self.subTest(action=action):
                         result = dispatcher({"command": "gui.license", "arguments": {"action": action}})
                         self.assertFalse(result["allowed"])
                         self.assertEqual(result["code"], "feature_retired")
                         self.assertIn("无需激活", result["message"])
-                from src.core.license.core_service import CoreLicenseService
-                old_client = CoreLicenseService(lambda command, arguments: dispatcher(
-                    {"command": command, "arguments": arguments}
-                ))
-                self.assertEqual(old_client.startup_status().code, "feature_retired")
                 for action in ("status", "activate", "refresh", "deactivate", "resume-deactivation"):
                     reply = dispatcher({"command": "argv", "arguments": {"argv": ["auth", action, "--output", "json"]}})
                     self.assertEqual(reply["exit_code"], 30)
@@ -43,5 +36,4 @@ class LicenseSingleOwnerTests(unittest.TestCase):
                     self.assertEqual(json.loads(reply["stdout"])["error"]["details"]["reason_code"], "LICENSE_FEATURE_RETIRED")
             runtime.assert_not_called()
             installer.assert_not_called()
-            service.assert_not_called()
             self.assertFalse(dispatcher._runtime_loaded)

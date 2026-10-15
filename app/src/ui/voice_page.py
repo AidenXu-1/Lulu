@@ -4076,6 +4076,7 @@ QLabel#srcEmpty {{ font-size:12px; color:{T.INK_FAINT}; }}
     def model_readiness(self, key):
         """Display-only snapshot. Generation still performs its own full checks."""
         import time
+        from shiboken6 import isValid
         from .model_settings.workers import ReadWorker
         cached = self._model_status_cache.get(key)
         if not self._model_status_closing and key not in self._model_status_reads and (
@@ -4092,12 +4093,17 @@ QLabel#srcEmpty {{ font-size:12px; color:{T.INK_FAINT}; }}
             worker = ReadWorker(read)
             self._model_status_reads[key] = worker
             def received(value, error):
-                if self._model_status_closing or epoch != self._model_status_epoch:
+                if not isValid(self) or self._model_status_closing or epoch != self._model_status_epoch:
                     return
                 self._model_status_cache[key] = (time.monotonic(), value if not error else (False, error))
                 if key != 'voxcpm2' and hasattr(self, '_qwen3'):
+                    editor = getattr(self._qwen3, 'text_edit', None)
+                    if editor is not None and not isValid(editor):
+                        return
                     self._qwen3.sync_text()
                 if key == 'voxcpm2' and hasattr(self, 'voxcpm2_ready_chip'):
+                    if not isValid(self.voxcpm2_ready_chip):
+                        return
                     ready = bool(not error and value and value[0])
                     self.voxcpm2_ready_chip.setText('● AI大模型就绪' if ready else '● 待准备')
                     set_status_kind(self.voxcpm2_ready_chip, 'success' if ready else 'warning')
@@ -4105,7 +4111,7 @@ QLabel#srcEmpty {{ font-size:12px; color:{T.INK_FAINT}; }}
             def settled():
                 self._model_status_reads.pop(key, None)
                 worker.deleteLater()
-                if epoch != self._model_status_epoch and not self._model_status_closing and self.isVisible():
+                if isValid(self) and epoch != self._model_status_epoch and not self._model_status_closing and self.isVisible():
                     self.model_readiness(key)
             worker.result.connect(received)
             worker.finished.connect(settled)

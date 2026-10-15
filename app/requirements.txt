@@ -3,15 +3,15 @@
 # Python 建议 3.10 ~ 3.11(funasr / torch 兼容性最稳)
 
 # 桌面 UI(ADR-0002)
-PySide6>=6.6
+PySide6==6.11.1
 # 既有 Rich 传递依赖；文稿显示字数现直接使用同一个本地 Markdown 解析器。
 markdown-it-py==4.2.0
 
 # 本地转录引擎:SenseVoice via FunASR(ADR-0003)
-funasr>=1.1.0
-torch>=2.2        # Apple Silicon 自带 MPS
-torchaudio>=2.2
-modelscope>=1.15  # FunASR 拉取模型权重
+funasr==1.3.9
+torch==2.12.0     # Apple Silicon 自带 MPS
+torchaudio==2.11.0
+modelscope==1.37.1  # FunASR 拉取模型权重
 
 # 链接取音频(ADR-0004),隔离、可关闭、无需登录
 -r requirements-download.txt
@@ -35,7 +35,7 @@ keyring>=25.0        # 跨平台:mac 钥匙串 / Windows 凭据管理器 / Linux
 dashscope>=1.20      # 阿里云百炼 Paraformer 实时识别(本地 wav 直读)
 
 # 本地多模型(可选,按需下载权重):
-qwen-asr>=0.0.6      # 本地 Qwen3-ASR(注:会把 transformers 锁到 4.57.x,SenseVoice 实测仍正常)
+qwen-asr==0.0.6      # 本地 Qwen3-ASR(注:会把 transformers 锁到 4.57.x,SenseVoice 实测仍正常)
 # Whisper MLX 的原生 wheel 必须固定为 macOS 15 构建，不能让 macOS 26 构建机自行选包
 #（ADR-0033）。URL 片段绑定 PyPI 官方 SHA-256；当前正式 App 仅构建 arm64。
 mlx-whisper @ https://files.pythonhosted.org/packages/22/b7/a35232812a2ccfffcb7614ba96a91338551a660a0e9815cee668bf5743f0/mlx_whisper-0.4.3-py3-none-any.whl#sha256=6b82b6597a994643a3e5496c7bc229a672e5ca308458455bfe276e76ae024489 ; sys_platform == "darwin" and platform_machine == "arm64"
@@ -54,4 +54,4 @@ pyobjc-framework-Cocoa==12.2.1; sys_platform == "darwin"
 pyobjc-framework-UserNotifications==12.2.1; sys_platform == "darwin"
 
 # —— 仅打包 .app 时需要(运行 App 本身不需要)——
-# pyinstaller>=6.20    # 用 packaging/build_app.sh 打包,见 packaging/Lulu.spec
+# pyinstaller==6.20.0  # 用 packaging/build_app.sh 打包,见 packaging/Lulu.spec

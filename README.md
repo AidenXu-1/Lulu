@@ -170,7 +170,7 @@ Lulu 从本仓库获取带 RSA-3072 签名的更新清单，核验版本、文�
 <details>
 <summary><strong>遇到问题应该准备哪些信息？</strong></summary>
 
-请记录 Lulu 版本、构建号、macOS 版本、操作步骤和界面提示，并联系向你提供 Lulu 的授权方。不要公开逐字稿、Token 或其他私人内容。
+请记录 Lulu 版本、构建号、macOS 版本、操作步骤和界面提示，并通过 GitHub Issues 反馈或联系开发者。不要公开逐字稿、Token 或其他私人内容。
 
 </details>
 

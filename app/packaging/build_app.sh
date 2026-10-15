@@ -157,6 +157,8 @@ cleanup_build_state() {
 }
 trap cleanup_build_state EXIT
 
+"$VENV/python" packaging/source_repository.py --repo ..
+
 rm -f build_profile.json release_features.json product_source.json
 if [[ -n "$(/usr/bin/git -C .. status --porcelain=v1 --untracked-files=all)" ]]; then
   echo "错误：候选构建只接受完全干净的 Git worktree；请先提交或移走未提交文件。" >&2

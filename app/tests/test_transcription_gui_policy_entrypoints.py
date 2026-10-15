@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import ast
 import inspect
 import os
@@ -88,10 +90,7 @@ class Phase2GuiAuthorizationEntrypointTests(unittest.TestCase):
 
         with patch("PySide6.QtWidgets.QApplication", App), patch(
             "PySide6.QtCore.QTimer.singleShot", lambda *_args: None
-        ), patch(
-            "src.core.license.external_service.build_external_service",
-            side_effect=AssertionError("retired license service must not be built"),
-        ), patch(
+        ), patch.dict(sys.modules, {"src.core.license.external_service": None}), patch(
             "src.ui.main_window.MainWindow", Window
         ), patch(
             "src.ui.macos.activate_regular_app", lambda: None

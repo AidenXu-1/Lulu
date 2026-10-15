@@ -2,6 +2,7 @@
 from contextlib import ExitStack
 from datetime import datetime, timedelta
 import json
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -38,10 +39,12 @@ class OpenProductPolicyTests(unittest.TestCase):
 
     def test_local_gui_transcription_runs_without_license_or_network(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            stack.enter_context(patch.dict(sys.modules, {
+                "src.core.license.external_service": None,
+                "src.core.cli_runtime.license_projection": None,
+            }))
             for target in (
-                "src.core.license.external_service.build_external_service",
                 "src.core.license.store.StrictKeyringStore",
-                "src.core.cli_runtime.license_projection.ReadOnlySharedLicenseProjection",
                 "socket.create_connection", "urllib.request.urlopen",
             ):
                 stack.enter_context(patch(target, side_effect=AssertionError(target)))

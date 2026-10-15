@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import subprocess
 import tempfile
 
@@ -15,6 +16,17 @@ import tempfile
 # These are deliberately real behavior tests, not string/constant checks. Keep the
 # list small enough for every build while representing every high-risk user seam.
 CAPABILITY_TESTS = (
+    'tests.test_voice_readiness_lifecycle.VoiceReadinessLifecycleTests.test_result_after_page_destruction_has_no_ui_or_cache_effect',
+    'tests.test_voice_readiness_lifecycle.VoiceReadinessLifecycleTests.test_result_after_editor_destruction_does_not_access_old_editor',
+    'tests.test_voice_readiness_lifecycle.VoiceReadinessLifecycleTests.test_settled_after_page_destruction_releases_worker_without_refresh',
+    'tests.test_voice_readiness_lifecycle.VoiceReadinessLifecycleTests.test_live_page_still_receives_status_and_closed_page_ignores_it',
+    'tests.test_source_repository.SourceRepositoryTests.test_archive_build_snapshot_is_complete_deterministic_and_local',
+    'tests.test_source_repository.SourceRepositoryTests.test_changed_or_missing_file_is_rejected_before_git_creation',
+    'tests.test_source_repository.SourceRepositoryTests.test_traversal_duplicate_and_invalid_modes_are_rejected',
+    'tests.test_source_repository.SourceRepositoryTests.test_symlink_and_hardlink_inputs_are_rejected',
+    'tests.test_source_repository.SourceRepositoryTests.test_archive_inside_another_checkout_gets_its_own_identity',
+    'tests.test_source_repository.SourceRepositoryTests.test_existing_checkout_is_not_replaced_or_reinterpreted',
+    'tests.test_source_repository.SourceRepositoryTests.test_later_source_changes_are_not_silently_recommitted',
     'tests.test_update_recovery.UpdateRecoveryTests.test_manual_upgrade_keeps_newer_candidate_and_invalid_ready_requires_recheck',
     'tests.test_update_recovery.UpdateRecoveryTests.test_manual_upgrade_retires_old_failure_and_ready_cache_without_touching_active_lock',
     'tests.test_update_recovery.UpdateRecoveryTests.test_newer_interrupted_candidate_is_not_discarded_on_normal_reopen',
@@ -833,6 +845,7 @@ def _git(repo: Path, *args: str) -> str:
 def run_capability_gate(*, repo: Path, candidate: str = "HEAD") -> dict:
     repo = Path(repo).resolve()
     app = repo / "app"
+    runpy.run_path(str(Path(__file__).with_name("source_repository.py")))["prepare_repository"](repo)
     candidate_commit = _git(repo, "rev-parse", "--verify", f"{candidate}^{{commit}}")
     candidate_tree = _git(repo, "rev-parse", "--verify", f"{candidate_commit}^{{tree}}")
     env = os.environ.copy()
