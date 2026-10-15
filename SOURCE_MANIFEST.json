@@ -401,11 +401,6 @@
       "sha256": "2163587d290e38f23c8da1e7b90bc4131c27c34ecfb16b2e69d8f9d63932d385"
     },
     {
-      "path": "app/packaging/安装说明.txt",
-      "size": 2157,
-      "sha256": "3d50bc74d560a4e12bf031b9fe7991d092ca88d767463730b8fc3f0ab7e14fcf"
-    },
-    {
       "path": "app/requirements-download.txt",
       "size": 120,
       "sha256": "d5f79491cb03d133b5f1eff4e4ba3ff33f74efd97b34bca0e7d7f6d9623fdd19"
