@@ -8,7 +8,7 @@ import stat
 import sys
 
 __version__ = "4.2.1"
-__build__ = "20261015.1"
+__build__ = "20261015.2"
 __channel__ = "production"
 
 _PROFILE_CHANNELS_BY_PARTS = {

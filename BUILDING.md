@@ -1,6 +1,6 @@
 # 从源码构建和运行 Lulu
 
-本仓库提供 Lulu **4.2.1 / 20261015.1** 的完整产品源码、界面资源、必要构建文件和 Agent Skill。第一方采用 [MIT 许可](LICENSE)，第三方组件及模型保持各自许可，见 [第三方说明](THIRD_PARTY_NOTICES.md)。
+本仓库提供 Lulu **4.2.1 / 20261015.2** 的完整产品源码、界面资源、必要构建文件和 Agent Skill。第一方采用 [MIT 许可](LICENSE)，第三方组件及模型保持各自许可，见 [第三方说明](THIRD_PARTY_NOTICES.md)。
 
 ## 准备环境
 
@@ -15,8 +15,8 @@ python3.11 -m venv .venv
 .venv/bin/python -m pip install -r app/requirements.txt
 .venv/bin/python -m pip install 'pyinstaller==6.20.0'
 
-export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261015.1"
-export LULU_DIST_ROOT="$PWD/app/dist/phase10-production-20261015.1"
+export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261015.2"
+export LULU_DIST_ROOT="$PWD/app/dist/phase10-production-20261015.2"
 export LULU_PRODUCTION_RELEASE_AUTHORIZED=1
 bash app/packaging/build_app.sh --identity production --venv "$PWD/.venv"
 ```
@@ -29,7 +29,7 @@ bash app/packaging/build_app.sh --identity production --venv "$PWD/.venv"
 
 ## 安装并运行自己构建的 Lulu
 
-在 Finder 打开 `app/dist/phase10-production-20261015.1/`，把 `Lulu.app` 拖入“应用程序”文件夹，再从“应用程序”打开。后台准备完成后使用完整的文稿、任务及 Agent 功能。已有 Lulu 时，覆盖前先备份自己的资料；系统密码和授权提示由使用者亲自处理。
+在 Finder 打开 `app/dist/phase10-production-20261015.2/`，把 `Lulu.app` 拖入“应用程序”文件夹，再从“应用程序”打开。后台准备完成后使用完整的文稿、任务及 Agent 功能。已有 Lulu 时，覆盖前先备份自己的资料；系统密码和授权提示由使用者亲自处理。
 
 代码不附带模型权重。转录或配音前，在应用的“AI 大模型”中选择并下载所需的本地模型；云端功能需要使用者主动配置服务。未下载模型不影响启动界面和打包，也不代表已经完成转录或配音实测。
 

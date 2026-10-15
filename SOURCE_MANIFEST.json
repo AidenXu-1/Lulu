@@ -1,9 +1,5 @@
 {
   "schema": 2,
-  "version": "4.2.1",
-  "build": "20261015.1",
-  "product_release": "v4.2.1",
-  "base_public_revision": "710e484e883e8df53f0d733d74fa24d231e6a17d",
   "files": [
     {
       "path": ".gitignore",
@@ -14,7 +10,7 @@
     {
       "path": "BUILDING.md",
       "size": 4873,
-      "sha256": "b4910db2157e9ed5f6f91d43ccd36e6b946d1b1da2b623d587c185dc44bebb3e",
+      "sha256": "aec29b75b321cda3e4e54b69b37113077324ddbcb5883566a47a8fb53010f294",
       "mode": "100644"
     },
     {
@@ -25,8 +21,8 @@
     },
     {
       "path": "README.md",
-      "size": 11759,
-      "sha256": "1ff0728a6ac04a94859bec30daa292355a6ca6d5602ebfc3fb124d9e314faf2a",
+      "size": 11889,
+      "sha256": "7ecbc26a8ac14d17d51477b26cfe8eebac0ff2fabb9968255c3840f36fc08d5e",
       "mode": "100644"
     },
     {
@@ -3326,7 +3322,7 @@
     {
       "path": "app/src/version.py",
       "size": 2862,
-      "sha256": "481165fbc40cbb927ff31783b2c9e6b68c4956365f400d7ed8c99cc15291a5bd",
+      "sha256": "882259b9c9cc467337fb4e6139bd4a26845ff75b9c59be063d7a9e281fc75edd",
       "mode": "100644"
     },
     {
