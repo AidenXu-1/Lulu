@@ -1,5 +1,9 @@
 {
   "schema": 2,
+  "version": "4.2.1",
+  "build": "20261015.2",
+  "product_release": "v4.2.1",
+  "base_public_revision": "710e484e883e8df53f0d733d74fa24d231e6a17d",
   "files": [
     {
       "path": ".gitignore",
