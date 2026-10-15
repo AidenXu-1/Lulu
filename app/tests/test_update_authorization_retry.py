@@ -252,4 +252,3 @@ class UpdateAuthorizationRetryTests(unittest.TestCase):
                 self.assertEqual(helper_entry._run_helper(str(path)), 0)
             self.assertEqual(spawn.call_args.args[0],
                              [executable, '--lulu-update-ready', str(path.resolve()), '--lulu-update-authorization-wait'])
-

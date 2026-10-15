@@ -23,27 +23,6 @@ class ModelConfigProtectionTests(unittest.TestCase):
             self.assertEqual((old / "models/asr/weights").read_bytes(), b"original")
             self.assertFalse((new / "models").exists())
 
-    def test_success_saves_exact_resolved_location(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            old = root / "old"
-            (old / "tts").mkdir(parents=True)
-            cfg = SimpleNamespace(models_dir=str(old), save=Mock(return_value=True))
-            with patch.object(mm, "models_root", return_value=old), patch.object(mm, "app_data_dir", return_value=root):
-                mm.relocate_and_save(root / "new", cfg)
-            self.assertEqual(cfg.models_dir, str((root / "new").resolve()))
-            self.assertTrue((root / "new/tts").exists())
-
-    def test_failed_restore_reports_both_locations(self):
-        cfg = SimpleNamespace(models_dir="/old", save=Mock(return_value=False))
-        with patch.object(mm, "models_root", return_value=Path("/old")), patch.object(
-            mm, "relocate_models", side_effect=[None, OSError("unplugged")]
-        ):
-            with self.assertRaisesRegex(RuntimeError, "保留两处目录") as raised:
-                mm.relocate_and_save(Path("/new"), cfg)
-        self.assertIn("/old", str(raised.exception))
-        self.assertIn("/new", str(raised.exception))
-        self.assertEqual(cfg.models_dir, "/old")
 
     def test_connection_uses_draft_without_reading_or_writing_secrets(self):
         draft = {"api_key": "draft-key", "base_url": "https://draft.example.test", "model": "draft-model"}

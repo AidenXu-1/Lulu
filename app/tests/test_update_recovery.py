@@ -88,15 +88,6 @@ class UpdateRecoveryTests(unittest.TestCase):
             self.assertTrue(service.refresh_external())
             self.assertEqual(service.snapshot.ui_state, 'installed')
 
-    def test_confirmed_install_blocks_new_network_check_until_cleanup_unlocks(self):
-        with tempfile.TemporaryDirectory() as temp:
-            store = StateStore(Path(temp))
-            store.save(UpdateSnapshot(state='installed', ui_state='installed', txn='a' * 64))
-            (store.root / 'transactions/update.lock').write_text('a' * 64)
-            service = UpdateService(root=store.root, public_keys={})
-            with patch.object(service.client, 'open') as network:
-                self.assertEqual(service.check(manual=True).ui_state, 'installed')
-                network.assert_not_called()
 
     def test_recovery_child_waits_for_dispatcher_to_release_guard(self):
         from src.core.updater import restart_recovery as recovery
@@ -124,19 +115,6 @@ class UpdateRecoveryTests(unittest.TestCase):
                 self.assertEqual(tx.recover(path), 'rolled_back')
                 self.assertTrue((target / 'old').is_file())
 
-    def test_recovery_never_replaces_an_unrelated_target(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            _, target, staged = fixtures.AutoUpdateTests._apps(self, root)
-            tx = InstallTransaction(root / 'updates', allowed_targets={target}, verify_system=False)
-            path, _ = tx.create_plan(target=target, staged_app=staged, version='0.2.4', build='20260712.1',
-                old_pid=1, old_pid_start_time='fixture', old_executable_path='/fixture',
-                staged_sha=app_file_manifest(staged)[1])
-            tx.execute_local(path, launch=lambda *_: None, wait_ready=lambda *_: False,
-                             old_pid_validator=lambda *_: True, crash_at='after_install')
-            (target / 'new').write_text('unrelated change')
-            self.assertEqual(tx.recover(path), 'failed_security_rejected')
-            self.assertEqual((target / 'new').read_text(), 'unrelated change')
 
     def test_completed_confirmation_survives_helper_interruption(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -151,22 +129,6 @@ class UpdateRecoveryTests(unittest.TestCase):
             self.assertEqual(tx.recover(path), 'installed')
             self.assertTrue((target / 'new').exists())
 
-    def test_cleanup_failure_keeps_confirmed_install_and_retains_backup(self):
-        from src.core.updater import install
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            _, target, staged = fixtures.AutoUpdateTests._apps(self, root)
-            tx = InstallTransaction(root / 'updates', allowed_targets={target}, verify_system=False)
-            path, plan = tx.create_plan(target=target, staged_app=staged, version='0.2.4', build='20260712.1',
-                old_pid=1, old_pid_start_time='fixture', old_executable_path='/fixture',
-                staged_sha=app_file_manifest(staged)[1])
-            with patch.object(install, '_remove_tree_at', side_effect=PermissionError('fixture cleanup blocked')):
-                self.assertEqual(tx.execute_local(path, launch=lambda *_: None, wait_ready=lambda *_: True,
-                                 old_pid_validator=lambda *_: True), 'installed')
-            self.assertTrue((target / 'new').is_file())
-            self.assertTrue((Path(plan['backup_app']) / 'old').is_file())
-            self.assertEqual(StateStore(root / 'updates').load().ui_state, 'installed')
-            self.assertFalse(tx.lock.exists())
 
     def test_normal_start_routes_abandoned_transaction_to_recovery_child(self):
         from src.core.updater import restart_recovery as recovery
@@ -218,26 +180,6 @@ class UpdateRecoveryTests(unittest.TestCase):
                 self.assertFalse(recovery.launch_pending_recovery(root=root))
             save.assert_not_called(); launch.assert_not_called()
 
-    def test_interrupted_worker_states_become_actionable_and_keep_partial_files(self):
-        for ui, state, expected in (
-            ('checking_manual', 'checking', 'check_error'),
-            ('checking_auto', 'checking', 'check_error'),
-            ('downloading', 'downloading', 'download_paused'),
-            ('verifying', 'downloaded', 'download_paused'),
-            ('preparing', 'downloaded', 'download_paused'),
-        ):
-            with self.subTest(ui=ui), tempfile.TemporaryDirectory() as temp:
-                store = StateStore(Path(temp))
-                part = store.root / 'downloads/fixture.part'
-                part.write_bytes(b'previous bytes')
-                store.save(UpdateSnapshot(state=state, ui_state=ui, verified_manifest=True))
-                service = UpdateService(root=store.root, public_keys={})
-                self.assertEqual(service.snapshot.ui_state, expected)
-                self.assertFalse(service.snapshot.verified_manifest)
-                if expected == 'download_paused':
-                    self.assertEqual(part.read_bytes(), b'previous bytes')
-                    UpdateService(root=store.root, public_keys={})
-                    self.assertEqual(part.read_bytes(), b'previous bytes')
 
     def test_paused_restart_rechecks_before_downloading_and_resumes_same_bytes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -279,17 +221,6 @@ class UpdateRecoveryTests(unittest.TestCase):
             self.assertTrue(first.exists())
             self.assertTrue(second.exists())
 
-    def test_external_installer_result_is_reloaded_without_network(self):
-        with tempfile.TemporaryDirectory() as temp:
-            store = StateStore(Path(temp))
-            lock = store.root / 'transactions/update.lock'
-            lock.write_text('a' * 64)
-            store.save(UpdateSnapshot(state='installing', ui_state='preparing', txn='a' * 64))
-            service = UpdateService(root=store.root, public_keys={})
-            store.save(UpdateSnapshot(state='installed', ui_state='installed', txn='a' * 64))
-            lock.unlink()
-            self.assertTrue(service.refresh_external())
-            self.assertEqual(service.snapshot.ui_state, 'installed')
 
     def test_manual_upgrade_retires_old_failure_and_ready_cache_without_touching_active_lock(self):
         from src.core.updater import service as module

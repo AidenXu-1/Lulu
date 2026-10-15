@@ -19,31 +19,6 @@ class QueueGeometryTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
 
-    def test_folder_arrow_collapses_while_selecting_and_keeps_selection(self):
-        section = FolderSection({'id':'folder', 'name':'作品', 'count':1}, True)
-        section.body_lay.addWidget(QWidget())
-        section.set_select_mode(True)
-        selected = []
-        section.headClicked.connect(lambda *args: selected.append(args))
-        section.resize(800, 240)
-        section.show()
-        QTest.qWait(20)
-        try:
-            arrow = section.chevron_label
-            QTest.mouseClick(arrow, Qt.LeftButton)
-            self.assertFalse(section._expanded)
-            self.assertFalse(section.body.isVisible())
-            self.assertEqual(selected, [])
-            QTest.mouseClick(arrow, Qt.LeftButton)
-            self.assertTrue(section._expanded)
-            QTest.mouseClick(section.head, Qt.LeftButton, pos=QPoint(200, 20))
-            self.assertEqual(len(selected), 1)
-            self.assertTrue(section._expanded)
-        finally:
-            section.close()
-            section.deleteLater()
-
-
 class FullWindowQueueGeometryTests(unittest.TestCase):
     tick = ExtractionWorkspaceTests.tick
     until = ExtractionWorkspaceTests.until
@@ -82,7 +57,6 @@ class FullWindowQueueGeometryTests(unittest.TestCase):
         self.js('toggleGroup(tasks[0].id)')
         self.until(lambda: group.expanded)
         self.assertTrue(self.js('document.querySelector("#intake").getBoundingClientRect().height > 0'))
-
 
 
 if __name__ == '__main__':

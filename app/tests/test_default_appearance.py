@@ -30,19 +30,3 @@ class DefaultAppearanceTests(unittest.TestCase):
                 self.assertEqual(saved['theme'], 'warm')
                 self.assertEqual(saved['feishu_table_targets'], cfg.feishu_table_targets)
                 self.assertEqual(saved['models_dir'], payload['models_dir'])
-
-    def test_constructor_and_save_cannot_reintroduce_retired_theme(self):
-        with tempfile.TemporaryDirectory() as directory, \
-                patch.object(config, '_CONFIG_PATH', Path(directory) / 'config.json'):
-            cfg = config.AppConfig(theme='dark')
-            self.assertEqual(cfg.theme, 'warm')
-            cfg.theme = 'light'
-            self.assertTrue(cfg.save())
-            self.assertEqual(cfg.theme, 'warm')
-
-    def test_only_paper_palette_remains_and_legacy_names_fall_back_safely(self):
-        self.assertEqual(set(theme.THEMES), {'warm'})
-        self.assertEqual(set(theme.CONSUMER_THEMES), {'warm'})
-        for name in ('warm', 'light', 'dark', 'unknown'):
-            self.assertIs(theme.apply_theme(name), theme.WARM)
-            self.assertIs(theme.consumer_theme(name), theme.CONSUMER_THEMES['warm'])

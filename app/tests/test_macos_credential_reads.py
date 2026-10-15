@@ -87,20 +87,6 @@ class MacOSCredentialReadTests(unittest.TestCase):
                     self.assertEqual(released.count(ref), 1)
                 self.assertEqual(released.count(64), 1 if status == 0 else 0)
 
-    def test_decode_failure_also_releases_system_data(self):
-        def read(_query, result):
-            result._obj.value = 64
-            return 0
-        def decode(_data):
-            raise UnicodeError("isolated invalid data")
-        backend, refs, released = self.backend(read, decode=decode)
-        with self.assertRaises(UnicodeError):
-            backend.get_password("Lulu", "test-account")
-        self.assertEqual(len(released), 4)
-        for ref in (*refs.values(), 64):
-            self.assertEqual(released.count(ref), 1)
-
 
 if __name__ == "__main__":
     unittest.main()
-

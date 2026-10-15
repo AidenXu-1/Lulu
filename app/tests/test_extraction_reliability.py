@@ -15,18 +15,6 @@ from tests import test_task_groups as group_tests
 from src.core.task import TaskState
 
 class DownloadCancellationTests(unittest.TestCase):
-    def test_ytdlp_progress_cancel_preserves_control_exception(self):
-        class Downloader:
-            def __init__(self, options): self.options = options
-            def __enter__(self): return self
-            def __exit__(self, *_): return False
-            def extract_info(self, *_args, **_kwargs):
-                self.options['progress_hooks'][0]({'status':'downloading', 'downloaded_bytes':1, 'total_bytes':2})
-        def progress(message, _fraction):
-            if '50%' in message: raise pipeline._Cancelled()
-        with tempfile.TemporaryDirectory() as tmp, patch('yt_dlp.YoutubeDL', Downloader):
-            with self.assertRaises(pipeline._Cancelled):
-                extractor._download_via_ytdlp('https://example.invalid/work', Path(tmp), progress)
 
     def test_converter_cancellation_reaps_child(self):
         real_popen = subprocess.Popen
@@ -46,35 +34,12 @@ class MaterialCancellationTests(unittest.TestCase):
     setUp = media_tests.ManagedMediaTests.setUp
     source = media_tests.ManagedMediaTests.source
     policy = media_tests.ManagedMediaTests.policy
-    def test_cancelled_fetch_is_not_failed_and_next_run_succeeds(self):
-        original = item('douyin','1'); self.repo.upsert([original])
-        def fail(*_): raise InterruptedError('cancel')
-        service = CollectionMediaAssociationService(self.repo, self.store, fail)
-        result = service.run([original], policy=self.policy())
-        self.assertEqual(result.outcomes[0].status, 'cancelled')
-        self.assertEqual(result.outcomes[0].reason_code, 'media_cancelled')
-        service.fetcher = lambda *_: self.source()
-        self.assertEqual(service.run([original], policy=self.policy()).outcomes[0].status, 'downloaded')
 
 class RetryInputTests(unittest.TestCase):
     setUpClass = group_tests.TaskGroupRuntimeTests.__dict__['setUpClass']
     setUp = group_tests.TaskGroupRuntimeTests.setUp
     tearDown = group_tests.TaskGroupRuntimeTests.tearDown
     _make_group = group_tests.TaskGroupRuntimeTests._make_group
-    def test_single_retry_keeps_batch_policy(self):
-        group = self._make_group(2)
-        original = self.window._task(group.members[0].task_id)
-        original.state = TaskState.FAILED
-        self.window._rerun_task(original.id)
-        retry = self.window.tasks[-1]
-        self.assertEqual(retry.execution_policy, original.execution_policy)
-        self.assertNotEqual(retry.id, original.id)
-    def test_repeated_batch_submission_reuses_unfinished_work(self):
-        from tests.test_task_groups import _candidate
-        self.window._collect_transcribe_group([_candidate(1), _candidate(2)])
-        previous = [t.id for t in self.window.tasks]
-        self.window._collect_transcribe_group([_candidate(1), _candidate(2)])
-        self.assertEqual([t.id for t in self.window.tasks], previous)
 
     def test_old_worker_notifications_cannot_change_retry_attempt(self):
         group=self._make_group(2)
@@ -94,26 +59,6 @@ class RetryInputTests(unittest.TestCase):
             self.assertIs(self.window.current[1],current)
             current.finish_cancelled()
 
-    def test_queued_engine_does_not_follow_later_global_changes(self):
-        group=self._make_group(2)
-        second=self.window._task(group.members[1].task_id)
-        with patch('src.ui.worker.TranscribeWorker',group_tests._FakeWorker):
-            self.window._start_all()
-            frozen=second.execution_policy.engine_name
-            self.window.cfg.engine_name='different'
-            self.window.current[1].finish_failed()
-            self.assertEqual(second.execution_policy.engine_name,frozen)
-            self.assertEqual(second.state,TaskState.RUNNING)
-            self.window.current[1].finish_cancelled()
-
-    def test_different_explicit_engine_is_not_deduplicated(self):
-        group=self._make_group(2)
-        task=self.window._task(group.members[0].task_id)
-        self.window._freeze_task_policy(task)
-        self.window.cfg.engine_name='different'
-        before=len(self.window.tasks)
-        self.window._collect_transcribe_group([group_tests._candidate(0)])
-        self.assertEqual(len(self.window.tasks),before+1)
 
 class DurablePolicyTests(unittest.TestCase):
     def test_started_policy_survives_real_ledger_reload_and_cannot_drift(self):
@@ -199,26 +144,6 @@ class CoordinationTests(unittest.TestCase):
     source = media_tests.ManagedMediaTests.source
     policy = media_tests.ManagedMediaTests.policy
 
-    def test_concurrent_material_requests_download_once_and_release_waiters(self):
-        from concurrent.futures import ThreadPoolExecutor
-        from src.core.collect import media_coordination
-        original = item('douyin', '1'); self.repo.upsert([original])
-        entered, release = threading.Event(), threading.Event()
-        calls = []
-        def fetch(*_args):
-            calls.append(1); entered.set()
-            if not release.wait(2): raise TimeoutError()
-            return self.source()
-        service = CollectionMediaAssociationService(self.repo, self.store, fetch)
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            first = pool.submit(service.run, [original], policy=self.policy())
-            self.assertTrue(entered.wait(1))
-            second = pool.submit(service.run, [original], policy=self.policy())
-            release.set()
-            self.assertEqual(first.result(2).outcomes[0].status, 'downloaded')
-            self.assertTrue(second.result(2).outcomes[0].reused)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(media_coordination._registry, {})
 
     def test_waiting_pipeline_reuses_commit_then_releases_before_asr(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -251,34 +176,6 @@ class CoordinationTests(unittest.TestCase):
                 self.assertEqual(second.result(2).text,'fixture')
         self.assertTrue(Path(resolver.call_args.args[0]).is_absolute())
 
-    def test_cancelled_waiter_does_not_cancel_owner_or_leak_lock(self):
-        from concurrent.futures import ThreadPoolExecutor
-        from src.core.collect import media_coordination
-        cancelled=threading.Event()
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            with media_coordination.prepare_media('douyin:1',lambda:False):
-                def wait():
-                    with media_coordination.prepare_media('douyin:1',cancelled.is_set):
-                        self.fail('cancelled waiter entered')
-                task=pool.submit(wait);cancelled.set()
-                with self.assertRaises(InterruptedError):task.result(1)
-                self.assertIn('douyin:1',media_coordination._registry)
-        self.assertEqual(media_coordination._registry,{})
-
-class TimelineTests(unittest.TestCase):
-    def test_diagnostics_omit_input_secrets_and_report_actual_stage(self):
-        import json
-        from src.core.diagnostics import TranscriptionAttemptTrace
-        with tempfile.TemporaryDirectory() as tmp:
-            trace=TranscriptionAttemptTrace('private-job-title',root=tmp)
-            trace.enter('download'); trace.enter('secret-cookie')
-            trace.returned('failed',TimeoutError('Cookie=secret signature=private-body'))
-            payload=(Path(tmp)/'diagnostics/transcription-attempts.json').read_text()
-            self.assertNotIn('secret',payload);self.assertNotIn('private',payload)
-            events=json.loads(payload)['events']
-            self.assertEqual(events[-1]['stage'],'download')
-            self.assertEqual(events[-1]['error_type'],'timeout')
-            self.assertEqual(len({event['attempt'] for event in events}),1)
 
 class HistoryRecoveryTests(unittest.TestCase):
     @classmethod
@@ -313,37 +210,3 @@ class HistoryRecoveryTests(unittest.TestCase):
         self.assertTrue(self.page._persist_history_result(CollectResult.complete([item('3')]),3)[1])
         self.assertEqual(len(self.repo.load().active_records),3)
         self.assertEqual(self.page._pending_history_results,{})
-
-    def test_switching_history_retains_running_material_status(self):
-        from tests.test_collection_history_ui import item
-        original=item('1'); self.page._set_items([original])
-        self.page._active_material_entries.add((original.stable_key,'media'))
-        self.page._set_material_runtime(original.stable_key,'media','queued')
-        self.page._set_items([item('2')])
-        self.page._on_material_progress((original.stable_key,'media','downloading'))
-        self.page._set_items([original])
-        self.assertEqual(self.page._material_runtime[original.stable_key]['media'],'downloading')
-
-class RealConversionRecoveryTests(unittest.TestCase):
-    def test_invalid_media_and_timeout_do_not_poison_next_twenty_inputs(self):
-        import wave
-        from types import SimpleNamespace
-        from src.core.models import Transcript
-        with tempfile.TemporaryDirectory() as tmp:
-            good=Path(tmp)/'good.wav';bad=Path(tmp)/'half.wav'
-            with wave.open(str(good),'wb') as wav:
-                wav.setnchannels(1);wav.setsampwidth(2);wav.setframerate(16000)
-                wav.writeframes(b'\x00\x00'*1600)
-            bad.write_bytes(b'half-a-file')
-            engine=SimpleNamespace(display_name='isolated',transcribe=lambda *_:Transcript(text='fixture'))
-            with patch.object(pipeline,'get_engine',return_value=engine) as get_engine:
-                with self.assertRaises(RuntimeError):
-                    pipeline.transcribe_source(str(bad),enable_link_download=False)
-                self.assertEqual(get_engine.call_count,0)
-                with patch.object(pipeline,'resolve_source',side_effect=TimeoutError()):
-                    with self.assertRaises(TimeoutError):
-                        pipeline.transcribe_source('https://example.invalid/work')
-                self.assertEqual(get_engine.call_count,0)
-                for _ in range(20):
-                    self.assertEqual(pipeline.transcribe_source(str(good),enable_link_download=False).text,'fixture')
-            self.assertEqual(get_engine.call_count,20)

@@ -16,48 +16,21 @@ import runpy
 from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
 BUILD_PROFILE = os.environ.get("LULU_BUILD_PROFILE_FOR_SPEC", "")
-if BUILD_PROFILE not in {"internal_test", "trusted_test", "trusted_test_safe_e2e", "external_candidate"}:
+if BUILD_PROFILE != "external_candidate":
     raise SystemExit("PyInstaller 构建必须由 build_app.sh 显式固定 build profile")
 BUILD_IDENTITY = os.environ.get("LULU_BUILD_IDENTITY_FOR_SPEC", "")
 if (BUILD_PROFILE, BUILD_IDENTITY) not in {
     ("external_candidate", "candidate"),
     ("external_candidate", "production"),
-    ("trusted_test", "trusted-test"),
-    ("trusted_test_safe_e2e", "trusted-test-safe-e2e"),
 }:
-    raise SystemExit("PyInstaller 构建必须显式固定 candidate、trusted-test、trusted-test-safe-e2e 或 production 身份")
+    raise SystemExit("PyInstaller 构建必须显式固定 candidate 或 production 身份")
 PROFILE_META = {
-    "internal_test": {
-        "app_name": "Lulu Internal Test",
-        "artifact_prefix": "Lulu-Internal-Test",
-        "bundle_id": "com.lulu.transcribe.internal-test",
-        "entry": "run_internal.py",
-        "upload_target": "none",
-    },
-    "external_candidate": {
-        "app_name": "Lulu",
-        "artifact_prefix": "Lulu",
-        "bundle_id": "com.lulu.transcribe",
-        "entry": "run_external.py",
-        "upload_target": "github-release-candidate",
-    },
-    "trusted_test": {
-        "app_name": "Lulu Trusted Test",
-        "artifact_prefix": "Lulu-Trusted-Test",
-        "bundle_id": "com.lulu.transcribe.trusted-test",
-        "entry": "run_trusted_test.py",
-        "upload_target": "none",
-        "package_surface": "gui_only/v1",
-    },
-    "trusted_test_safe_e2e": {
-        "app_name": "Lulu Trusted Test Safe E2E",
-        "artifact_prefix": "Lulu-Trusted-Test-Safe-E2E",
-        "bundle_id": "com.lulu.transcribe.trusted-test.safe-e2e",
-        "entry": "run_trusted_test_safe_e2e.py",
-        "upload_target": "none",
-        "package_surface": "isolated_local_transcription_e2e/v1",
-    },
-}[BUILD_PROFILE]
+    "app_name": "Lulu",
+    "artifact_prefix": "Lulu",
+    "bundle_id": "com.lulu.transcribe",
+    "entry": "run_external.py",
+    "upload_target": "github-release-candidate",
+}
 if BUILD_IDENTITY == "candidate":
     PROFILE_META = dict(PROFILE_META, upload_target="none")
 APP_NAME = PROFILE_META["app_name"]
@@ -70,7 +43,7 @@ ENTRY = os.path.join(APP_DIR, PROFILE_META["entry"])
 AGENT_CLI_ENTRY = os.path.join(APP_DIR, "run_agent_cli.py")
 AGENT_CORE_ENTRY = os.path.join(APP_DIR, "run_agent_core.py")
 AGENT_CLI_ENABLED = BUILD_PROFILE == "external_candidate"
-TRUSTED_TEST_SAFE_E2E_ENABLED = BUILD_PROFILE == "trusted_test_safe_e2e"
+TRUSTED_TEST_SAFE_E2E_ENABLED = False
 ANALYSIS_ENTRIES = [ENTRY]
 if AGENT_CLI_ENABLED:
     ANALYSIS_ENTRIES.append(AGENT_CLI_ENTRY)
@@ -223,10 +196,6 @@ datas += [(BUILD_PROFILE_FILE, ".")]
 if not os.path.exists(PRODUCT_SOURCE_FILE):
     raise SystemExit("缺少固定产品源码封印")
 datas += [(PRODUCT_SOURCE_FILE, ".")]
-if BUILD_PROFILE == "trusted_test":
-    if not os.path.exists(RELEASE_FEATURES_FILE):
-        raise SystemExit("trusted_test 缺少封存能力清单")
-    datas += [(RELEASE_FEATURES_FILE, ".")]
 if AGENT_CLI_ENABLED:
     if not os.path.exists(AGENT_PRODUCT_MANIFEST):
         raise SystemExit("Agent CLI产品入口缺少产品清单")
@@ -292,14 +261,6 @@ if BUILD_PROFILE == "external_candidate":
     ]
 if BUILD_PROFILE == "external_candidate":
     hiddenimports += ["src.main"]
-elif BUILD_PROFILE == "trusted_test":
-    hiddenimports += [
-        "src.trusted_main", "src.release_features",
-    ]
-elif BUILD_PROFILE == "trusted_test_safe_e2e":
-    hiddenimports += [
-        "src.trusted_test_safe_e2e", "src.core.transcription_job_application",
-    ]
 
 RUNTIME_HOOKS = [os.path.join(SPECPATH, "rthook_qwen_stubs.py")]
 if BUILD_PROFILE == "external_candidate":
@@ -307,12 +268,6 @@ if BUILD_PROFILE == "external_candidate":
         os.path.join(APP_DIR, "src", "agent_cli", "gui_host_runtime_hook.py")
     )
 
-TRUSTED_XHS_EXCLUDES = (
-    "src.core.collect.adapters.xiaohongshu",
-    "src.core.collect.xhs_browser",
-    "src.core.collect.xhs_process",
-    "src.core.collect.xhs_process_worker",
-) if BUILD_PROFILE in {"trusted_test", "trusted_test_safe_e2e"} else ()
 
 a = Analysis(
     ANALYSIS_ENTRIES,
@@ -351,37 +306,19 @@ a = Analysis(
         "PySide6.QtSerialBus", "PySide6.QtRemoteObjects", "PySide6.QtScxml",
         "PySide6.QtNetworkAuth", "PySide6.QtHttpServer", "PySide6.QtTextToSpeech",
         "PySide6.QtShaderTools",
-        *TRUSTED_XHS_EXCLUDES,
         # ModelScope 仅作下载器,不把模型库/管线库编入主 App。
         "modelscope.models.cv", "modelscope.models.multi_modal", "modelscope.models.nlp",
         "modelscope.models.science", "modelscope.pipelines.cv", "modelscope.pipelines.multi_modal",
         "modelscope.pipelines.nlp", "modelscope.pipelines.science", "modelscope.trainers",
         "modelscope.msdatasets", "modelscope.preprocessors", "modelscope.metrics",
         "modelscope.exporters", "modelscope.server", "modelscope.ops",
-        *(
-            ["src.internal_bootstrap", "src.internal_main", "src.core.license.mock_transport", "src.core.license.service",
-             "src.core.license._service_core", "src.core.license.external_service", "src.core.license.core_service",
-             "src.core.license.transport", "src.core.license.device", "src.core.cli_runtime.license_projection",
-             "src.ui.license_gate", "src.ui.license_device_page", "src.ui.license_contact"]
-            if BUILD_PROFILE == "external_candidate"
-            else ([
-                "src.main", "src.trusted_main", "src.release_features", "src.ui",
-                "src.ui.license_gate", "src.core.license.external_service",
-                "src.core.license.mock_transport", "src.core.license.service",
-                "src.core.license.store", "src.core.cli_runtime", "src.agent_cli",
-                "run_agent_cli", "run_external", "run_internal", "run_trusted_test",
-                "keyring",
-            ] if BUILD_PROFILE == "trusted_test_safe_e2e" else [
-                "src.main", "src.ui.license_gate",
-                "src.core.license.external_service", "src.core.license.mock_transport",
-                "src.core.license.service",
-                *( ["keyring"] if BUILD_PROFILE == "internal_test" else [
-                    "src.internal_bootstrap", "src.internal_main",
-                    "run_agent_cli", "src.agent_cli", "src.core.cli_runtime",
-                    "src.core.license.store", "keyring",
-                ]),
-            ])
-        ),
+        # Retired activation and internal entries must never enter product bundles.
+        "src.internal_bootstrap", "src.internal_main", "src.core.license.mock_transport",
+        "src.core.license.service", "src.core.license._service_core",
+        "src.core.license.external_service", "src.core.license.core_service",
+        "src.core.license.transport", "src.core.license.device",
+        "src.core.cli_runtime.license_projection", "src.ui.license_gate",
+        "src.ui.license_device_page", "src.ui.license_contact",
     ],
     noarchive=False,
     # voxcpm 已移出主程序(ADR-0015 独立运行时包),不再需要其 TorchScript 源码收集。

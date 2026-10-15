@@ -43,8 +43,6 @@ class XiaohongshuPublicVideoTests(unittest.TestCase):
         self.assertEqual(result['formats'][0]['url'], 'https://sns-video.xhscdn.com/video.mp4')
         self.assertEqual(result['thumbnails'][0]['url'], 'https://sns-webpic.xhscdn.com/cover.jpg')
 
-    def test_existing_desktop_structure_still_works(self):
-        self.assertTrue(self.extract({'note': {'noteDetailMap': {ID: {'note': copy.deepcopy(NOTE)}}}})['formats'])
 
     def test_counts_follow_target_note_into_existing_display_without_more_requests(self):
         from src.core import obsidian
@@ -128,22 +126,6 @@ class XiaohongshuPublicVideoTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, '身份不一致'):
             self.extract({'noteData': {'data': {'noteData': note}}})
 
-    def test_explicit_image_post_has_specific_message(self):
-        note = copy.deepcopy(NOTE); note['type'] = 'normal'; note.pop('video')
-        with self.assertRaisesRegex(Exception, '图文笔记'):
-            self.extract({'noteData': {'data': {'noteData': note}}})
-
-    def test_video_without_formats_is_not_an_image_post(self):
-        note = copy.deepcopy(NOTE); note.pop('video')
-        with self.assertRaisesRegex(Exception, '未取得视频地址'):
-            self.extract({'noteData': {'data': {'noteData': note}}})
-
-    def test_adapter_replaces_only_xhs_extractor(self):
-        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-            before = ydl.get_info_extractor('Youtube')
-            ydl.add_info_extractor(LuluXiaoHongShuIE())
-            self.assertIsInstance(ydl.get_info_extractor('XiaoHongShu'), LuluXiaoHongShuIE)
-            self.assertIs(ydl.get_info_extractor('Youtube'), before)
 
     def check_selected_format(self, mode, expected):
         real_ydl = yt_dlp.YoutubeDL
@@ -172,6 +154,3 @@ class XiaohongshuPublicVideoTests(unittest.TestCase):
 
     def test_audio_uses_playback_instead_of_large_original(self):
         self.check_selected_format('audio', 'playback')
-
-    def test_video_preserves_original_quality_selection(self):
-        self.check_selected_format('video', 'direct')

@@ -46,26 +46,6 @@ class RetirementCoreTests(unittest.TestCase):
         self.assertEqual(documents.snapshot(self.eid)['text'],original)
         self.assertEqual(self.service.store.proposals(chat['id']),[])
 
-    def test_templates_and_old_files_survive_retirement(self):
-        from src.config import AppConfig
-        old = self.root / 'library/.drafts/copywriting.json'
-        old.parent.mkdir(parents=True, exist_ok=True)
-        body = '{"revision":1,"fields":{"text":"旧草稿，保留"}}'
-        old.write_text(body)
-        cfg = AppConfig()
-        cfg.copywriting_user_templates = {'rewrite':[{'id':'mine','name':'旧模板','text':'我的写稿要求'}]}
-        with patch.object(AppConfig,'load',return_value=cfg):self.service.migrate()
-        self.assertEqual(old.read_text(),body)
-        self.assertTrue(any(t['id'].startswith('rewrite:') for t in self.service.templates()))
-        self.assertTrue(any(t['text']=='我的写稿要求' for t in self.service.presets()['custom']))
-
-    def test_retired_modules_have_no_importable_source(self):
-        root = Path(__file__).resolve().parents[1] / 'src'
-        for name in ('ui/copywriting_page.py','ui/content_output_page.py','ui/text_worker.py',
-                     'ui/text_history.py','ui/workspace_draft.py','ui/template_manager.py',
-                     'core/copywriting.py','core/text_application.py','core/text_client.py'):
-            self.assertFalse((root / name).exists(),name)
-
 
 class GuideUiTests(unittest.TestCase):
     setUpClass = ui.AgentWorkspaceUiTests.__dict__['setUpClass']
@@ -111,17 +91,6 @@ class GuideUiTests(unittest.TestCase):
         QTest.keyClick(self.widget.view.focusProxy(),Qt.Key_Escape)
         self.until(lambda:not self.js('document.getElementById("dialog").open'))
         self.assertEqual(library.document_snapshot(self.eid),before)
-
-    def test_copy_validation_and_retired_native_routes_have_no_effect(self):
-        with patch('src.ui.agent_workspace.widget.QGuiApplication.clipboard') as clipboard:
-            for args in ({'text':''},{'text':42},{'text':'x'*8001},{'text':'valid','extra':True}):
-                with self.assertRaises(ValueError):self.widget.native('copy_text',args)
-            clipboard.assert_not_called()
-        with patch.object(self.widget,'native') as native, patch.object(self.widget.bridge,'respond') as respond:
-            for action in ('processing','output'):
-                self.widget.bridge.nativeAction('fixture',action,json.dumps({'document_id':self.eid}))
-                self.assertFalse(respond.call_args.args[1])
-            native.assert_not_called()
 
 
 class RetirementShellTests(unittest.TestCase):

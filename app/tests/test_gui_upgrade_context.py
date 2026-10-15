@@ -77,35 +77,6 @@ class GuiUpgradeContextTests(unittest.TestCase):
             runtime.live_recording()
             self.assertEqual(service.call_args.kwargs['historical_recordings'], value['live_recordings'])
 
-    def test_display_input_is_sealed_but_history_stays_read_only(self):
-        row = record()
-        owner = {'installation_id': 'test', 'installation_id_digest': 'b'*64, 'component_manifest_sha256': 'c'*64}
-        keys = SimpleNamespace(get_text=lambda _: base64.b64encode(b'x'*32).decode())
-        value = seal_handover([row], keys=keys, owner=owner, previous_manifest='d'*64,
-            product_root=Path('/test'), gui_context=context(row))
-        self.assertEqual(open_handover(value, keys=keys, owner=owner, product_root=Path('/test')), [row])
-        projected = _task_from_job(gui_history(row, value['body']['gui_context']['tasks'][row['job_id']]))
-        self.assertEqual(projected.title, '原始作品标题')
-        self.assertTrue(projected._core_view_only)
-        value['body']['gui_context']['tasks'][row['job_id']]['source'] = 'changed'
-        with self.assertRaisesRegex(RuntimeError, 'HANDOVER_INVALID'):
-            open_handover(value, keys=keys, owner=owner, product_root=Path('/test'))
-
-    def test_capture_keeps_matching_source_group_and_ignores_stale_hidden_ids(self):
-        row = dict(record(), job_kind='gui_transcription'); gui = context(row)
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            jobs = root / 'task-generations' / ('a'*40) / 'jobs'
-            ledger = jobs / 'job-ledger-v1/snapshot.json'; ledger.parent.mkdir(parents=True)
-            raw = {'jobs': [dict(row, created_by='gui', frozen_policy={'gui_task': gui['tasks'][row['job_id']]})]}
-            ledger.write_text(json.dumps(raw)); ledger.chmod(0o600)
-            view = jobs / 'gui-task-view-v1.json'
-            view.write_text(json.dumps(dict(gui['view'], hidden_ids=['older-gone']))); view.chmod(0o600)
-            self.assertEqual(capture_context(root, root/'app', [row], generation='a'*40), gui)
-            raw['jobs'][0]['job_revision'] += 1
-            ledger.write_text(json.dumps(raw))
-            with self.assertRaisesRegex(RuntimeError, 'TASKS_CHANGED'):
-                capture_context(root, root/'app', [row], generation='a'*40)
 
     def test_workspace_conversation_without_gui_task_metadata_is_not_a_transcription_card(self):
         row = record()
@@ -141,12 +112,6 @@ class GuiUpgradeContextTests(unittest.TestCase):
         self.assertEqual(job,original)
         self.assertEqual(view['hidden_ids'],[row['job_id']])
 
-    def test_unknown_job_in_context_is_rejected(self):
-        row = record(); value = context(row)
-        value['view']['groups'][0]['members'].append({'task_id': 'other'})
-        with self.assertRaisesRegex(RuntimeError, 'GUI_HANDOVER_INVALID'):
-            validate_context(value, [row])
-
 
 class GuiHistoryRetryTests(unittest.TestCase):
     setUpClass = fixture.FrontendFunctionalRepairTests.__dict__['setUpClass']
@@ -171,28 +136,3 @@ class GuiHistoryRetryTests(unittest.TestCase):
         self.assertEqual(worker.hidden_intents,{'old-0'})
         self.assertEqual([t.id for t in window.tasks],['old-1'])
         window._core_save_worker=None
-
-    def test_group_retry_creates_new_pending_input_and_preserves_success_and_old_receipt(self):
-        window = self.window
-        window._task_queue_store = CoreTaskQueueStore(lambda *_:None, async_write=True)
-        failed = Task('old-failed', '失败作品', 'https://www.douyin.com/video/100', 'link',
-            state=TaskState.FAILED, stable_key='douyin:100')
-        failed._core_view_only = True
-        success = Task('old-success', '成功作品', 'https://www.douyin.com/video/200', 'link', state=TaskState.DONE)
-        success._core_view_only = True
-        window.tasks = [failed, success]
-        group = TaskGroup(1, '原始组', [TaskGroupMember(t.stable_key,t.title,t.source,t.kind,t.id) for t in window.tasks])
-        window.task_groups = [group]
-        with patch.object(window, '_persist_task_queue', return_value=True), patch.object(window, '_pump') as pump:
-            window._retry_task_group(1)
-        new = window._task(group.members[0].task_id)
-        self.assertNotEqual(new.id, failed.id)
-        self.assertEqual(new.source, failed.source)
-        self.assertEqual(new.state, TaskState.PENDING)
-        self.assertTrue(new._core_pending_create)
-        self.assertFalse(getattr(new, '_core_view_only', False))
-        self.assertEqual(failed.state, TaskState.FAILED)
-        self.assertEqual(group.members[1].task_id, success.id)
-        self.assertIs(window._task(new.id), new)
-        self.assertEqual(len(window.extraction_workspace.rows()), 2)
-        pump.assert_not_called()

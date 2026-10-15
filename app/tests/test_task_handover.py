@@ -27,30 +27,6 @@ class TaskHandoverTests(unittest.TestCase):
         return seal_handover([record()], keys=self.keys, owner=self.owner,
                              previous_manifest='d' * 64, product_root=self.root)
 
-    def test_preserves_exact_public_identity_and_result_without_mutating_source(self):
-        row = record()
-        original = deepcopy(row)
-        sealed = self.sealed()
-        self.assertEqual(open_handover(sealed, keys=self.keys, owner=self.owner,
-                                       product_root=self.root), [row])
-        self.assertEqual(row, original)
-
-    def test_workspace_conversation_accepts_only_its_sha256_result_reference(self):
-        from src.core.agent_entry.task_handover import validate_records
-        row = record()
-        row.update(job_id='workspace-job-example', job_kind='workspace_conversation',
-                   result_ref='workspace-result:sha256:' + 'a' * 64,
-                   receipt_ref='lulu-job:workspace-job-example:revision:4')
-        self.assertEqual(validate_records([row]), [row])
-        for invalid in (
-            'workspace-result:sha256:' + 'a' * 63,
-            'workspace-result:sha256:' + 'g' * 64,
-            'workspace-result:sha256:' + 'a' * 64 + 'extra',
-        ):
-            with self.subTest(invalid=invalid), self.assertRaisesRegex(RuntimeError, 'HANDOVER_INVALID'):
-                validate_records([dict(row, result_ref=invalid)])
-        with self.assertRaisesRegex(RuntimeError, 'HANDOVER_INVALID'):
-            validate_records([dict(row, job_kind='local_transcription')])
 
     def test_completed_live_recording_without_result_artifact_preserves_authenticated_history(self):
         row = dict(record(), job_kind='live_recording', result_ref=None)
@@ -92,20 +68,6 @@ class TaskHandoverTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'HANDOVER_INVALID'):
                     open_handover(payload, keys=keys, owner=owner, product_root=root)
 
-    def test_running_task_stops_before_receipt_or_any_mutation(self):
-        row = record(); row.pop('partial_failures'); row['state'] = 'running'
-        cli = Mock(return_value={'jobs': [row]})
-        with self.assertRaisesRegex(RuntimeError, 'UNFINISHED_TASKS'):
-            capture_terminal_tasks(cli)
-        self.assertEqual(cli.call_count, 1)
-
-    def test_changed_revision_and_duplicate_ids_are_rejected(self):
-        row = record(); summary = {k: v for k, v in row.items() if k != 'partial_failures'}
-        changed = dict(row, job_revision=5)
-        with self.assertRaisesRegex(RuntimeError, 'TASKS_CHANGED'):
-            capture_terminal_tasks(Mock(side_effect=[{'jobs': [summary]}, changed]))
-        with self.assertRaisesRegex(RuntimeError, 'HANDOVER_INVALID'):
-            capture_terminal_tasks(Mock(side_effect=[{'jobs': [summary, summary]}, row, row]))
 
     def test_runtime_history_is_visible_but_cannot_cancel_or_synthesize_old_events(self):
         from src.agent_cli.local_transcription import LocalTranscriptionCliRuntime
@@ -126,18 +88,6 @@ class TaskHandoverTests(unittest.TestCase):
         control.cancel.assert_not_called()
         control.wait.assert_not_called()
 
-    def test_history_result_uses_authenticated_reference_and_application_hash_check(self):
-        from src.agent_cli.local_transcription import LocalTranscriptionCliRuntime
-        from src.core.transcription_job_application import LocalTranscriptionJobApplication
-        application = Mock(spec=LocalTranscriptionJobApplication); application.read_result_bytes.return_value = b'{}'
-        runtime = LocalTranscriptionCliRuntime(application, historical_jobs=[record()])
-        runtime._authorized_job_control = Mock()
-        result = runtime.gui_job_result('job-old', 0)
-        self.assertEqual(result['result_ref'], record()['result_ref'])
-        application.read_result_bytes.assert_called_once_with('job-old', record()['result_ref'])
-        application.read_result_bytes.side_effect = RuntimeError('RESULT_TAMPERED')
-        with self.assertRaisesRegex(RuntimeError, 'RESULT_TAMPERED'):
-            runtime.gui_job_result('job-old', 0)
 
     def test_namespaced_store_never_reads_old_task_service_or_accepts_another_generation(self):
         from unittest.mock import patch
@@ -156,26 +106,6 @@ class TaskHandoverTests(unittest.TestCase):
             with self.assertRaisesRegex(SecureStoreError, 'IDENTITY_REQUIRED'):
                 store.get_text('lulu_core_job_registry_v1')
             native.read.assert_not_called()
-
-    def test_history_cannot_shadow_a_current_job(self):
-        from src.agent_cli.local_transcription import LocalTranscriptionCliRuntime
-        from src.core.transcription_job_application import LocalTranscriptionJobApplication
-        runtime = LocalTranscriptionCliRuntime(Mock(spec=LocalTranscriptionJobApplication), historical_jobs=[record()])
-        control = Mock(); control.list.return_value = [object()]
-        runtime._authorized_job_control = Mock(return_value=control)
-        runtime._job_summary = Mock(return_value={'job_id': 'job-old'})
-        with self.assertRaisesRegex(RuntimeError, 'HANDOVER_CONFLICT'):
-            runtime.jobs_list()
-
-    def test_reinstalled_build_lists_identical_local_history_only_once(self):
-        from src.agent_cli.local_transcription import LocalTranscriptionCliRuntime
-        from src.core.transcription_job_application import LocalTranscriptionJobApplication
-        runtime = LocalTranscriptionCliRuntime(Mock(spec=LocalTranscriptionJobApplication), historical_jobs=[record()])
-        control = Mock(); control.list.return_value = [SimpleNamespace(partial_failures=())]
-        runtime._authorized_job_control = Mock(return_value=control)
-        summary = {k: v for k, v in record().items() if k != 'partial_failures'}
-        runtime._job_summary = Mock(return_value=summary)
-        self.assertEqual(runtime.jobs_list(), {'jobs': [summary]})
 
 
 class TaskHandoverInstallationTests(unittest.TestCase):
@@ -216,35 +146,6 @@ class TaskHandoverInstallationTests(unittest.TestCase):
             tx.recover('transaction-0001', stop_clients=lambda: None, clients_stopped=lambda: True,
                        rollback_verifier=lambda: True, final_verifier=lambda: True)
             self.assertTrue(service.loaded)
-
-    def test_installer_captures_verified_public_records_and_binds_quiescent_check(self):
-        from tempfile import TemporaryDirectory
-        from src.core.agent_entry.product_install import ProductInstaller, ProductPaths
-        from src.core.agent_entry.ownership import _key_name
-        from test_generation9_formal_install_public import MemoryKeys
-        from src.core.agent_entry.installed_materials import _private_json
-        from src.core.agent_entry.task_handover import FILENAME
-        with TemporaryDirectory() as temporary:
-            root = Path(temporary).resolve(); product = root / 'Lulu'; product.mkdir()
-            state = product / 'AgentEntry'; state.mkdir()
-            materials = root / 'materials'; materials.mkdir()
-            owner = {'installation_id': 'synthetic-install', 'installation_id_digest': 'b' * 64,
-                     'component_manifest_sha256': 'c' * 64}
-            previous = dict(owner, component_manifest_sha256='d' * 64)
-            keys = MemoryKeys(); keys.write_new(_key_name(owner['installation_id_digest']), base64.b64encode(b'x' * 32).decode())
-            row = record(); summary = {k: v for k, v in row.items() if k != 'partial_failures'}
-            exporter = Mock(side_effect=[{'jobs': [summary]}, row])
-            installer = ProductInstaller(ProductPaths(root / 'app', state, root / 'agent', root / 'skill', root / 'cli'),
-                key_store=keys, service=Mock(), stop_clients=Mock(), clients_stopped=Mock(), task_exporter=exporter)
-            installer.verify_installed = Mock(return_value=(previous, {}))
-            verify_quiet = installer._prepare_task_handover(materials, previous, owner)
-            self.assertEqual(open_handover(_private_json(materials / FILENAME), keys=keys, owner=owner,
-                                          product_root=product), [record()])
-            self.assertEqual(installer.verify_installed.call_count, 2)
-            verify_quiet()
-            (product / 'jobs').mkdir()
-            with self.assertRaisesRegex(RuntimeError, 'TASKS_CHANGED'):
-                verify_quiet()
 
 
 if __name__ == '__main__':

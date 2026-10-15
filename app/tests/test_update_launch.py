@@ -14,10 +14,6 @@ from src.core.updater.archive import app_file_manifest
 from tests import test_auto_update as fixtures
 
 
-class ReachedHandover(BaseException):
-    pass
-
-
 class UpdateLaunchTests(unittest.TestCase):
     def setUp(self):
         version = patch.object(launch,'__version__','0.2.3');version.start();self.addCleanup(version.stop)

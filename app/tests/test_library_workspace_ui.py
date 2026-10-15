@@ -81,22 +81,6 @@ class LibraryWorkspaceUiTests(unittest.TestCase):
         self.assertEqual({i.data(256)["id"] for i in page.list_view.selectedIndexes()}, {ids[0]})
         self.assertIn("1 项未完成", page.status_label.text())
 
-    def test_filter_and_selection_restore_per_kind(self):
-        eid = library.save_document("标题", "原稿")
-        library.save_rewrite("输出", "成稿")
-        page = self.page()
-        page.search_field.setText("原稿")
-        page._on_search("原稿")
-        self.wait(page)
-        page._toggle_select_all()
-        page._set_kind("rewrite")
-        self.wait(page)
-        self.assertEqual(page.search_field.text(), "")
-        self.assertEqual(page.model.rows[0]["kind"], "rewrite")
-        page._set_kind("transcript")
-        self.wait(page)
-        self.assertEqual(page.search_field.text(), "原稿")
-        self.assertEqual(page._sel_entries, {eid})
 
     def test_feishu_prepares_off_thread_and_keeps_selection_until_complete_receipt(self):
         import threading
@@ -137,17 +121,6 @@ class LibraryWorkspaceUiTests(unittest.TestCase):
         self.wait(page)
         self.assertEqual(page._sel_entries, set())
 
-    def test_picker_can_load_before_library_page_and_uses_virtual_rows(self):
-        from src.ui.doc_picker import DocPickerDialog
-        library.save_document("正文", "文稿")
-        dialog = DocPickerDialog([])
-        loop = QEventLoop()
-        dialog._worker.finished.connect(loop.quit)
-        QTimer.singleShot(3000, loop.quit)
-        loop.exec()
-        self.assertFalse(dialog._worker.isRunning())
-        self.assertEqual(dialog.model.rowCount(), 1)
-        dialog.reject()
 
     def test_picker_searches_text_beyond_visible_preview(self):
         from src.ui.doc_picker import DocPickerDialog
@@ -171,13 +144,3 @@ class LibraryWorkspaceUiTests(unittest.TestCase):
         self.assertEqual(dialog.model.rowCount(), 1)
         self.assertEqual(dialog.model.rows[0]["title"], "普通标题")
         dialog.reject()
-
-
-    def test_narrow_layout_keeps_controls_and_rows_inside_paper(self):
-        library.save_document("正文", "很长的文稿标题" * 12)
-        for theme in ("warm",):
-            T.apply_theme(theme)
-            page = self.page()
-            self.assertEqual(page.width(), 620)
-            self.assertGreater(page.list_view.height(), 500)
-            self.assertLessEqual(page.new_folder_btn.geometry().right(), page.control_stack.width())

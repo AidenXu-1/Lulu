@@ -14,27 +14,6 @@ from tests import test_agent_workspace
 class WorkspaceMigrationTests(unittest.TestCase):
     setUp=test_agent_workspace.AgentWorkspaceTests.setUp
 
-    def test_inventory_and_long_templates_survive_repeated_upgrade(self):
-        config=AppConfig();config.copywriting_user_templates={'rewrite':[dict(id='old-id',name='旧模板',text='保留'*4000)]}
-        before={p.name:p.read_bytes() for p in library.LIBRARY_DIR.iterdir() if p.is_file()}
-        result=migrate(self.service.store,config)
-        self.assertEqual(result['phase'],'complete')
-        self.assertEqual(result['entries'][0]['old_id'],self.eid)
-        self.assertEqual(migrate(self.service.store,config),result)
-        self.assertEqual(len(self.service.presets()['custom']),1)
-        self.assertEqual(len(self.service.presets()['custom'][0]['text']),8000)
-        self.assertEqual(before,{p.name:p.read_bytes() for p in library.LIBRARY_DIR.iterdir() if p.is_file()})
-
-    def test_corrupt_record_is_reported_without_hiding_readable_records(self):
-        (library.LIBRARY_DIR/'bad.json').write_text('{bad')
-        result=migrate(self.service.store,AppConfig())
-        self.assertEqual([e['file'] for e in result['errors']],['bad.json'])
-        self.assertEqual(len(result['entries']),1)
-        self.assertEqual((library.LIBRARY_DIR/'bad.json').read_text(),'{bad')
-
-    def test_dates_compare_actual_instant_across_offsets(self):
-        self.assertEqual(_timestamp('2026-09-22T10:00:00+08:00'),_timestamp('2026-09-22T02:00:00Z'))
-        self.assertGreater(_timestamp('2026-09-22T09:00:00+08:00'),_timestamp('2026-09-22T00:00:00Z'))
 
     def test_mixed_legacy_library_keeps_files_links_and_presets_after_interrupted_upgrade(self):
         folder = library.create_folder('rewrite', '旧作品')

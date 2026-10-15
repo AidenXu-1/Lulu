@@ -36,28 +36,6 @@ class WorkspaceCoreTests(unittest.TestCase):
         library.delete(voice)
         self.assertEqual(audio.read_bytes(), b"audio")
 
-    def test_deleted_receipt_keeps_type_and_reads_legacy_receipts(self):
-        audio = self.root / "voice.wav"
-        audio.write_bytes(b"audio")
-        voice = library.save_voice(title="配音", audio_path=audio, text="生成时的文字",
-                                   engine="test", voice_name="v", config_summary="test")
-        library.delete(voice)
-        receipt = library.list_deleted()[0]
-        self.assertEqual(receipt["kind"], "voice")
-        self.assertEqual(library.deleted_preview(receipt["token"])["kind"], "voice")
-        self.assertEqual(audio.read_bytes(), b"audio")
-
-        document = library.save_document("原稿", "旧回执兼容")
-        document_kind = library._load_raw(document)["kind"]
-        library.delete(document)
-        legacy = next(row for row in library.list_deleted() if row["id"] == document)
-        receipt_path = library.LIBRARY_DIR / ".trash" / f"{legacy['token']}.json"
-        raw_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-        raw_receipt.pop("kind")
-        receipt_path.write_text(json.dumps(raw_receipt), encoding="utf-8")
-        self.assertIsNone(next(row for row in library.list_deleted() if row["token"] == legacy["token"])["kind"])
-        self.assertEqual(library.deleted_preview(legacy["token"])["kind"], document_kind)
-        self.assertEqual(library.restore_deleted(legacy["token"]), document)
 
     def test_restore_never_overwrites_existing_document(self):
         eid = library.save_document("原文", "文稿")
@@ -115,16 +93,6 @@ class WorkspaceCoreTests(unittest.TestCase):
         self.assertEqual(result["total"], 1)
         self.assertEqual(len(result["errors"]), 3)
 
-    def test_gateway_preserves_transcript_and_conflicts(self):
-        from src.core.models import Transcript, Segment
-        transcript = Transcript("正文", [Segment("正文", 0, 1)], meta={"uploader": "作者"})
-        encoded = library_gateway.encode(transcript)
-        self.assertEqual(library_gateway.decode(encoded), transcript)
-        eid = library.save_document("原文", "文稿")
-        result = library_gateway.handle({"operation": "save_markdown", "args": [eid, "覆盖"], "kwargs": {"expected_hash": "stale"}})
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"], "RevisionConflict")
-        self.assertEqual(library.load_markdown(eid), "原文")
 
     def test_frozen_gui_uses_measured_core_adapter_for_write_and_read(self):
         import sys

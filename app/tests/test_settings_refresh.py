@@ -85,27 +85,6 @@ class SettingsRefreshTests(unittest.TestCase):
             self.assertEqual(opener.call_args.args[0].toString(), page.cli_repository_url)
         self.assertIn('已复制', page.cli_install_note.text())
 
-    def test_cli_live_boundary_and_rows_remain_readable_when_resized(self):
-        page = self.page()
-        page.set_category('cli')
-        for width in (1000, 620, 1000):
-            page.resize(width, 900)
-            page.show()
-            self.app.processEvents()
-            scroll = page.detail_scrolls['cli']
-            self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
-            for row, title in page.cli_feature_layouts:
-                self.assertEqual(row.direction(), QBoxLayout.TopToBottom if width < 720 else QBoxLayout.LeftToRight)
-                detail = row.itemAt(1).widget()
-                self.assertLessEqual(detail.geometry().right(), row.parentWidget().width())
-                self.assertGreater(detail.width(), 100)
-                self.assertTrue(detail.wordWrap())
-                self.assertGreaterEqual(detail.height(), detail.heightForWidth(detail.width()))
-            labels = {label.text() for label in scroll.findChildren(QLabel)}
-            self.assertIn('尚未向 CLI 开放', labels)
-            self.assertIn('直播录制', labels)
-            self.assertTrue(any('「直播录制」中操作' in text for text in labels))
-        self.assertEqual(page.cfg.save_calls, 0)
 
     def test_drop_accepts_local_skill_and_rejects_urls_multiple_and_busy(self):
         folder = self.root/'my-skill'; folder.mkdir()

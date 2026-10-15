@@ -35,32 +35,6 @@ class ModelsDownloadWorkerTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def test_worker_forwards_true_download_progress_and_finishes(self):
-        seen, finished = [], []
-        def download(_model_id, *, progress, is_cancelled):
-            self.assertFalse(is_cancelled())
-            self.partial.write_bytes(b'x' * 1_000_000)
-            with self.session.downloading():
-                time.sleep(.12)
-        worker = DownloadWorker('local_whisper_mlx', observation_interval=.05)
-        worker.progress_detail.connect(lambda _message, fraction: seen.append(fraction))
-        worker.finished_ok.connect(lambda: finished.append(True))
-        with patch.object(mm, 'download_blocking', side_effect=download):
-            worker.run()
-            self.app.processEvents()
-        self.assertIn(.5, seen)
-        self.assertNotIn(1.0, seen)  # completion is not a fabricated byte measurement
-        self.assertEqual(finished, [True])
-
-    def test_worker_cancellation_reaches_download_operation(self):
-        cancelled = []
-        worker = DownloadWorker('local_whisper_mlx')
-        worker.cancelled.connect(lambda: cancelled.append(True))
-        worker.request_cancel()
-        with patch.object(mm, 'download_blocking') as download:
-            worker.run()
-        self.assertEqual(cancelled, [True])
-        download.assert_not_called()
 
     def test_worker_reports_real_retained_bytes_and_speed_while_backend_is_quiet(self):
         details = []

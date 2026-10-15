@@ -26,7 +26,7 @@ Lulu 是一款运行在 Mac 上的本地内容工作台。你可以导入音视�
 
 ## v4.2.1 更新重点
 
-- **完整开源**：公开本版产品代码、构建工具、依赖、界面资源和 Agent Skill，第一方代码采用 MIT 许可。
+- **产品源码开源**：公开 Lulu 实用版本的完整产品源码、界面资源、必要构建文件和 Agent Skill，支持自行运行与构建，第一方代码采用 MIT 许可。
 - **资料自然继承**：文稿、任务和对话继续保存在独立资料目录，正常覆盖更新沿用这些资料；新任务和普通启动不依赖旧任务钥匙串授权。
 - **批量转录恢复**：修复采集结果长文案保存阻断、暂停继续、保存失败后的重新同步及重复批次问题，已生成文稿复用原结果。
 - **设置交互优化**：调整关于、CLI 和飞书设置布局，统一按钮悬停、键盘焦点和点击反馈。
@@ -104,17 +104,17 @@ Lulu Release 中的 App ZIP 是应用更新校验资产，安装 App 请使用 D
 
 安装 **Lulu Agent Skill** 后，你可以让支持本地 Skill 和终端操作的 AI 助手调用这台 Mac 上的 Lulu，查找文稿、转录录音、生成配音或下载链接素材。
 
-**[查看 Skill 与安装说明](https://github.com/AidenXu-1/Lulu/tree/v4.2.1/agent-skill) · [下载本版源码与 Skill（ZIP）](https://github.com/AidenXu-1/Lulu/archive/refs/tags/v4.2.1.zip)**
+**[查看 Skill 与安装说明](https://github.com/AidenXu-1/Lulu/tree/main/agent-skill) · [下载本版源码与 Skill（ZIP）](https://github.com/AidenXu-1/Lulu/archive/refs/heads/main.zip)**
 
 1. 先安装并打开 Lulu，完成系统授权。CLI 已随 Lulu 提供，无需另下一个命令行程序。
 2. 把下面的提示词交给你常用的 AI 助手，让它安装 Skill 并检查连接。
 3. 连接成功后，直接描述任务，例如“用 Lulu 把这段录音转成文字”。
 
 ```text
-请从 https://github.com/AidenXu-1/Lulu/tree/v4.2.1/agent-skill 阅读安装说明，下载完整 Skill 并安装到你当前使用的技能目录。先检查兼容性和已有同名技能，保留 scripts 与 references，不覆盖 Lulu 管理的旧副本。按 SKILL.md 验证本机 Lulu，再查询实际可用功能；如果发现两个同名入口，按说明选择唯一启用项。本次只安装和检查连接，不下载模型、不修改文稿、不执行转录、配音或云端调用。
+请从 https://github.com/AidenXu-1/Lulu/tree/main/agent-skill 阅读安装说明，下载完整 Skill 并安装到你当前使用的技能目录。先检查兼容性和已有同名技能，保留 scripts 与 references，不覆盖 Lulu 管理的旧副本。按 SKILL.md 验证本机 Lulu，再查询实际可用功能；如果发现两个同名入口，按说明选择唯一启用项。本次只安装和检查连接，不下载模型、不修改文稿、不执行转录、配音或云端调用。
 ```
 
-也可以手动下载 ZIP，解压后进入 `agent-skill/` 并按其中的 README 安装；请保留整个 `lulu-agent` 文件夹，只下载 `SKILL.md` 会缺少必要文件。Codex 的安装示例及其他 Agent 的目录选择均在 [Skill 安装说明](https://github.com/AidenXu-1/Lulu/tree/v4.2.1/agent-skill#安装) 中。
+也可以手动下载 ZIP，解压后进入 `agent-skill/` 并按其中的 README 安装；请保留整个 `lulu-agent` 文件夹，只下载 `SKILL.md` 会缺少必要文件。Codex 的安装示例及其他 Agent 的目录选择均在 [Skill 安装说明](https://github.com/AidenXu-1/Lulu/tree/main/agent-skill#安装) 中。
 
 使用示例：“在 Lulu 里找上周的访谈文稿”“用我保存的音色朗读这篇文稿”“下载这个作品链接的封面”。实际可用功能和模型以本机 Lulu 检查结果为准。Skill 可独立更新、卸载，不附带模型；仅安装 Skill 不会自动执行这些任务。
 

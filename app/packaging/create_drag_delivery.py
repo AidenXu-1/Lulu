@@ -73,3 +73,12 @@ def create_delivery(app, output):
     # Hashes remain release evidence; users only need the DMG itself.
     (work/(output.name+'.sha256')).write_text(receipt['release_dmg_sha256']+'  '+output.name+'\n')
     return receipt
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--app', required=True, type=Path)
+    parser.add_argument('--output', required=True, type=Path)
+    arguments = parser.parse_args()
+    print(json.dumps(create_delivery(arguments.app, arguments.output), indent=2))

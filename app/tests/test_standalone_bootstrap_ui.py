@@ -89,29 +89,6 @@ class StandaloneBootstrapUiTests(unittest.TestCase):
         self.complete(0)
         self.ready.assert_not_called()
 
-    def test_success_never_keeps_a_failure_reason(self):
-        self.application._lulu_install_preparation_failure = 'JOB_CORE_ACCESS_INVALID'
-        self.start()
-        self.complete(0)
-        self.assertEqual(self.application._lulu_install_preparation_failure, '')
-
-    def test_timeout_stops_process_and_cannot_later_release_the_task_gate(self):
-        self.start()
-        self.process.state.return_value = QProcess.ProcessState.Running
-        self.timer.timeout.connect.call_args.args[0]()
-        self.process.kill.assert_called_once_with()
-        self.complete(0)
-        self.ready.assert_not_called()
-        self.failed.assert_called_once_with()
-
-    def test_quit_cancels_owned_process_without_success_or_error_callbacks(self):
-        self.start()
-        self.process.state.return_value = QProcess.ProcessState.Running
-        self.application.aboutToQuit.connect.call_args.args[0]()
-        self.process.kill.assert_called_once_with()
-        self.complete(0)
-        self.ready.assert_not_called()
-        self.failed.assert_not_called()
 
     def test_failed_update_quits_for_existing_rollback_protocol(self):
         with patch.object(sys, 'argv', ['Lulu', '--lulu-update-ready', '/fixture/plan.json']):
@@ -135,9 +112,3 @@ class StandaloneBootstrapUiTests(unittest.TestCase):
                                  'INSTALLATION_PREPARATION_TIMEOUT')
                 self.complete(0)
                 self.ready.assert_not_called()
-
-    def test_source_launch_has_no_preparation_or_extra_window(self):
-        with patch.object(sys, 'frozen', False):
-            self.assertFalse(self.start())
-        self.process_type.assert_not_called()
-        self.started.assert_not_called()

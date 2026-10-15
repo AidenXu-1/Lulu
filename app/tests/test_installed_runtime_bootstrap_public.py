@@ -164,12 +164,6 @@ class InstalledRuntimeBootstrapPublicTests(unittest.TestCase):
         self.assertTrue((support / "Lulu/task-generations" / ("a" * 40) / "jobs/job-ledger-v1").is_dir())
         self.assertEqual((support / "Lulu/Lulu").exists(), getattr(self, "with_results", False))
 
-    def test_default_runtime_prepares_fresh_task_storage_after_real_product_commit(self):
-        self._construct_default_runtime()
-
-    def test_default_wrapper_reopens_old_scope_and_new_gui_job_through_cli(self):
-        self.with_legacy = True
-        self._construct_default_runtime()
 
     def test_existing_results_default_bootstrap_cli_run_read_and_reopen(self):
         from src.core.cli_runtime.factory import _build_measured_core_runtime

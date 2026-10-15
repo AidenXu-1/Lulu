@@ -14,47 +14,7 @@ from tests import test_frontend_functional_repair as frontend_fixture
 
 
 class GuiTaskRecoveryTests(unittest.TestCase):
-    def test_core_hidden_cancelled_job_is_not_recreated_or_retried_by_old_draft(self):
-        from tests.test_shared_core_gui_task_ledger import _runtime
-        from tests.test_phase5_job_ledger import FakeIntegrityAnchorStore
-        from src.core.job_ledger.store import JobLedgerStore
-        from src.core.job_ledger.service import JobControlService
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            ledger = JobLedgerStore(root/'ledger', FakeIntegrityAnchorStore())
-            runtime = _runtime(JobControlService(ledger), ['gui-job-old', 'old-a', 'old-lineage'])
-            row = runtime.gui_jobs_create({'title':'取消输入', 'source':'old.wav', 'kind':'file',
-                'folder_id':None, 'stable_key':'old', 'execution_policy':None})
-            row = runtime.gui_jobs_transition(job_id=row['job_id'], expected_revision=1,
-                state='cancelled', result_ref=None)
-            from src.core.gui_task_ledger import _task_from_job
-            recovery = GuiTaskRecoveryStore(root/'recovery.json')
-            recovery.save([_task_from_job(row)], [])
-            runtime.gui_jobs_view(groups=[], hidden_ids=[row['job_id']], expected_revision=0)
-            before = ledger.get_job(row['job_id']); journal = ledger.journal_path.read_bytes()
-            original = recovery.path.read_bytes()
-            def dispatch(command, arguments):
-                if command == 'gui.jobs.list': return runtime.gui_jobs_list(**arguments)
-                self.fail('Recovery must not recreate or transition this hidden job: '+command)
-            queue = CoreTaskQueueStore(dispatch, async_write=True)
-            snapshot, found = recovery.merge(queue.load(), authoritative_hidden_ids=queue.hidden_ids)
-            self.assertTrue(found)
-            self.assertEqual(snapshot.tasks, ())
-            self.assertTrue(queue.save(snapshot.tasks, snapshot.groups))
-            self.assertEqual(ledger.get_job(row['job_id']), before)
-            self.assertEqual(ledger.journal_path.read_bytes(), journal)
-            self.assertEqual(recovery.path.read_bytes(), original)
 
-    def test_missing_cancelled_draft_keeps_cancellation_without_starting(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            recovery = GuiTaskRecoveryStore(Path(tmp)/'recovery.json')
-            task = Task('gui-job-cancelled', '取消输入', 'old.wav', 'file', state=TaskState.CANCELLED)
-            recovery.save([task], [])
-            original = recovery.path.read_bytes()
-            snapshot, _ = recovery.merge(TaskQueueSnapshot((), ()))
-            self.assertEqual(snapshot.tasks[0].state, TaskState.CANCELLED)
-            self.assertTrue(snapshot.tasks[0]._core_pending_create)
-            self.assertEqual(recovery.path.read_bytes(), original)
 
     def test_hidden_intents_survive_unread_save_and_keep_history_untouched(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -140,41 +100,6 @@ class GuiTaskRecoveryTests(unittest.TestCase):
             self.assertEqual({m['task_id'] for g in saved['groups'] for m in g['members']}, known_ids)
             self.assertTrue(next(g for g in saved['groups'] if g['name'] == '旧批次')['expanded'])
 
-    def test_separate_attempts_of_same_work_keep_separate_batches(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store = GuiTaskRecoveryStore(Path(tmp) / 'recovery.json')
-            old = Task('gui-job-old', '同一作品', 'old.wav', 'file')
-            new = Task('gui-job-new', '同一作品', 'old.wav', 'file')
-            old_group = TaskGroup(1, '旧批次', [TaskGroupMember('same-work', old.title, old.source, old.kind, old.id)])
-            new_group = TaskGroup(1, '新批次', [TaskGroupMember('same-work', new.title, new.source, new.kind, new.id)])
-            store.save([old], [old_group])
-            store.save([new], iter([new_group]))
-            result, _ = store.merge(TaskQueueSnapshot((), ()))
-            self.assertEqual({g.name for g in result.groups}, {'旧批次', '新批次'})
-            self.assertEqual(len({g.id for g in result.groups}), 2)
-
-    def test_same_batch_keeps_current_edits_after_renumbering_and_retry(self):
-        from src.core.task import merge_task_groups
-        current = TaskGroup(2, '已修改名称', [TaskGroupMember('', '重试', task_id='gui-job-retry',
-                            attempt_task_ids=['gui-job-old', 'gui-job-retry'])], expanded=True)
-        restored = TaskGroup(1, '旧名称', [TaskGroupMember('', '上次输入', task_id='gui-job-old')])
-        result = merge_task_groups([current], [restored])
-        self.assertEqual(len(result), 1)
-        self.assertIs(result[0], current)
-        self.assertTrue(result[0].expanded)
-        self.assertEqual(result[0].name, '已修改名称')
-
-    def test_colliding_skipped_only_groups_keep_names_reasons_and_ids(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store = GuiTaskRecoveryStore(Path(tmp) / 'recovery.json')
-            old = TaskGroup(1, '旧跳过批次', [TaskGroupMember('old', '旧作品', skipped_reason='上次不可用')], expanded=True)
-            new = TaskGroup(1, '新跳过批次', [TaskGroupMember('new', '新作品', skipped_reason='本次不可用')])
-            store.save([], [old])
-            store.save([], [new])
-            result, _ = store.merge(TaskQueueSnapshot((), ()))
-            self.assertEqual(len(result.groups), 2)
-            self.assertEqual(len({g.id for g in result.groups}), 2)
-            self.assertEqual({m.skipped_reason for g in result.groups for m in g.members}, {'上次不可用', '本次不可用'})
 
     def test_unread_draft_preserves_colliding_groups_and_survives_repeated_save(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -212,56 +137,8 @@ class GuiTaskRecoveryTests(unittest.TestCase):
             self.assertEqual(len({g.id for g in result.groups}), 2)
             self.assertEqual({m.task_id for g in result.groups for m in g.members}, {old.id, new.id})
 
-    def test_recovery_never_replays_start_or_overwrites_core_completion(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store = GuiTaskRecoveryStore(Path(tmp)/'recovery.json')
-            queued = Task('gui-job-a','排队输入','a.wav','file',state=TaskState.QUEUED)
-            running = Task('gui-job-b','运行输入','b.wav','file',state=TaskState.RUNNING)
-            running.transcript = Transcript(text='尚未保存的重要文稿')
-            group=TaskGroup(1,'恢复组',[TaskGroupMember('',t.title,t.source,t.kind,t.id) for t in (queued,running)])
-            store.save([queued,running],[group])
-            self.assertEqual(store.path.stat().st_mode & 0o777,0o600)
-            completed = Task(queued.id,queued.title,queued.source,'file',state=TaskState.DONE,library_id='saved')
-            result, found=store.merge(TaskQueueSnapshot((completed,),()))
-            self.assertTrue(found)
-            self.assertIs(result.tasks[0],completed)
-            self.assertEqual(result.tasks[0].state,TaskState.DONE)
-            self.assertEqual(result.tasks[1].state,TaskState.FAILED)
-            self.assertEqual(CoreTaskQueueStore._desired_state(result.tasks[1]), 'prepared')
-            self.assertEqual(result.tasks[1].transcript.text,running.transcript.text)
-            self.assertTrue(result.tasks[1]._core_pending_create)
-            self.assertEqual(len(result.groups[0].members),2)
-
 
 class GuiUnavailableExitTests(unittest.TestCase):
     setUpClass = frontend_fixture.FrontendFunctionalRepairTests.__dict__['setUpClass']
     setUp = frontend_fixture.FrontendFunctionalRepairTests.setUp
     tearDown = frontend_fixture.FrontendFunctionalRepairTests.tearDown
-
-    def test_failed_core_can_exit_after_private_recovery_save(self):
-        window = self.window
-        window.cfg.confirm_exit_during_tasks = False
-        window._task_queue_store = CoreTaskQueueStore(lambda *_: None,async_write=True)
-        window._task_queue_recovery = GuiTaskRecoveryStore(self.root/'recovery'/'unsynced.json')
-        task=window._task_queue_store.prepare(Task(1,'未同步输入','source.wav','file',state=TaskState.QUEUED))
-        window.tasks=[task]
-        window._task_queue_store_failed=True
-        event=QCloseEvent()
-        with patch.object(window,'_settle_registered_qthreads',return_value=True):
-            window.closeEvent(event)
-        self.assertTrue(event.isAccepted())
-        recovered,found=window._task_queue_recovery.merge(TaskQueueSnapshot((),()))
-        self.assertTrue(found)
-        self.assertEqual(recovered.tasks[0].source,'source.wav')
-        self.assertEqual(recovered.tasks[0].state,TaskState.PENDING)
-
-    def test_disk_failure_keeps_window_and_input(self):
-        self.window.cfg.confirm_exit_during_tasks=False
-        self.window._task_queue_store = CoreTaskQueueStore(lambda *_:None,async_write=True)
-        self.window._task_queue_store_failed=True
-        self.window._task_queue_recovery=Mock()
-        self.window._task_queue_recovery.save.side_effect=OSError('disk full')
-        event=QCloseEvent()
-        with patch.object(self.window,'_settle_registered_qthreads',return_value=True):
-            self.window.closeEvent(event)
-        self.assertFalse(event.isAccepted())

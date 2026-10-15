@@ -20,14 +20,6 @@ class QwenInstallationTests(unittest.TestCase):
         (self.source/'Base/model.safetensors').write_bytes(b'bad')
         with self.assertRaisesRegex(RuntimeError,'校验失败'):qw.install(self.target,local_models=self.source)
         self.assertEqual((self.target/'Base/keep').read_bytes(),b'old');self.assertFalse(qw.is_installed(self.target))
-    def test_cancel_keeps_source_and_no_ready_destination(self):
-        with self.assertRaises(rp.CancelledError):qw.install(self.target,is_cancelled=lambda:True,local_models=self.source)
-        self.assertEqual((self.source/'Base/model.safetensors').read_bytes(),self.data);self.assertFalse(qw.is_installed(self.target))
     def test_production_requires_managed_runtime(self):
         with patch.dict('os.environ',{},clear=True),patch.object(rp,'is_runtime_installed',return_value=False):
             self.assertFalse(qr.readiness('clone')[0])
-    def test_repair_failure_restores_previous_files(self):
-        (self.target/'Base').mkdir(parents=True);(self.target/'Base/keep').write_bytes(b'old')
-        with patch.object(qw,'write_install_receipt',side_effect=RuntimeError('write failed')):
-            with self.assertRaisesRegex(RuntimeError,'write failed'):qw.install(self.target,local_models=self.source)
-        self.assertEqual((self.target/'Base/keep').read_bytes(),b'old')

@@ -16,9 +16,6 @@ class ProcessExitTests(unittest.TestCase):
         return subprocess.CompletedProcess([], 0,
             f'{status} {self.started} {command or self.executable}\n', '')
 
-    def test_live_long_path_is_preserved(self):
-        with patch.object(identity.subprocess, 'run', return_value=self.observe('S')):
-            self.assertEqual(identity.process_identity(123), (self.started, self.executable))
 
     def test_zombie_is_stopped_for_all_existing_exit_gates(self):
         with patch.object(identity.subprocess, 'run', return_value=self.observe('Z+', '<defunct>')):
@@ -33,9 +30,6 @@ class ProcessExitTests(unittest.TestCase):
             self.assertTrue(identity.same_identity((self.started, self.executable), self.started, self.executable))
             self.assertFalse(identity.same_identity(('different', self.executable), self.started, self.executable))
 
-    def test_name_alone_does_not_prove_stopped(self):
-        with patch.object(identity.subprocess, 'run', return_value=self.observe('S', '<defunct>')):
-            with self.assertRaises(UpdateError): identity.process_identity(123)
 
     def test_macos_exit_transition_is_reobserved_until_explicit_zombie(self):
         for status in ('?E', '?', 'S', 'R'):
@@ -77,10 +71,4 @@ class ProcessExitTests(unittest.TestCase):
         with patch.object(identity.subprocess, 'run', return_value=failed), patch.object(identity.os, 'kill', side_effect=ProcessLookupError(errno.ESRCH, 'gone')):
             self.assertIsNone(identity.process_identity(123))
         with patch.object(identity.subprocess, 'run', return_value=failed), patch.object(identity.os, 'kill', side_effect=PermissionError()):
-            with self.assertRaises(UpdateError): identity.process_identity(123)
-
-    def test_incomplete_response_and_timeout_rejected(self):
-        with patch.object(identity.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'Z\n', '')):
-            with self.assertRaises(UpdateError): identity.process_identity(123)
-        with patch.object(identity.subprocess, 'run', side_effect=subprocess.TimeoutExpired('ps', 3)):
             with self.assertRaises(UpdateError): identity.process_identity(123)

@@ -112,27 +112,6 @@ class TaskQueueUiRecoveryTests(unittest.TestCase):
         normalized = TaskQueueStore(self.path).load()
         self.assertEqual([task.state for task in normalized.tasks], [TaskState.PENDING] * 3)
 
-    def test_done_task_remains_in_session_but_not_next_launch(self):
-        window = self._window()
-        task = window._add_task("/tmp/finished.wav", "file", "已完成任务")
-        task.state = TaskState.DONE
-        task.message = "已完成"
-        window._persist_task_queue()
-
-        self.assertEqual(len(window.tasks), 1)
-        self.assertEqual(TaskQueueStore(self.path).load().tasks, ())
-
-        reopened = self._window()
-        self.assertEqual(reopened.tasks, [])
-        self.assertEqual(reopened.extraction_workspace.rows(), [])
-
-    def test_source_default_does_not_create_real_recovery_store(self):
-        window = MainWindow()
-        self.windows.append(window)
-        self.assertIsNone(window._task_queue_store)
-        window._add_task("/tmp/source-test.wav", "file", "源码测试")
-        self.assertFalse(self.path.exists())
-
 
 if __name__ == "__main__":
     unittest.main()

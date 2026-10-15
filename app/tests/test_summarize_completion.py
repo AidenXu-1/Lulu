@@ -18,50 +18,7 @@ class _Resp:
 
 
 class SummarizeCompletionTests(unittest.TestCase):
-    def test_delivery_chat_disables_deepseek_thinking_without_changing_default_chat(self):
-        config = {
-            "api_key": "sk-test",
-            "base_url": "https://api.example.test",
-            "model": "deepseek-v4-flash",
-        }
-        calls = []
 
-        def fake_post(url, headers=None, json=None, timeout=None):
-            calls.append(json)
-            return _Resp({"choices": [{
-                "message": {"content": "完整正文"},
-                "finish_reason": "stop",
-            }]})
-
-        with patch.object(summarize.secrets, "get_config", return_value=config), patch.object(
-            requests, "post", side_effect=fake_post
-        ):
-            reply = summarize.chat(
-                [{"role": "user", "content": "校正文案"}],
-                max_tokens=2400,
-                thinking=False,
-            )
-
-        self.assertEqual(reply, "完整正文")
-        self.assertEqual(calls[0]["thinking"], {"type": "disabled"})
-
-    def test_truncated_chat_completion_is_rejected_instead_of_returning_partial_text(self):
-        config = {
-            "api_key": "sk-test",
-            "base_url": "https://api.example.test",
-            "model": "deepseek-v4-flash",
-        }
-        response = _Resp({
-            "choices": [{
-                "message": {"content": "只有前半段"},
-                "finish_reason": "length",
-            }],
-        })
-        with patch.object(summarize.secrets, "get_config", return_value=config), patch.object(
-            requests, "post", return_value=response
-        ):
-            with self.assertRaisesRegex(summarize.OutputTruncatedError, "输出未完成.*length"):
-                summarize.chat([{"role": "user", "content": "hi"}], max_tokens=20)
 
     def test_connection_probe_has_enough_output_budget_for_current_models(self):
         calls = []

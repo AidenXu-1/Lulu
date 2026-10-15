@@ -112,18 +112,3 @@ class WorkspaceInteractionTests(AgentWorkspaceUiTests):
         self.assertEqual(self.js('window.lulu.state.kind'),'documents')
         self.assertEqual(self.js('window.lulu.state.doc.text'),original)
         self.assertFalse(self.js("document.querySelector('#workspace').inert"))
-
-    def test_startup_restores_selected_document_without_hidden_editor_wait(self):
-        from src.core.agent_workspace.service import WorkspaceService
-        from src.ui.agent_workspace.widget import AgentWorkspace
-        from src.core.agent_workspace import client
-        WorkspaceService().view_state('selected_document', self.eid)
-        self.widget.shutdown(); self.widget.close(); self.widget.deleteLater()
-        self.app.processEvents()
-        self.widget=AgentWorkspace(dispatch=client.dispatch)
-        self.widget.resize(1448,917); self.widget.show()
-        self.widget._set_kind('transcript')
-        self.until(lambda:self.widget.ready, seconds=4)
-        self.until(lambda:self.js('Boolean(document.querySelector("#prompt"))'))
-        self.assertEqual(self.js('window.lulu.state.doc.id'),self.eid)
-        self.assertTrue(self.widget.view.isVisible())

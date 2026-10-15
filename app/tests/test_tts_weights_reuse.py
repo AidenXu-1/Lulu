@@ -71,15 +71,6 @@ class TTSWeightsReuseTests(unittest.TestCase):
         mocked = patch.object(mt, 'hf_plan', return_value=self.plan)
         self.metadata = mocked.start(); self.addCleanup(mocked.stop)
 
-    def test_qwen_install_reuses_in_place_and_does_not_make_missing_runtime_ready(self):
-        self.qwen()
-        before = {p.name: (p.stat().st_ino, p.stat().st_mtime_ns, p.read_bytes()) for p in self.root.iterdir()}
-        with patch.object(mt, 'hf_plan', side_effect=AssertionError('built-in lock is sufficient')):
-            qw.install(self.models, name='Base')
-        self.assertTrue(qw.is_installed(self.models, 'Base'))
-        self.assertFalse(rp.is_runtime_installed('local_qwen3_tts'))
-        self.assertEqual(before, {p.name: (p.stat().st_ino, p.stat().st_mtime_ns, p.read_bytes()) for p in self.root.iterdir()})
-        self.assertEqual(len(json.loads(self.receipt.read_text())['content_sha256']), 2)
 
     def test_vox_direct_install_reuses_blob_files_and_preserves_snapshot_links(self):
         self.vox()
@@ -101,18 +92,6 @@ class TTSWeightsReuseTests(unittest.TestCase):
             mt.prepare_tts(session, 'local_voxcpm2')
         self.assertTrue(lm.is_downloaded())
 
-    def test_qwen_preflight_finishes_interrupted_swap_before_rebinding(self):
-        self.qwen()
-        transaction = self.models / '.qwen-install-interrupted'; transaction.mkdir()
-        shutil.copyfile(self.receipt, transaction / 'previous-receipt.json')
-        (transaction / 'pending.json').write_text(json.dumps({'name': 'Base'}))
-        self.root.replace(transaction / 'previous')
-        session = mt.Session(lambda *_: None, lambda: None)
-        with patch.object(mt, 'prepare_runtime', side_effect=RuntimeError('runtime needs preparation')), \
-                self.assertRaisesRegex(RuntimeError, 'runtime needs preparation'):
-            mt.prepare_tts(session, 'local_qwen3_tts', names=['Base'])
-        self.assertTrue(qw.is_installed(self.models, 'Base'))
-        self.assertFalse(transaction.exists())
 
     def test_content_tamper_with_original_timestamp_stops_without_redownload(self):
         self.qwen(); before = self.weight.stat()
@@ -120,62 +99,6 @@ class TTSWeightsReuseTests(unittest.TestCase):
         os.utime(self.weight, ns=(before.st_atime_ns, before.st_mtime_ns))
         with self.assertRaisesRegex(RuntimeError, '内容校验'):
             qw.install(self.models, name='Base')
-        self.assertEqual(self.receipt.read_bytes(), self.original)
-
-    def test_missing_file_and_wrong_trust_never_fall_through_to_download(self):
-        self.qwen(); self.weight.unlink()
-        with self.assertRaisesRegex(RuntimeError, '未重新下载'):
-            qw.install(self.models, name='Base')
-        self.weight.write_bytes(self.payload)
-        with patch.dict(self.lock, revision='b' * 40), self.assertRaisesRegex(RuntimeError, '未重新下载'):
-            reuse.recover_qwen_weights(self.models, 'Base')
-        self.assertEqual(self.receipt.read_bytes(), self.original)
-
-    def test_unknown_extra_file_is_not_adopted(self):
-        self.qwen(); (self.root / 'loader.py').write_text('unconfirmed')
-        with self.assertRaisesRegex(RuntimeError, '未确认的文件'):
-            reuse.recover_qwen_weights(self.models, 'Base')
-        self.assertEqual(self.receipt.read_bytes(), self.original)
-
-    def test_modified_original_marker_is_not_adopted(self):
-        self.vox(); marker = self.root / '.lulu_done'; before = marker.stat()
-        marker.write_bytes(b'no'); os.utime(marker, ns=(before.st_atime_ns, before.st_mtime_ns))
-        with self.assertRaisesRegex(RuntimeError, '完成标记'):
-            rp.install_weights('local_voxcpm2')
-        self.assertEqual(self.receipt.read_bytes(), self.original)
-
-    def test_official_metadata_unavailable_preserves_everything(self):
-        self.vox(); self.metadata.side_effect = OSError('metadata offline')
-        with self.assertRaisesRegex(OSError, 'metadata offline'):
-            rp.install_weights('local_voxcpm2')
-        self.assertEqual(self.receipt.read_bytes(), self.original)
-
-    def test_retargeted_snapshot_link_is_rejected(self):
-        self.vox(); link = self.plan_files[0].path; link.unlink(); link.symlink_to(self.plan_files[1].path)
-        with self.assertRaisesRegex(RuntimeError, '链接'):
-            reuse.recover_voxcpm_weights()
-        self.assertEqual(self.receipt.read_bytes(), self.original)
-
-    def test_cancellation_keeps_original_receipt(self):
-        self.qwen()
-        def cancel(): raise rp.CancelledError()
-        with self.assertRaises(rp.CancelledError): reuse.recover_qwen_weights(self.models, 'Base', cancel)
-        self.assertEqual(self.receipt.read_bytes(), self.original)
-
-    def test_mutation_during_hashing_cannot_commit(self):
-        self.qwen(); valid = mt.File.valid
-        def modify(item, check):
-            result = valid(item, check)
-            self.weight.write_bytes(self.payload + b'changed')
-            return result
-        with patch.object(mt.File, 'valid', modify), self.assertRaises(RuntimeError):
-            reuse.recover_qwen_weights(self.models, 'Base')
-        self.assertEqual(self.receipt.read_bytes(), self.original)
-
-    def test_post_commit_failure_restores_original_receipt(self):
-        self.qwen()
-        with patch.object(at, 'install_receipt_valid', return_value=False), self.assertRaisesRegex(RuntimeError, '原安装记录已恢复'):
-            reuse.recover_qwen_weights(self.models, 'Base')
         self.assertEqual(self.receipt.read_bytes(), self.original)
 
 

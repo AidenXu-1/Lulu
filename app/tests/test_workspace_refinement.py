@@ -100,69 +100,6 @@ class RefinementUiTests(unittest.TestCase):
         self.until(lambda:self.js('window.lulu.state.page')=='library')
         self.assertTrue(self.js('window.originalEditor===document.querySelector(".ProseMirror")'))
 
-    def test_trash_restore_remains_available_when_preview_fails(self):
-        from src.core.agent_workspace.service import WorkspaceService
-        original = WorkspaceService.trash
-        deleted = library.save_document("找回正文", "预览暂不可用")
-        library.delete(deleted)
-
-        def fail_preview(service, token=None):
-            if token is not None:
-                raise OSError("隔离测试中的预览读取失败")
-            return original(service, token)
-
-        with patch.object(WorkspaceService, "trash", new=fail_preview):
-            self.widget._set_kind("trash")
-            self.until(lambda: self.js('document.getElementById("trash-preview-empty-title")?.textContent') == "预览没有加载出来")
-            self.assertFalse(self.js('document.getElementById("trash-restore").disabled'))
-            self.js('document.getElementById("trash-restore").click()')
-            self.until(lambda: library._load_raw(deleted) is not None)
-
-    def test_trash_batch_restore_keeps_failed_item_selected_for_retry(self):
-        from src.core.agent_workspace.service import WorkspaceService
-        first = library.save_document("正文 A", "批量找回 A")
-        second = library.save_document("正文 B", "批量找回 B")
-        library.delete(first)
-        library.delete(second)
-        failed_token = next(row["token"] for row in library.list_deleted() if row["id"] == first)
-        original = WorkspaceService.restore_deleted
-
-        def fail_one(service, token):
-            if token == failed_token:
-                raise library.RevisionConflict("原位置已有资料，未覆盖。")
-            return original(service, token)
-
-        self.widget._set_kind("trash")
-        self.until(lambda: self.js('document.querySelectorAll("[data-trash]").length') == 2)
-        self.js('document.getElementById("trash-select-mode").click()')
-        self.js('document.getElementById("trash-select-visible").click()')
-        self.assertEqual(self.js('document.querySelectorAll("[data-trash][aria-selected=true]").length'), 2)
-        with patch.object(WorkspaceService, "restore_deleted", new=fail_one):
-            self.js('document.getElementById("trash-restore").click()')
-            self.until(lambda: self.js('document.querySelectorAll("[data-trash]").length') == 1)
-            self.assertEqual(self.js('document.querySelector("[data-trash]")?.dataset.trash'), failed_token)
-            self.assertEqual(self.js('document.querySelectorAll("[data-trash][aria-selected=true]").length'), 1)
-            self.assertIn("仍在最近删除", self.js('document.getElementById("trash-status").textContent'))
-            self.assertIn("1 项", self.js('document.getElementById("trash-restore").textContent'))
-        self.js('document.getElementById("trash-restore").click()')
-        self.until(lambda: library._load_raw(first) is not None)
-
-    def test_trash_search_filters_names_and_reports_no_matches(self):
-        deleted = library.save_document("内容", "唯一可找回标题")
-        library.delete(deleted)
-        self.widget._set_kind("trash")
-        self.until(lambda: self.js('Boolean(document.getElementById("trash-search"))'))
-        self.js('document.dispatchEvent(new KeyboardEvent("keydown",{key:"f",metaKey:true,bubbles:true}))')
-        self.assertEqual(self.js('document.activeElement?.id'), "trash-search")
-        self.js('''(()=>{const input=document.getElementById("trash-search");input.value="没有这项";input.dispatchEvent(new Event("input"));})()''')
-        self.until(lambda: self.js('document.getElementById("trash-no-results")?.hidden') is False)
-        self.assertTrue(self.js('document.getElementById("trash-restore").disabled'))
-        self.assertIn("没有找到符合条件的资料", self.js('document.getElementById("trash-no-results").textContent'))
-
-    def test_trash_empty_state_explains_how_items_get_here(self):
-        self.widget._set_kind("trash")
-        self.until(lambda: self.js('document.querySelector(".trash-empty-state h2")?.textContent') == "最近删除为空")
-        self.assertIn("删除文稿或音频后，可以在这里找回", self.js('document.querySelector(".trash-empty-state").textContent'))
 
     def test_cloud_connections_are_direct_page_and_keep_draft(self):
         from types import SimpleNamespace

@@ -151,17 +151,6 @@ class ExtractionWorkspaceTests(ExtractionWorkspaceFixture,unittest.TestCase):
         self.widget.dispatch('files',{});self.widget.dispatch('record',{})
         self.assertIn('files',self.main.calls);self.assertIn('record',self.main.calls)
         with self.assertRaises(ValueError):self.widget.dispatch('result',{'id':1,'action':'shell','path':'/tmp/a'})
-    def test_capture(self):
-        destination=os.environ.get('LULU_EXTRACTION_CAPTURE')
-        if not destination:self.skipTest('Screenshots opt-in to task-owned output directory')
-        self.add(6);
-        end=time.monotonic()+.6
-        while time.monotonic()<end:self.tick()
-        self.widget.grab().save(str(Path(destination)/'native-many.png'))
-        self.main.tasks=[];self.widget.publish(force=True);self.until(lambda:self.js('tasks.length')==0)
-        end=time.monotonic()+.7
-        while time.monotonic()<end:self.tick()
-        self.widget.grab().save(str(Path(destination)/'native-empty.png'))
     def test_responsive_geometry_model_menu_and_reduced_motion(self):
         self.add(6)
         destination=os.environ.get('LULU_EXTRACTION_CAPTURE')

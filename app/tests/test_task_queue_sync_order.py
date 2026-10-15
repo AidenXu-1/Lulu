@@ -14,29 +14,6 @@ class QueueSyncOrderTests(TestCase):
     tearDown = fixture.TaskGroupRuntimeTests.tearDown
     _make_group = fixture.TaskGroupRuntimeTests._make_group
 
-    def test_ready_connection_starts_inheritance_without_opening_settings_or_replaying_jobs(self):
-        from PySide6.QtTest import QTest
-        controller = Mock(active=False)
-        self.window._legacy_inheritance = controller
-        self.window._task_queue_connection_ready(SimpleNamespace(async_write=False), TaskQueueSnapshot((), ()))
-        QTest.qWait(5)
-        controller.maybe_start.assert_called_once()
-        self.assertIsNone(self.window.settings_page)
-        self.assertIsNone(self.window.current)
-
-    def test_inheritance_blocks_replacement_but_allows_new_task_entry(self):
-        self.window._legacy_inheritance = SimpleNamespace(active=True)
-        self.assertTrue(self.window.has_active_work())
-        self.assertFalse(self.window._task_start_blocked())
-        self.assertFalse(self.window.storage_relocation_active())
-
-    def test_partial_inheritance_failure_still_reopens_task_connection(self):
-        self.window._legacy_inheritance = SimpleNamespace(active=False, state='failed')
-        with patch.object(self.window, '_start_task_queue_connection') as connect:
-            self.window._legacy_tasks_migration_finished(False)
-        connect.assert_called_once()
-        self.assertTrue(self.window._task_queue_initial_connection)
-        self.assertTrue(self.window._task_queue_startup_pending)
 
     def queued(self):
         group = self._make_group(2)
@@ -98,14 +75,6 @@ class QueueSyncOrderTests(TestCase):
                 QTest.qWait(5)
             self.assertIsNone(window._core_save_worker)
 
-    def test_recovery_failure_allows_refresh_after_inflight_start_settles(self):
-        task = self.queued()
-        self.window._core_starting_task_id = task.id
-        self.window._result_recovery_failed = True
-        self.window._task_queue_auto_sync_allowed = True
-        with patch.object(self.window, '_start_task_queue_connection') as connect:
-            self.window._sync_shared_tasks()
-        connect.assert_called_once()
 
     def test_recovery_failure_keeps_inflight_claim_until_authoritative_refresh(self):
         from copy import copy

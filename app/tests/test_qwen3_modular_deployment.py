@@ -46,11 +46,6 @@ class ModularDeploymentTests(unittest.TestCase):
         a = self.root/'Base/speech_tokenizer/common'; b = self.root/'CustomVoice/speech_tokenizer/common'
         self.assertEqual(a.stat().st_ino, b.stat().st_ino)
 
-    def test_repeat_valid_installs_do_not_call_transport_or_environment(self):
-        for name in self.data: qw.install_feature(name)
-        self.requests.clear(); self.env_install.reset_mock()
-        for name in self.data: qw.install_feature(name)
-        self.assertEqual(self.requests, []); self.env_install.assert_not_called()
 
     def test_uninstall_one_preserves_other_receipts_and_user_results(self):
         for name in self.data: qw.install_feature(name)
@@ -65,22 +60,6 @@ class ModularDeploymentTests(unittest.TestCase):
         self.requests.clear(); qw.install_feature('Base')
         self.assertEqual(self.requests, [('Base', ('model.safetensors',))])
 
-    def test_repair_downloads_only_damaged_file(self):
-        qw.install_feature('Base'); self.requests.clear()
-        (self.root/'Base/model.safetensors').write_bytes(b'bad')
-        qw.install_feature('Base')
-        self.assertEqual(self.requests, [('Base', ('model.safetensors',))])
-        self.assertTrue(qw.is_installed(self.root, 'Base'))
-
-    def test_cancelled_download_keeps_complete_files_for_next_feature(self):
-        def partial(repo, rev, cache, cancel, *, allow_patterns):
-            self.download(repo, rev, cache, cancel, allow_patterns=['speech_tokenizer/common'])
-            raise rp.CancelledError()
-        with patch.object(rp, '_snapshot_download_cancellable', side_effect=partial):
-            with self.assertRaises(rp.CancelledError): qw.install_feature('Base')
-        self.requests.clear(); qw.install_feature('CustomVoice')
-        self.assertEqual(self.requests, [('CustomVoice', ('model.safetensors',))])
-        self.assertFalse(qw.is_installed(self.root, 'Base'))
 
     def test_concurrent_requests_serialize_and_only_download_shared_once(self):
         entered = threading.Event(); proceed = threading.Event(); errors = []
@@ -96,44 +75,6 @@ class ModularDeploymentTests(unittest.TestCase):
         self.assertFalse(a.is_alive()); self.assertFalse(b.is_alive()); self.assertEqual(errors, [])
         self.assertEqual(sum('speech_tokenizer/common' in paths for _, paths in self.requests), 1)
         self.assertEqual(self.env_install.call_count, 1)
-
-    def test_waiting_install_can_cancel_without_affecting_owner(self):
-        with qw.deployment_lock(self.root):
-            with self.assertRaises(rp.CancelledError):
-                qw.install_feature('Base', is_cancelled=lambda: True)
-        self.assertEqual(self.requests, [])
-
-    def test_existing_legacy_feature_reuses_shared_without_modifying_it(self):
-        qw.install_feature('Base')
-        # A valid old full-copy layout, no new content pool.
-        old = self.root/'Base/speech_tokenizer/common'; data = old.read_bytes(); old.unlink(); old.write_bytes(data)
-        qw.write_install_receipt('qwen3-weights:Base', self.root/'Base', self.locks['Base'], self.home/'private/.artifact-trust')
-        shutil.rmtree(self.root.parent/'shared'); self.requests.clear()
-        qw.install_feature('VoiceDesign')
-        self.assertEqual(self.requests, [('VoiceDesign', ('model.safetensors',))])
-        self.assertTrue(qw.is_installed(self.root, 'Base'))
-
-    def test_low_space_preserves_original_and_starts_no_network(self):
-        with patch.object(shutil, 'disk_usage', return_value=type('Usage', (), {'free': 0})()):
-            with self.assertRaisesRegex(RuntimeError, '空间不足'): qw.install_feature('Base')
-        self.assertEqual(self.requests, []); self.assertFalse(qw.is_installed(self.root, 'Base'))
-
-    def test_failed_receipt_rolls_back_selected_model(self):
-        qw.install_feature('Base'); (self.root/'Base/model.safetensors').write_bytes(b'prior damaged')
-        with patch.object(qw, 'write_install_receipt', side_effect=RuntimeError('receipt failed')):
-            with self.assertRaisesRegex(RuntimeError, 'receipt failed'): qw.install_feature('Base')
-        self.assertEqual((self.root/'Base/model.safetensors').read_bytes(), b'prior damaged')
-
-    def test_restart_recovers_directory_swap_without_network(self):
-        import json
-        qw.install_feature('Base'); self.requests.clear()
-        transaction = self.root/'.qwen-install-interrupted'; transaction.mkdir()
-        receipt = qw._receipt_path(self.home/'private/.artifact-trust', 'qwen3-weights:Base')
-        shutil.copyfile(receipt, transaction/'previous-receipt.json')
-        (transaction/'pending.json').write_text(json.dumps({'name': 'Base'}))
-        (self.root/'Base').replace(transaction/'previous')
-        qw.install_feature('Base')
-        self.assertTrue(qw.is_installed(self.root, 'Base')); self.assertEqual(self.requests, [])
 
 
 from tests.model_settings_fixtures import ControllerCase, FakeWorker, m

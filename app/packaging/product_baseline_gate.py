@@ -12,10 +12,8 @@ import subprocess
 import tempfile
 
 
-# 0.2.15 complete product baseline: collection, libraries, persistent tasks,
-# proportional progress, model management and release/update surfaces are all
-# present. Later repairs may extend it, but package candidates must inherit it.
-COMPLETE_PRODUCT_BASELINE = "aae73b53fc9d1ab1d6132d22113a4f69a42a076c"
+# Accepted public 4.2.1 product baseline, available in a normal clone.
+COMPLETE_PRODUCT_BASELINE = "710e484e883e8df53f0d733d74fa24d231e6a17d"
 _OBJECT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 

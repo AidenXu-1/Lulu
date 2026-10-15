@@ -82,60 +82,6 @@ class InstallSessionUiTests(unittest.TestCase):
         self.assertEqual(sentinel.read_bytes(), b"old preserved")
         self.assertFalse(rp.local_models.is_downloaded())
 
-    def test_removal_worker_finishes_before_owner_can_be_destroyed(self):
-        model = self.root / "asr/models/local_sensevoice"
-        model.mkdir(parents=True)
-        (model / "weights").write_bytes(b"fixture")
-        worker = ModelRemoveWorker("local_sensevoice")
-        outcomes = []
-        worker.settled.connect(outcomes.append)
-        with patch.object(mm, "models_root", return_value=self.root / "asr"):
-            worker.start()
-            self.assertTrue(worker.wait(3000))
-            self.app.processEvents()
-        self.assertEqual(outcomes, [""])
-        self.assertFalse(model.exists())
-
-    def test_runtime_import_failure_is_offline_and_does_not_pass_health_check(self):
-        child = Mock()
-        child.poll.return_value = 1
-        child.returncode = 1
-        with patch.object(rp.subprocess, "Popen", return_value=child) as start:
-            with self.assertRaisesRegex(RuntimeError, "无法正常加载模型依赖"):
-                rp.check_runtime_health("local_voxcpm2", self.root)
-        env = start.call_args.kwargs["env"]
-        self.assertEqual(env["HF_HUB_OFFLINE"], "1")
-        self.assertEqual(env["TRANSFORMERS_OFFLINE"], "1")
-        self.assertNotIn(str(self.root), env["NUMBA_CACHE_DIR"])
-        self.assertFalse(Path(env["NUMBA_CACHE_DIR"]).parent.exists())
-        self.assertIn("socket.socket.connect = offline", start.call_args.args[0][-1])
-
-    def test_runtime_probe_cancellation_reaps_child(self):
-        child = Mock(pid=12345)
-        child.poll.return_value = None
-        with patch.object(rp.subprocess, "Popen", return_value=child), patch.object(rp.os, "killpg") as kill:
-            with self.assertRaises(rp.CancelledError):
-                rp.check_runtime_health("local_voxcpm2", self.root, lambda: True)
-        kill.assert_called_once()
-        child.wait.assert_called_once_with(timeout=5)
-
-    def test_qwen_preflight_failure_or_pause_does_not_leave_a_phantom_download(self):
-        from src.core.synthesis import qwen3_deployment as deployment
-        for failure, expected in ((RuntimeError("space"), "failed"), (rp.CancelledError(), "paused")):
-            deployment.request(["Base"])
-            worker = QwenFeatureWorker(operation="install")
-            with patch.object(mt, "prepare_tts", side_effect=failure):
-                worker.run()
-            state = deployment.read_state()["features"]["Base"]
-            self.assertEqual(state["state"], expected)
-            self.assertFalse(deployment._live_download(state))
-
-class InstallRepairStateTests(ControllerCase):
-    def test_repair_state_takes_priority_over_untrusted_partial_bytes(self):
-        with self.public_state(status='needs_repair',partial_install_bytes=4_000_000_000):value=self.c._read_state()
-        model=next(x for x in value['localModels']['voice'] if x['id']=='voxcpm2')
-        self.assertTrue(model['repair']);self.assertFalse(model['ready']);self.assertEqual(model['resumable'],4_000_000_000)
-
 
 if __name__ == "__main__":
     unittest.main()

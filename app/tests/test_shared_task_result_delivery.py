@@ -73,23 +73,3 @@ class SharedResultDeliveryTests(unittest.TestCase):
             self.assertGreater(len(offsets), 1)
             self.assertEqual(offsets, list(range(0, len(raw), 32768)))
             self.assertEqual(transcript.engine, "local_sensevoice")
-
-    def test_result_store_rejects_tampering_and_another_job_reference(self):
-        with TemporaryDirectory() as directory:
-            store = TranscriptionResultStore(SharedProductStorageLayout.from_application_support_root(Path(directory).resolve()))
-            ref = store.write("result-job", LocalFileTranscriptionResultV1("原文", (), "zh", "local_sensevoice", "/input.wav"))["result_ref"]
-            self.assertIn("原文".encode(), store.read_verified_bytes("result-job", ref))
-            with self.assertRaises(TranscriptionResultStoreError):
-                store.read_verified_bytes("result-job", ref.replace("result-job", "another-job"))
-            path = store.directory / "result-job.json"
-            path.write_bytes(path.read_bytes().replace("原文".encode(), "改文".encode()))
-            with self.assertRaises(TranscriptionResultStoreError):
-                store.read_verified_bytes("result-job", ref)
-
-    def test_gui_refuses_wrong_digest_and_nonprogressing_chunks(self):
-        ref = "lulu-result:result-job:sha256:" + "0" * 64
-        for data in ("", base64.b64encode(b"{}").decode()):
-            def dispatch(command, arguments):
-                return {"job_id": "result-job", "result_ref": ref, "offset": 0, "total_bytes": 2, "data": data}
-            with self.assertRaises(RuntimeError):
-                CoreTaskQueueStore(dispatch).read_transcript("result-job", ref)

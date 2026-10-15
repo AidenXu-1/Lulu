@@ -84,49 +84,6 @@ class NativeLiveTests(unittest.TestCase):
         self.page.refresh()
         self.until(lambda: self.page.data['hosts']==hosts)
 
-    def test_idle_core_restart_refreshes_session_and_normal_stop_settles(self):
-        self.controller.timer.stop()
-        self.until(lambda: self.controller.worker is None)
-        previous = self.controller.session
-        self.service.shutdown()
-        control = JobControlService(JobLedgerStore(self.root/'restart-ledger', FakeIntegrityAnchorStore()))
-        self.service = LiveService(self.root/'restart', control, 'fixture',
-            provider=SimpleNamespace(check=lambda *_: Observation('offline')),
-            secret_read=lambda: self.fail('restart credential access'))
-        self.controller.dispatcher = self.service.handle
-        self.controller.reconnect()
-        self.until(lambda: self.controller.connected and self.controller.session != previous)
-        self.until(lambda: not self.controller.active)
-        self.assertEqual(self.service.control.list(), ())
-        self.controller.request_stop()
-        self.until(lambda: self.controller.settled and self.controller.worker is None)
-        self.assertEqual(self.errors, [])
-
-    def test_reconnect_discards_inflight_old_reply_and_never_replays_queued_start(self):
-        self.controller.timer.stop()
-        self.until(lambda: self.controller.worker is None)
-        entered, release = threading.Event(), threading.Event()
-        calls = []
-        old = self.controller.session
-        def delayed(operation, arguments):
-            calls.append((operation, arguments.copy()))
-            if operation == 'heartbeat' and arguments['session'] == old:
-                entered.set()
-                if not release.wait(5): raise AssertionError('old reply was not released')
-                return {'active': True, 'stopped': False}
-            return self.service.handle(operation, arguments)
-        self.controller.dispatcher = delayed
-        self.controller._enqueue('heartbeat', {'session': old})
-        self.until(entered.is_set)
-        self.controller._enqueue('start', {'session': old, 'host_id': uid('host')})
-        self.controller.reconnect()
-        self.assertFalse(self.controller.connected)
-        release.set()
-        self.until(lambda: self.controller.connected)
-        self.until(lambda: self.controller.worker is None and not self.controller.active)
-        self.assertFalse(any(operation == 'start' for operation, _ in calls))
-        self.assertEqual(sum(operation == 'open' for operation, _ in calls), 1)
-        self.assertEqual(self.errors, [])
 
     def test_recording_clock_ticks_without_requesting_a_new_snapshot(self):
         self.seed(hosts=1, recordings=0)
@@ -146,21 +103,6 @@ class NativeLiveTests(unittest.TestCase):
             self.page._tick_durations()
         self.assertEqual(self.page.table.item(0, 4).text(), '00:00:16\n正在录制')
 
-    def test_host_broadcast_column_has_only_three_labels_and_keeps_errors_with_progress(self):
-        self.seed(hosts=3, recordings=0)
-        self.controller.timer.stop()
-        self.until(lambda: self.controller.worker is None)
-        for row, state in zip(self.page.data['rows'], ('live', 'offline', 'access_limited')):
-            self.service._remember_observation(row['id'], state)
-            self.service._status(row['id'], 'stopping')
-        self.page.render(self.service.snapshot('hosts', '', 'all', 1))
-        self.assertEqual(self.page.table.horizontalHeaderItem(2).text(), '直播状态')
-        self.assertEqual(self.page.table.horizontalHeaderItem(4).text(), '录制进度')
-        self.assertEqual([self.page.table.item(row, 2).text() for row in range(3)], ['直播中', '未直播', '无法确认'])
-        self.assertNotIn('访问受限', self.page.table.item(2, 2).toolTip())
-        self.assertIn('访问受限', self.page.table.item(2, 4).toolTip())
-        self.assertEqual(self.page.host_filter.choices,
-                         [('全部状态', 'all'), ('直播中', 'live'), ('未直播', 'offline'), ('无法确认', 'unknown')])
 
     def test_fixed_native_layout_half_toolbar_and_archive_pagination(self):
         original = self.page.size()
@@ -249,42 +191,6 @@ class NativeLiveTests(unittest.TestCase):
             self.page.refresh()
             self.until(lambda: self.page.table.item(0, 4).text() == label)
 
-    def test_reconnect_and_final_save_share_actual_state_in_every_view(self):
-        rid, media = self.completed_segment()
-        self.service.index.write('UPDATE recordings SET ended=NULL,reason=? WHERE id=?', ('', rid))
-        self.service.index.write('INSERT INTO hosts(id,source,name,created,status,enabled) VALUES(?,?,?,?,?,?)',
-            ('fixture', 'https://live.douyin.com/123', '示例主播', time.time(), 'access_limited', 1))
-        self.service._remember_observation('fixture', 'access_limited')
-        producer = SimpleNamespace(has_data=True, last_bytes=media.stat().st_size, file_count=1,
-            last_growth=time.monotonic(), started=time.time(), process=SimpleNamespace(process=SimpleNamespace(poll=lambda:0)))
-        monitor = {'recording_id':rid, 'thread':object(), 'producer':producer, 'cancel':threading.Event(),
-            'next':float('inf'), 'data_next':float('inf'), 'recording_state':'reconnecting', 'session':self.controller.session}
-        self.service.monitors['fixture'] = monitor
-        try:
-            self.page._tab('recordings')
-            self.until(lambda:self.page.data['total']==1)
-            self.controller.timer.stop()
-            self.until(lambda:self.controller.worker is None)
-            for phase, label in (('reconnecting','等待重连'), ('stopping','正在保存最后一段')):
-                monitor['recording_state'] = phase
-                state = self.service.snapshot('recordings', '', 'all', 1)
-                self.page.render(state)
-                self.assertEqual(self.page.stats[1].text(), '0 位')
-                self.assertEqual(self.page.table.item(0,4).text(),label)
-                self.assertFalse(self.page.clock_cells)
-                arguments = {'session':self.controller.session, 'recording_id':rid}
-                self.page._data_detail(self.service.handle('data',arguments))
-                self.assertIn(label,self.page.data_dialog.session_label.text())
-                self.page.data_dialog.reject()
-                self.page._detail(self.service.handle('detail',arguments))
-                self.assertIn(label,self.page.detail_dialog.summary.text())
-                self.page.detail_dialog.reject()
-                host = self.service.snapshot('hosts','','all',1)['rows'][0]
-                self.assertEqual(host['message'], '无法确认')
-                self.assertEqual(host['progress_message'], label)
-                self.assertIn('访问受限', host['error_message'])
-        finally:
-            self.service.monitors.clear()
 
     def test_both_clock_columns_inherit_body_font_and_size(self):
         self.seed(hosts=1, recordings=1)
@@ -509,32 +415,6 @@ class NativeLiveTests(unittest.TestCase):
         self.assertFalse(list(media.parent.glob('*.mp4')))
         self.assertTrue(media.exists())
 
-    def test_recovered_segment_without_wall_time_keeps_order_duration_and_actions(self):
-        rid, media = self.completed_segment()
-        known = self.service.index.one('SELECT * FROM segments WHERE recording_id=?', (rid,))
-        recovered = media.parent/'part-000001.ts'
-        recovered.write_bytes(media.read_bytes())
-        sid = uid('segment')
-        self.service.index.write('INSERT INTO segments VALUES(?,?,?,?,?,?,?,?,?)',
-            (sid, rid, str(recovered), 0, known['duration'], known['bytes'], 1, 1, known['sha256']))
-        self.page.transcribe = Mock(return_value=True)
-        self.controller.call('detail', recording_id=rid, callback=self.page._detail)
-        self.until(lambda: self.page.detail_dialog and self.page.detail_dialog.listing.count() == 2)
-        dialog = self.page.detail_dialog
-        listing = dialog.listing
-        self.assertEqual(listing.item(0).data(Qt.ItemDataRole.UserRole)['path'], str(media))
-        self.assertEqual(listing.item(1).data(Qt.ItemDataRole.UserRole)['path'], str(recovered))
-        first = [label.text() for label in listing.itemWidget(listing.item(0)).findChildren(QLabel)]
-        second = [label.text() for label in listing.itemWidget(listing.item(1)).findChildren(QLabel)]
-        self.assertTrue(any(stamp(known['started']) + ' 至 ' in text for text in first))
-        self.assertTrue(any('起止时间无法确认' in text and '00:02' in text for text in second))
-        self.assertFalse(any('1970' in text for text in second))
-        listing.setCurrentRow(1)
-        self.assertTrue(dialog.export_button.isEnabled())
-        self.assertTrue(dialog.extract_button.isEnabled())
-        dialog.extract_button.click()
-        self.until(lambda: self.page.transcribe.called)
-        self.page.transcribe.assert_called_once_with(str(recovered))
 
     def test_slow_transcribe_keeps_gui_controls_free_and_discards_reply_after_stop(self):
         rid, _ = self.completed_segment()

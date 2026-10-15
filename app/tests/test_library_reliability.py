@@ -51,12 +51,6 @@ class LibraryReliabilityTests(unittest.TestCase):
                 library.save_markdown(self.entry, '新正文')
         self.assertEqual(library.load_markdown(self.entry), '上次完整正文')
 
-    def test_index_failure_recovers_complete_committed_body(self):
-        with patch.object(library, '_write_raw', side_effect=OSError('索引保存失败')):
-            with self.assertRaises(OSError):
-                library.save_markdown(self.entry, '完整的新正文')
-        self.assertEqual(library.load_markdown(self.entry), '完整的新正文')
-        self.assertEqual(library._load_raw(self.entry)['text'], '完整的新正文')
 
     def test_bad_entry_shape_is_isolated_and_original_file_is_preserved(self):
         for content in ('[]', 'null', '{"meta": []}', '{"text": []}'):

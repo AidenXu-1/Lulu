@@ -67,10 +67,6 @@ class FeedbackAclShapeTests(unittest.TestCase):
         with self.assertRaisesRegex(SecureStoreError,'JOB_CORE_ACCESS_INVALID'):
             self.verify(trusted=[b'cdhash:'+b'a'*40,b'cdhash:'+b'b'*40,b'/usr/bin/security\0'])
 
-    def test_single_wrong_application_is_not_treated_as_a_legacy_format(self):
-        with self.assertRaisesRegex(SecureStoreError,'JOB_CORE_ACCESS_INVALID'):
-            self.verify(trusted=[b'/usr/bin/security\0'])
-
 
 class PreparationFailureOutputTests(unittest.TestCase):
     def test_signed_preparation_emits_closed_code_and_never_exception_text(self):

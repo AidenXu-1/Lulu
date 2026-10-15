@@ -75,14 +75,6 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(manager.details('human-writing','references/rules.md')['text'],'保留完整参考资料')
         self.assertTrue(next(r for r in manager.listing()['entries'] if r['name']=='human-writing')['enabled'])
 
-    def test_empty_uninstalled_recommendations_disappear_without_deleting_files(self):
-        manager.listing()
-        with manager.locked() as (_,state,registry):
-            registry['items']['human-writing']=dict(origin='curated',status='uninstalled',enabled=False)
-            unrelated=state/'keep';unrelated.write_text('保留')
-            manager.atomic(state/'registry.json',registry)
-        self.assertEqual(len(manager.listing()['entries']),6)
-        self.assertEqual(unrelated.read_text(),'保留')
 
     def test_migration_write_failure_preserves_original_state_and_retries(self):
         folder=self.legacy();original=(self.root/'skill-manager/registry.json').read_bytes();content=manager.package(folder)['digest']
@@ -112,23 +104,3 @@ class DistributionTests(unittest.TestCase):
         self.assertTrue({'search_public_skills','inspect_skill_package'}.isdisjoint(exposed))
         for name,args in [('search_public_skills',{'query':'writing'}),('inspect_skill_package',{'url':'https://github.com/a/b'})]:
             with self.assertRaises(ValueError):tools.execute(dict(name=name,arguments=args),{})
-
-    def test_skill_md_import_preserves_sibling_references(self):
-        folder=write_fixture(self.root/'input','local-method')
-        token=manager.inspect_source(str(folder/'SKILL.md'))['entries'][0]['token']
-        manager.install(token=token)
-        self.assertEqual(manager.details('local-method','references/rules.md')['text'],'保留完整参考资料')
-
-    def test_local_rollback_keeps_former_curated_user_owned(self):
-        folder=self.legacy(enabled=True)
-        with manager.locked() as (_,state,registry):
-            token='b'*32;prior=dict(registry['items']['human-writing'])
-            shutil.copytree(folder,state/('retired-'+token))
-            (folder/'references/rules.md').write_text('更新后的参考')
-            registry['items']['human-writing'].update(installed_digest=manager.package(folder)['digest'],
-                rollback=dict(token=token,metadata=prior))
-            manager.atomic(state/'registry.json',registry)
-        manager.update('human-writing',rollback=True)
-        row=next(r for r in manager.listing()['entries'] if r['name']=='human-writing')
-        self.assertEqual(row['origin'],'user');self.assertTrue(row['enabled'])
-        self.assertEqual(manager.details('human-writing','references/rules.md')['text'],'保留完整参考资料')

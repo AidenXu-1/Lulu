@@ -31,7 +31,7 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 if [[ -z "$BUILD_IDENTITY" || -z "$VENV_PATH" ]]; then
-  echo "错误：必须显式提供 --identity candidate|trusted-test|trusted-test-safe-e2e|production 与 --venv /absolute/path。" >&2
+  echo "错误：必须显式提供 --identity candidate|production 与 --venv /absolute/path。" >&2
   exit 2
 fi
 if [[ "$VENV_PATH" != /* || ! -d "$VENV_PATH" || -L "$VENV_PATH" ]]; then
@@ -63,20 +63,12 @@ case "$BUILD_IDENTITY" in
     BUILD_PROFILE="external_candidate"
     APP_PREFIX="Lulu"
     ;;
-  trusted-test)
-    BUILD_PROFILE="trusted_test"
-    APP_PREFIX="Lulu-Trusted-Test"
-    ;;
-  trusted-test-safe-e2e)
-    BUILD_PROFILE="trusted_test_safe_e2e"
-    APP_PREFIX="Lulu-Trusted-Test-Safe-E2E"
-    ;;
   production)
     BUILD_PROFILE="external_candidate"
     APP_PREFIX="Lulu"
     ;;
   *)
-    echo "错误：未知构建身份；只接受 candidate、trusted-test、trusted-test-safe-e2e 或 production。" >&2
+    echo "错误：未知构建身份；只接受 candidate 或 production。" >&2
     exit 2
     ;;
 esac
@@ -93,11 +85,6 @@ SOURCE_CHANNEL="$($VENV/python packaging/version_value.py channel)"
 if [[ "$BUILD_IDENTITY" == "candidate" ]]; then
   if [[ "$SOURCE_CHANNEL" != "candidate" || "${LULU_UPDATE_RELEASE:-0}" != "0" || -n "${LULU_UPDATE_PUBLIC_KEY_PATH:-}" ]]; then
     echo "错误：candidate 只接受 candidate/non-release 源码，且禁止更新发布输入。" >&2
-    exit 1
-  fi
-elif [[ "$BUILD_IDENTITY" == "trusted-test" || "$BUILD_IDENTITY" == "trusted-test-safe-e2e" ]]; then
-  if [[ "$SOURCE_CHANNEL" != "trusted-test" ]]; then
-    echo "错误：测试包必须使用 trusted-test 源码通道。" >&2
     exit 1
   fi
 elif [[ "$BUILD_IDENTITY" == "production" ]]; then
@@ -175,12 +162,6 @@ if [[ -n "$(/usr/bin/git -C .. status --porcelain=v1 --untracked-files=all)" ]];
   echo "错误：候选构建只接受完全干净的 Git worktree；请先提交或移走未提交文件。" >&2
   exit 2
 fi
-if [[ "$BUILD_PROFILE" == "trusted_test" || "$BUILD_PROFILE" == "trusted_test_safe_e2e" ]]; then
-  if [[ "${LULU_UPDATE_RELEASE:-0}" != "0" || -n "${LULU_UPDATE_PUBLIC_KEY_PATH:-}" ]]; then
-    echo "错误：${BUILD_PROFILE} 不接受更新发布标记或对外更新公钥。" >&2
-    exit 1
-  fi
-fi
 
 echo "==> 0/5 校验完整产品源码基线"
 if [[ -n "$BASELINE_REVISION" ]]; then
@@ -214,11 +195,6 @@ SOURCE_COMMIT="$("$VENV/python" -c 'import json; print(json.load(open("build_pro
 SOURCE_TREE="$("$VENV/python" -c 'import json; print(json.load(open("build_profile.json", encoding="utf-8"))["source_tree"])')"
 
 rm -f update_public_key.pem
-if [[ "$BUILD_PROFILE" == "trusted_test" ]]; then
-  "$VENV/python" src/release_features.py create \
-    --profile trusted_test --output release_features.json
-  cleanup_release_features=1
-fi
 if [[ "$BUILD_IDENTITY" == "production" && "${LULU_UPDATE_RELEASE:-0}" == "1" ]]; then
   UPDATE_PUBLIC_KEY_PATH="${LULU_UPDATE_PUBLIC_KEY_PATH:-}"
   if [[ -z "$UPDATE_PUBLIC_KEY_PATH" || ! -f "$UPDATE_PUBLIC_KEY_PATH" || -L "$UPDATE_PUBLIC_KEY_PATH" ]]; then

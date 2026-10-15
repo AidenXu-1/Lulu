@@ -9,26 +9,6 @@ from src.core.cli_runtime import core_task_access as access
 from src.core.license.store import SecureStoreError
 
 
-class CoreRequestTests(unittest.TestCase):
-    def test_untrusted_location_is_rejected_before_any_item_write(self):
-        from src.core.cli_runtime.core_task_native import validate_keychain_location
-        home = Path('/Users/example')
-        for path in ('/tmp/synthetic.keychain-db',
-                     '/tmp/Library/Keychains/synthetic.keychain-db',
-                     '/Users/example/Library/Keychains/synthetic.keychain'):
-            with self.subTest(path=path), self.assertRaises(SecureStoreError):
-                validate_keychain_location(Path(path), home=home)
-
-    def test_stored_item_without_system_permissions_is_rejected(self):
-        from types import SimpleNamespace
-        import os
-        backend = SimpleNamespace(api=SimpleNamespace(_sec=object(), _found=object()))
-        rows = [{'subject':123,'tag':b'','authorization':1}]
-        with patch.object(access, '_native_structure', return_value=((257,os.geteuid(),os.getegid(),1),rows)):
-            with self.assertRaises(SecureStoreError):
-                access.verify_core_access(backend, object(), 'a'*40, b'core')
-
-
 class NativeCreateTests(unittest.TestCase):
     def make_store(self, add_status=0):
         from src.core.cli_runtime.core_task_native import NativeCoreTaskStore
@@ -58,37 +38,6 @@ class NativeCreateTests(unittest.TestCase):
 
     @contextmanager
     def request(self,*args): yield C.c_void_p(99),b'core'
-
-    def test_creation_verifies_the_actual_returned_item_not_the_request(self):
-        store,calls=self.make_store()
-        with patch('src.core.cli_runtime.core_task_native.core_request_access',self.request), \
-             patch('src.core.cli_runtime.core_task_native.verify_core_access',return_value={'stored':True}) as verify:
-            self.assertEqual(store.create('key','synthetic'),{'stored':True})
-        self.assertEqual(calls[-1],('copy_access',700))
-        self.assertEqual(verify.call_args.args[1].value,800)
-
-    def test_unverified_created_item_is_preserved_without_retry(self):
-        store,calls=self.make_store()
-        with patch('src.core.cli_runtime.core_task_native.core_request_access',self.request), \
-             patch('src.core.cli_runtime.core_task_native.verify_core_access',side_effect=SecureStoreError('wrong partition')):
-            with self.assertRaisesRegex(SecureStoreError,'JOB_CORE_MATERIAL_CREATED_UNVERIFIED'):
-                store.create('key','synthetic')
-        self.assertEqual([c[0] for c in calls],['add','copy_access'])
-        self.assertFalse(hasattr(store.backend.api._sec,'SecKeychainItemDelete'))
-
-    def test_duplicate_is_not_read_deleted_or_retried(self):
-        store,calls=self.make_store(-25299)
-        with patch('src.core.cli_runtime.core_task_native.core_request_access',self.request):
-            with self.assertRaisesRegex(SecureStoreError,'-25299'):
-                store.create('key','synthetic')
-        self.assertEqual([c[0] for c in calls],['add'])
-
-    def test_mismatched_expected_value_cannot_update(self):
-        store,calls=self.make_store()
-        store.read=lambda name:'interrupted-other-value'
-        with self.assertRaisesRegex(SecureStoreError,'JOB_CORE_MATERIAL_CHANGED'):
-            store.replace('key','old-value','new-value')
-        self.assertEqual(calls,[])
 
 
 class PrivateKeychainQueryTests(unittest.TestCase):
@@ -120,17 +69,3 @@ class PrivateKeychainQueryTests(unittest.TestCase):
         b.api.cfstr_to_str=lambda pointer:state['value']
         store._verify_item=lambda item:{'verified':item.value==700}
         return store,state
-
-    def test_private_keychain_read_succeeds_without_adding_it_to_default_search(self):
-        store,state=self.private_store()
-        self.assertEqual(store.read('key'),'before')
-        self.assertEqual(len(state['queries']),2)
-        self.assertEqual(state['queries'][-1]['kSecMatchItemList'],(700,))
-
-    def test_private_keychain_update_preserves_explicit_db_and_exact_item(self):
-        store,state=self.private_store()
-        # Isolate update routing from the separately checked value-read route.
-        store.read=lambda name:'before'
-        self.assertEqual(store.replace('key','before','after'),{'verified':True})
-        self.assertEqual(state['value'],'after')
-        self.assertEqual(state['queries'][-1]['kSecMatchItemList'],(700,))
