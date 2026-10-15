@@ -12,8 +12,8 @@
     },
     {
       "path": "BUILDING.md",
-      "size": 3776,
-      "sha256": "d73718bc37f3d12ea3a4a59c701d9379091c1bf69297656f62e59756b175cea4"
+      "size": 3826,
+      "sha256": "ab759063671628842f8042e5e8b3633b56ef8055a172c0323969883c6cd09bd8"
     },
     {
       "path": "LICENSE",
@@ -244,11 +244,6 @@
       "path": "app/packaging/make_authorship.py",
       "size": 2385,
       "sha256": "689bf51bb09202c53ac6f55dc50be2628deb60942ed97260e2e72f7f8cd3d456"
-    },
-    {
-      "path": "app/packaging/make_cli_launcher.py",
-      "size": 8824,
-      "sha256": "b0ea705f8341fa9df01766d68f2f55a1aef23806e81f3e30bc77ab07a4f01622"
     },
     {
       "path": "app/packaging/make_icns.py",
@@ -2851,24 +2846,14 @@
       "sha256": "481165fbc40cbb927ff31783b2c9e6b68c4956365f400d7ed8c99cc15291a5bd"
     },
     {
-      "path": "app/tests/fixtures/indextts_quality_cases.json",
-      "size": 1276,
-      "sha256": "7741653b4cf905d68c9fa7d9d7a344f8071593fa2b8f126f3e792e5f72b823cb"
-    },
-    {
-      "path": "app/tests/fixtures/prompt_quality_cases.json",
-      "size": 12060,
-      "sha256": "f80272a19a0091a5983f33985fb67a54189894f384635120b696bfded56e1079"
-    },
-    {
-      "path": "app/tests/fixtures/s1c3_golden_vector.json",
-      "size": 3603,
-      "sha256": "0a36687791e39ea5dd9e80e50d298e71d63c2fd679d100aa92210bc19c202661"
-    },
-    {
       "path": "app/tests/model_settings_fixtures.py",
       "size": 3694,
       "sha256": "528641d1e50a6abfa4711106ce574c96db903aaacf85c18854042bf8f8937bdc"
+    },
+    {
+      "path": "app/tests/model_settings_frontend_child.py",
+      "size": 18197,
+      "sha256": "8b2bc569ad3aaa14ccd817e2870e6ca1293ad75ef03dbc0745655c2db83dab8f"
     },
     {
       "path": "app/tests/model_settings_frontend_probe.py",
@@ -2876,9 +2861,14 @@
       "sha256": "cbdc2e2715e632802faadea55e2af49596e4d25fb501815cfd67f05ff3c7d863"
     },
     {
-      "path": "app/tests/native/lulu_transport_identity_fixture.c",
-      "size": 11563,
-      "sha256": "f36169e7428126e547b33e53e816a050acc37dbdfd85025d088043c0143b3437"
+      "path": "app/tests/model_settings_native_child.py",
+      "size": 5972,
+      "sha256": "31b595afecad003ccaa82d116ec6ee3fe0edc67c883345f540ce95e73dc36a24"
+    },
+    {
+      "path": "app/tests/qwen_deployment_child.py",
+      "size": 1608,
+      "sha256": "3fda56eb894335a90f29eb8bc7693be4df9a68584ef086f72e70171c6e441582"
     },
     {
       "path": "app/tests/test_adversarial_delivery.py",
@@ -3657,8 +3647,8 @@
     },
     {
       "path": "app/tests/test_update_launch.py",
-      "size": 16440,
-      "sha256": "a3cd0c6fc5e7461084084038afd593d194a4be815df8d3055d8c89d69fb144e6"
+      "size": 16489,
+      "sha256": "fc1e10ce7e4e56746ae9ccc1482f1ca5cc5cf299f877f00c06a222f3e62064f9"
     },
     {
       "path": "app/tests/test_update_recovery.py",

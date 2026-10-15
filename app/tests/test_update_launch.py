@@ -269,3 +269,7 @@ class UpdateLaunchTests(unittest.TestCase):
         raw=(self.root/'diagnostic/diagnostics/failures.json').read_text()
         self.assertNotIn('private arbitrary content',raw)
         self.assertEqual(json.loads(raw)['events'][-1]['causes'][0]['errno'],28)
+
+
+class ReachedHandover(BaseException):
+    pass

@@ -39,7 +39,7 @@ cd app
 .venv/bin/python -m pip install 'pyinstaller>=6.20'
 ```
 
-使用正常 Git 克隆取得源码，保留 Git 历史；工作区须干净，修改后先提交。`LULU_BUILD_ROOT` 和 `LULU_DIST_ROOT` 必须是尚不存在的绝对路径，最后一级目录名称需与当前版本和构建号对应。
+使用正常 Git 克隆取得源码，保留 Git 历史；工作区须干净，修改后先提交。`LULU_BUILD_ROOT` 和 `LULU_DIST_ROOT` 必须使用下面的绝对路径，分别位于当前仓库的 `app/build/` 和 `app/dist/`。首次构建使用新目录或空目录。
 
 ```sh
 export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261015.1"
@@ -48,7 +48,7 @@ export LULU_PRODUCTION_RELEASE_AUTHORIZED=1
 bash app/packaging/build_app.sh --identity production --venv "$PWD/.venv"
 ```
 
-完成后，App 位于 `$LULU_DIST_ROOT/Lulu.app`。脚本保留源码完整性、产品功能、隐私、签名、界面资源及包内运行检查。构建不会自动安装、替换现有 App 或上传文件。重新构建应使用新的空父目录，并沿用上面的最后一级目录名。
+完成后，App 位于 `$LULU_DIST_ROOT/Lulu.app`。脚本保留源码完整性、产品功能、隐私、签名、界面资源及包内运行检查。构建不会自动安装、替换现有 App 或上传文件。中断后重试可复用脚本确认归属的同次构建目录；不要混入其他版本文件。
 
 公开构建默认核对已发布的公开源码基线，不依赖维护者私人提交。源码 ZIP 可以阅读和运行界面；生成正式结构的 App 请使用 Git 克隆。
 
