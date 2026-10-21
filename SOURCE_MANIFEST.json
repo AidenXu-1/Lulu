@@ -13,8 +13,8 @@
     },
     {
       "path": "BUILDING.md",
-      "size": 4451,
-      "sha256": "266d2edb47d21454d268ac2abbf801b6498872a3c8af751f386f76b75e69fd19",
+      "size": 4615,
+      "sha256": "1c1832e255cce842cf4342a9060df3e101b9b4fcb72b68f81480b9cb4f2db24f",
       "mode": "100644"
     },
     {
@@ -25,8 +25,8 @@
     },
     {
       "path": "README.md",
-      "size": 4794,
-      "sha256": "832c10e640822fb07a9b724d49cf3c2205f6e5e9b0f2c75b5ff458fa7639d971",
+      "size": 4887,
+      "sha256": "bf3d131dca49f65eb27da4e0eca13b5bd960283d64501fc886f9d614ad058c04",
       "mode": "100644"
     },
     {
@@ -43,8 +43,8 @@
     },
     {
       "path": "agent-skill/README.md",
-      "size": 5772,
-      "sha256": "e306167fc377026fa931521891888430e3af008c2ee69176b5d2ad16b514a129",
+      "size": 5793,
+      "sha256": "8e56537c93e754cca07648d67e07d7fe9b06b389f57f2b23f2c845561507f26b",
       "mode": "100644"
     },
     {
@@ -115,8 +115,8 @@
     },
     {
       "path": "app/README.md",
-      "size": 1688,
-      "sha256": "fee614719c5813a32213555a74aa16147ec055b7ff328638b324db417b511dde",
+      "size": 1619,
+      "sha256": "052391963c39024ac8ffed9048c97e4840d4765b6ba6c27e217771c8ae77c1ea",
       "mode": "100644"
     },
     {

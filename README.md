@@ -3,13 +3,13 @@
 <p align="center"><strong>完全开源、本地优先的 macOS 内容工作台。</strong></p>
 <p align="center">Apple Silicon · macOS 15+ · MIT · 无遥测 · 无激活码</p>
 
-当前版本为 **4.3.1 / Build 20261021.7**。正式下载以 [GitHub Releases](https://github.com/AidenXu-1/Lulu/releases/latest) 为准。
+当前版本为 **4.3.1**。正式下载以 [GitHub Releases](https://github.com/AidenXu-1/Lulu/releases/latest) 为准。
 
 Lulu 将音视频转成可整理的文字，并提供主页采集、直播录制、本地配音、文稿与音频管理，以及文稿旁的 AI 助手。完整产品源码、界面资源、后台与 CLI、构建脚本和 Agent Skill 都公开，支持自行运行、修改和构建。第一方代码采用 [MIT 许可](LICENSE)，第三方组件和模型遵守各自许可。
 
 ## 4.3.1 更新内容
 
-* **四个本地转录模型**：SenseVoice Q8、Whisper MLX、Whisper 4bit、MOSS Q5，查询已安装状态并复用本机模型。
+* **四个本地转录模型**：SenseVoice Q8、Whisper Turbo（MLX）、Whisper Turbo 4bit、MOSS Q5，查询已安装状态并复用本机模型。
 * **内容提取与文稿整理**：本地文件和受支持的链接素材、任务进度、完整结果读取及文稿编辑。
 * **直播工作台**：主播状态、监控和录制、分段保存、弹幕、暂停与退出收尾。
 * **CLI 与 Skill 适配**：统一版本与自检状态，四模型能力发现、结果 v1/v2 兼容，修复配套 Skill 跨版本升级。
@@ -58,4 +58,4 @@ CLI 随 App 提供，配套 [Lulu Agent Skill](agent-skill/README.md) 可独立�
 
 默认本地转录在 Mac 上完成。链接采集和直播需要连接对应平台；云端 AI 仅在使用者主动调用时发送必要内容，飞书导出仅发送使用者选择的资料。Lulu 不加入遥测。第三方库、媒体工具和模型的来源与许可见 [第三方说明](THIRD_PARTY_NOTICES.md)。
 
-本机 4.3.1 修复版已通过四模型短音频、CLI 和重开验证。本版安装包从同版公开源码构建，源码、安装包、CLI 与 Skill 按同一版本核对。未进行多小时运行、新系统或其他电脑的完整验收。
+本次正式包已完成安装、启动与重开、CLI/Skill、四模型就绪状态、签名更新和公开下载一致性核验。四模型短音频测试沿用此前相同转录实现的验证记录，未在本次正式包中重新执行转录、配音或直播任务。未进行多小时运行、新系统或其他电脑的完整验收。

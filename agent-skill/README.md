@@ -4,7 +4,7 @@
 
 [下载完整 Skill 包（ZIP）](https://github.com/AidenXu-1/lulu-agent/archive/refs/heads/main.zip) · [安装方法](#安装) · [Lulu 产品主页与 App 下载](https://github.com/AidenXu-1/Lulu)
 
-本次源码适配 Lulu 4.3.1：SenseVoice Q8、Whisper、Whisper 4bit、MOSS Q5 与新版完整转录结果。对应正式版本及下载见 [Lulu 4.3.1](https://github.com/AidenXu-1/Lulu/releases/tag/v4.3.1)。CLI 已包含在 Lulu App 内；此仓库提供 AI 助手调用它所需的说明与校验脚本，无需另外下载 CLI。
+本次源码适配 Lulu 4.3.1：SenseVoice Q8、Whisper Turbo（MLX）、Whisper Turbo 4bit、MOSS Q5 与新版完整转录结果。对应正式版本及下载见 [Lulu 4.3.1](https://github.com/AidenXu-1/Lulu/releases/tag/v4.3.1)。CLI 已包含在 Lulu App 内；此仓库提供 AI 助手调用它所需的说明与校验脚本，无需另外下载 CLI。
 
 ## 可以做什么
 
