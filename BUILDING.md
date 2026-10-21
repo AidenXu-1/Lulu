@@ -60,3 +60,7 @@ Git 克隆使用公开祖先版本，源码 ZIP 通过 SOURCE_MANIFEST.json 校�
 标准拖拽镜像使用 app/packaging/create_drag_delivery.py，应用更新包使用 make_update_release.py。正式发布必须以最终冻结的公开源码构建、签署和核验，源码检查通过不能代替新安装包验收。
 
 文稿编辑器的前端源码和锁文件位于 app/src/ui/agent_workspace/，已提交资源可直接使用。配音运行时的依赖、版本和构建入口位于 app/packaging/tts_runtimes/；第三方模型权重单独取得并遵守原许可。
+
+## 官方发行包的源码定位
+
+4.3.1 / 20261021.7 官方 App 的构建提交为 `a1f9e457d24fa2cc9e5f5e2a42de5a99ce8e2863`。发布标签另包含说明文档与源码清单更新，产品实现和正式测试与该构建提交一致。私有开发仓库不作为源码下载入口。

@@ -13,8 +13,8 @@
     },
     {
       "path": "BUILDING.md",
-      "size": 4161,
-      "sha256": "8128340d8c31f24102f60beea1a988950421b3617b0080978cd9c88d5541f9d6",
+      "size": 4451,
+      "sha256": "266d2edb47d21454d268ac2abbf801b6498872a3c8af751f386f76b75e69fd19",
       "mode": "100644"
     },
     {
@@ -116,7 +116,7 @@
     {
       "path": "app/README.md",
       "size": 1688,
-      "sha256": "f3111d3a21356b4e8ffd7605ca9b3b4d1fd3fbf0fbb2de2c2dbfdad3fb3225ea",
+      "sha256": "fee614719c5813a32213555a74aa16147ec055b7ff328638b324db417b511dde",
       "mode": "100644"
     },
     {
