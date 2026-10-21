@@ -21,8 +21,8 @@ from src.core.job_ledger.contracts import JobState
 from src.core.gui_task_view import GuiTaskViewStore
 
 
-
-
+class LegacyKeys(CoreMemoryKeys, MemoryKeys):
+    pass
 
 
 class LocalTaskMigrationTests(unittest.TestCase):

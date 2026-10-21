@@ -3456,15 +3456,39 @@
       "mode": "100644"
     },
     {
+      "path": "app/tests/model_settings_frontend_child.py",
+      "size": 20039,
+      "sha256": "85129aed6a3dd75994eac9645647e797ed8a1ba9cf039432d3870869e739c5ba",
+      "mode": "100644"
+    },
+    {
       "path": "app/tests/model_settings_frontend_probe.py",
       "size": 794,
       "sha256": "8e4ab07cb34a671c3640b7e3ffd295ef0a9fcb17fc7105a7499c09223742b86b",
       "mode": "100644"
     },
     {
+      "path": "app/tests/model_settings_native_child.py",
+      "size": 6262,
+      "sha256": "2c1b75b1f98b418aff07f0f163d9fa3a3f560517176b68255b68e2f3bc747fcc",
+      "mode": "100644"
+    },
+    {
+      "path": "app/tests/model_settings_pointer_cases.py",
+      "size": 7566,
+      "sha256": "c25bb9c224c338cfa4f3ff3a7613068f67c6688972ab696c3704747e2e4511c7",
+      "mode": "100644"
+    },
+    {
       "path": "app/tests/native/lulu_transport_identity_fixture.c",
       "size": 11563,
       "sha256": "f36169e7428126e547b33e53e816a050acc37dbdfd85025d088043c0143b3437",
+      "mode": "100644"
+    },
+    {
+      "path": "app/tests/qwen_deployment_child.py",
+      "size": 1608,
+      "sha256": "3fda56eb894335a90f29eb8bc7693be4df9a68584ef086f72e70171c6e441582",
       "mode": "100644"
     },
     {
@@ -4063,8 +4087,8 @@
     },
     {
       "path": "app/tests/test_local_task_migration.py",
-      "size": 8011,
-      "sha256": "1bb4113654a1e492bebfb328f52cde46c9ea3c7db46ef765ee89278667e1bf95",
+      "size": 8064,
+      "sha256": "1b0b15d585e89686cc6b8f1eaffa810df0e92a28b372176bbed489c52177c8c8",
       "mode": "100644"
     },
     {
@@ -4531,8 +4555,8 @@
     },
     {
       "path": "app/tests/test_update_launch.py",
-      "size": 16444,
-      "sha256": "0b361f9542f2cfc2d10f5ef6d0a884a4b6a72e6a317ba74ac61fa84bb8847776",
+      "size": 16489,
+      "sha256": "fc1e10ce7e4e56746ae9ccc1482f1ca5cc5cf299f877f00c06a222f3e62064f9",
       "mode": "100644"
     },
     {
@@ -4605,6 +4629,54 @@
       "path": "docs/assets/lulu-mascot.png",
       "size": 126845,
       "sha256": "1361aac7f52ac82d907adce5d76d5051cc26b5dff82ce8e7da9fd838f5db8726",
+      "mode": "100644"
+    },
+    {
+      "path": "scratch/v37-native-1200.png",
+      "size": 654686,
+      "sha256": "fe7943ae1cbb5f33f89db41c1c6a62d07471781eb4331cee7012363a9e41df72",
+      "mode": "100644"
+    },
+    {
+      "path": "scratch/v37-native-1480.png",
+      "size": 874316,
+      "sha256": "c32465cc7065bc8af11f80ba227b1a62d53282466357578aeb35334215b155a1",
+      "mode": "100644"
+    },
+    {
+      "path": "scratch/v37-native-1680.png",
+      "size": 908738,
+      "sha256": "10f95a3a93176c0fedb6033192a0327d2a81e01b149db282db77a63e4b3872b9",
+      "mode": "100644"
+    },
+    {
+      "path": "scratch/v37-native-1728.png",
+      "size": 927967,
+      "sha256": "289878c2364f83027deb05fab7397c0147ef89eb5e583777edb0894f95ac4299",
+      "mode": "100644"
+    },
+    {
+      "path": "scratch/v37-native-dimensions.json",
+      "size": 699,
+      "sha256": "f978715e4ceb1be540f8aa05a0845718c1de2fc5d5805c347eceab1fadd526d2",
+      "mode": "100644"
+    },
+    {
+      "path": "scratch/workspace-refinement-20260923/document-rhythm.png",
+      "size": 6071,
+      "sha256": "c043955c4180057db0c5a8c8dc1b91e5211ea1b7a691a364bfbdbc0c4944c381",
+      "mode": "100644"
+    },
+    {
+      "path": "scratch/workspace-refinement-20260923/history.png",
+      "size": 489511,
+      "sha256": "99e906ee411ed3b1fb23885c9bcaaf4fd81ad753f89d6df2a96cd0075224ced8",
+      "mode": "100644"
+    },
+    {
+      "path": "scratch/workspace-refinement-20260923/trash.png",
+      "size": 265476,
+      "sha256": "b53ce13e697cafe107e43cd1ba74e1dd6a60d21f70ba80bcd6aa5a8bfa3242eb",
       "mode": "100644"
     }
   ]

@@ -271,5 +271,5 @@ class UpdateLaunchTests(unittest.TestCase):
         self.assertEqual(json.loads(raw)['events'][-1]['causes'][0]['errno'],28)
 
 
-
-
+class ReachedHandover(BaseException):
+    pass
