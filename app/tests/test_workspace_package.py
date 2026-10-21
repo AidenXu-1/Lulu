@@ -71,12 +71,12 @@ class WorkspacePackageTests(unittest.TestCase):
             resources = Path(directory) / 'Resources'
             for name in ('src/ui/agent_workspace/assets', 'src/ui/assets', 'src/ui/model_settings/assets'):
                 shutil.copytree(source / name, resources / name)
-            for name in ('src/ui/agent_workspace/index.html', 'src/core/agent_workspace/catalog.json', 'src/ui/model_settings/public.json'):
+            for name in ('src/ui/agent_workspace/index.html', 'src/core/agent_workspace/catalog.json', 'src/ui/model_settings/public.json', 'src/ui/model_settings/information.json'):
                 target = resources / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source / name, target)
             self.assertIn('src/ui/model_settings/assets/settings.js', verify(resources, source))
-            for relative in ('src/ui/model_settings/assets/settings.js', 'src/ui/model_settings/public.json',
+            for relative in ('src/ui/model_settings/assets/settings.js', 'src/ui/model_settings/public.json', 'src/ui/model_settings/information.json',
                              'src/ui/model_settings/assets/logos/bilibili.ico',
                              'src/ui/agent_workspace/assets/workspace.js',
                              'src/ui/agent_workspace/assets/THIRD_PARTY_NOTICES.txt',

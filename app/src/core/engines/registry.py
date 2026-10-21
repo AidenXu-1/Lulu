@@ -5,7 +5,7 @@ from __future__ import annotations
 from .. import secrets
 from ..models_manager import is_ready, runtime_issue
 from .base import TranscriptionEngine
-from .local_models import LOCAL_MODELS
+from .local_models import LOCAL_MODELS, RETIRED_MODELS
 from .online_api import OpenAICompatEngine
 from .providers import DEFAULT_ENGINE, PRESETS, Provider
 
@@ -17,20 +17,19 @@ def available_engines() -> list[tuple[str, str]]:
 
 
 def _build_local(name: str, runtime: str) -> TranscriptionEngine:
-    if runtime == "funasr":
-        from .local_sensevoice import LocalSenseVoiceEngine
-        return LocalSenseVoiceEngine()
-    if runtime == "transformers":
-        from .local_qwen3 import LocalQwen3Engine
-        return LocalQwen3Engine()
+    if runtime == "native":
+        from .local_native import NativeASREngine
+        return NativeASREngine(name)
     if runtime == "mlx":
         from .local_whisper_mlx import LocalWhisperMLXEngine
-        return LocalWhisperMLXEngine()
+        return LocalWhisperMLXEngine(name)
     raise ValueError(f"未知本地运行时:{runtime}")
 
 
 def get_engine(name: str | None = None) -> TranscriptionEngine:
     name = name or DEFAULT_ENGINE
+    if name in RETIRED_MODELS:
+        raise ValueError("此模型已退役，历史文稿保留；请选择 Q8、Whisper 或 MOSS 后重新开始。")
 
     # 本地模型:先确认已下载,再按运行时分派(各模型实例缓存)
     if name in LOCAL_MODELS:
@@ -40,7 +39,7 @@ def get_engine(name: str | None = None) -> TranscriptionEngine:
             raise RuntimeError(issue)
         if not is_ready(name):
             raise RuntimeError(
-                f"{m.display_name} 还没下载。请到「AI 大模型配置」→「文案提取」→ 本地部署 下载后再用。"
+                f"{m.display_name} 还没下载。请到「AI 大模型配置」→「内容提取」→ 本地部署 下载后再用。"
             )
         if name not in _local_instances:
             _local_instances[name] = _build_local(name, m.runtime)

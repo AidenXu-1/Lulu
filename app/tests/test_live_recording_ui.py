@@ -84,6 +84,29 @@ class NativeLiveTests(unittest.TestCase):
         self.page.refresh()
         self.until(lambda: self.page.data['hosts']==hosts)
 
+    def test_expired_connection_recovers_page_and_new_cdn_shows_live_without_recording(self):
+        from src.core.live_recording.douyin import parse_room
+        from tests.test_live_recording_recovery import room_payload
+        self.service.provider.check = lambda *_: parse_room(room_payload(), '123')
+        self.controller.timer.stop()
+        self.until(lambda: self.controller.worker is None)
+        old = self.controller.session
+        self.page.source.setText('https://live.douyin.com/123')
+        self.service.deadline = time.monotonic() - 1
+        self.until(lambda: self.service.closing)
+        self.controller.heartbeat_at = 0
+        self.controller._tick()
+        self.until(lambda: self.controller.connected and self.controller.session != old
+                   and self.controller.worker is None)
+        self.assertEqual(self.page.source.text(), 'https://live.douyin.com/123')
+        self.page._add()
+        self.until(lambda: self.page.data['hosts'] == 1 and self.page.data['rows'][0]['live_state'] == 'live')
+        self.assertEqual(self.page.table.item(0, 2).text(), '直播中')
+        self.assertEqual(self.page.data['rows'][0]['progress_message'], '已暂停')
+        self.assertFalse(self.service.monitors)
+        self.assertEqual(self.service.control.list(), ())
+        self.assertEqual(self.errors, [])
+
 
     def test_recording_clock_ticks_without_requesting_a_new_snapshot(self):
         self.seed(hosts=1, recordings=0)
@@ -104,7 +127,7 @@ class NativeLiveTests(unittest.TestCase):
         self.assertEqual(self.page.table.item(0, 4).text(), '00:00:16\n正在录制')
 
 
-    def test_fixed_native_layout_half_toolbar_and_archive_pagination(self):
+    def test_compact_native_layout_and_archive_pagination(self):
         original = self.page.size()
         self.seed()
         self.assertEqual(len(self.page.stats), 3)
@@ -125,7 +148,11 @@ class NativeLiveTests(unittest.TestCase):
         box = self.page.table.cellWidget(0, 6)
         self.assertLessEqual(abs(controls[0].geometry().center().x()-box.rect().center().x()), 1)
         toolbar = self.page.toolbars.widget(0).layout()
-        self.assertLessEqual(abs(toolbar.itemAt(0).widget().width()-toolbar.itemAt(1).widget().width()),1)
+        self.assertLessEqual(toolbar.itemAt(0).widget().width(), 320)
+        self.assertEqual(toolbar.itemAt(1).widget().width(), 108)
+        self.assertTrue(self.page.storage.isHidden())
+        self.assertLess(self.page.comments_toggle.mapTo(self.page, self.page.comments_toggle.rect().topLeft()).y(),
+                        self.page.toolbars.mapTo(self.page, self.page.toolbars.rect().topLeft()).y())
         self.page._tab('recordings')
         self.until(lambda: self.page.data['total']==120)
         first = self.page.data['rows'][0]['id']
@@ -160,12 +187,17 @@ class NativeLiveTests(unittest.TestCase):
         record.update(duration=11, clock_running=True, ended=None)
         self.page.render(value)
         self.assertEqual([self.page.table.horizontalHeaderItem(c).text() for c in range(7)],
-                         ['主播', '录制时间', '已录时长', '文件', '状态', '直播数据', '操作'])
+                         ['主播', '录制时间', '已录时长', '文件', '状态', '直播记录', '操作'])
         self.assertEqual(self.page.table.item(0, 0).text(), record['name'])
         self.assertEqual(self.page.table.item(0, 1).text(), stamp(record['started']))
         for column in range(5):
             self.assertEqual(self.page.table.item(0, column).textAlignment(), Qt.AlignmentFlag.AlignCenter)
-        self.until(lambda:self.page.table.item(0, 2).text()=='00:00:13', timeout=4)
+        # Keep the page clock at +2 s while the real Qt timer delivers its event.
+        # A busy event loop can skip displaying exactly 13 s on a wall clock.
+        anchor = self.page.clock_anchor
+        with patch('src.ui.live_recording_page.time',
+                   SimpleNamespace(monotonic=lambda: anchor + 2)):
+            self.until(lambda:self.page.table.item(0, 2).text()=='00:00:13', timeout=4)
         QTest.mouseClick(self.page.table.viewport(), Qt.MouseButton.LeftButton,
                         pos=self.page.table.visualItemRect(self.page.table.item(0, 1)).center())
         self.assertFalse(self.page.table.selectedItems())
@@ -383,6 +415,9 @@ class NativeLiveTests(unittest.TestCase):
         self.until(lambda:self.service.index.setting('credential')=='configured')
         self.until(lambda:not self.page.credential.text())
         self.page._credential(delete=True)
+        self.assertTrue(self.service.index.setting('credential'))
+        self.service.secret_read = lambda: 'fixture-cookie'
+        self.page.confirm_clear.click()
         self.until(lambda:not self.service.index.setting('credential'))
 
     def completed_segment(self):

@@ -84,6 +84,7 @@ def _policy_to_dict(policy: TaskExecutionPolicy | None) -> dict | None:
         "media_directory": policy.media_directory,
         "prefer_subtitles": policy.prefer_subtitles,
         "engine_name": policy.engine_name,
+        **({"local_only": True} if policy.local_only else {}),
         **({"requested_outputs": list(policy.requested_outputs)} if policy.requested_outputs is not None else {}),
         "material_snapshot": {
             "download_mode": snapshot.download_mode,
@@ -112,6 +113,8 @@ def _policy_from_dict(
         policy_keys.update({"media_directory", "prefer_subtitles"})
     if isinstance(value, dict) and "engine_name" in value:
         policy_keys.add("engine_name")
+    if isinstance(value, dict) and "local_only" in value:
+        policy_keys.add("local_only")
     if isinstance(value, dict) and "requested_outputs" in value:
         policy_keys.add("requested_outputs")
         if (not isinstance(value["requested_outputs"], list)
@@ -166,6 +169,7 @@ def _policy_from_dict(
             media_directory=media_directory,
             prefer_subtitles=prefer_subtitles,
             engine_name=raw.get("engine_name"),
+            local_only=raw.get("local_only", False),
             requested_outputs=tuple(raw["requested_outputs"]) if "requested_outputs" in raw else None,
         )
     except (TypeError, ValueError) as exc:

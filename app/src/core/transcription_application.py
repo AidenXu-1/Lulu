@@ -138,6 +138,11 @@ class LocalFileTranscriptionApplicationService:
         except Exception as exc:  # noqa: BLE001
             if was_cancelled(exc):
                 raise _failure("CANCELLED") from exc
+            from .engines.local_native import IncompleteTranscription
+            from .engines.asr_resource import ASRResourceBusy
+            if isinstance(exc, (IncompleteTranscription, ASRResourceBusy)):
+                code = "INCOMPLETE_RESULT" if isinstance(exc, IncompleteTranscription) else "RESOURCE_BUSY"
+                raise LocalFileTranscriptionError(LocalFileTranscriptionFailureV1(code, str(exc))) from exc
             raise _failure("INTERNAL_ERROR") from exc
 
         if _read_cancellation(cancellation_probe):
@@ -217,21 +222,8 @@ def _result_from_transcript(
         raise _failure("INTERNAL_ERROR")
     if transcript.engine != engine_name:
         raise _failure("INTERNAL_ERROR")
-    segments = tuple(
-        LocalTranscriptionSegmentV1(
-            text=segment.text,
-            start=segment.start,
-            end=segment.end,
-        )
-        for segment in transcript.segments
-    )
-    return LocalFileTranscriptionResultV1(
-        text=transcript.text,
-        segments=segments,
-        language=transcript.language,
-        engine=engine_name,
-        source_path=source_path,
-    )
+    from .transcription_contracts import result_from_transcript
+    return result_from_transcript(transcript, source_path)
 
 
 def _failure(code: str) -> LocalFileTranscriptionError:

@@ -198,12 +198,13 @@ def _stats_line_full(m: dict) -> str:
 
 
 def _body(transcript: Transcript) -> list[str]:
+    from .output.segments import speaker_text
     if transcript.has_timestamps:
         out = []
         for seg in transcript.segments:
-            txt = (seg.text or "").strip()
-            if not txt:
+            if not (seg.text or "").strip():
                 continue
+            txt = speaker_text(seg)
             if seg.start is not None:
                 out.append(f"**[{_clock(seg.start)}]** {txt}")
             else:

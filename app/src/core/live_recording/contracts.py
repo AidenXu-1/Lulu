@@ -1,6 +1,7 @@
 """Closed request and media contracts for the measured GUI channel."""
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit, urlunsplit
+import math
 import re
 
 WEB_RID_PATTERN = r'[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}'
@@ -51,6 +52,7 @@ class Observation:
     streams: tuple[Stream, ...] = field(default=(), repr=False)
     received_bytes: int = 0
     metrics: LiveMetrics | None = None
+    room_id: str = ''
 
 def recording_message(recording):
     """Use the same media lifecycle label in the archive and both detail views."""
@@ -94,7 +96,7 @@ def public_link(value):
 def safe_stream_url(value):
     try:
         url = urlsplit(value)
-        domains = ('douyincdn.com', 'douyin.com', 'bytecdn.cn', 'bytefcdn.com',
+        domains = ('douyincdn.com', 'douyinliving.com', 'douyin.com', 'bytecdn.cn', 'bytefcdn.com',
                    'byteimg.com', 'ibytedtos.com', 'pstatp.com', 'amemv.com')
         return (type(value) is str and len(value) <= 16384 and url.scheme in {'http', 'https'}
                 and not url.username and not url.password and url.port in {None, 80, 443}
@@ -115,16 +117,37 @@ FIELDS = {
     'pause_all': {'session'}, 'directory': {'session', 'path'},
     'credential': {'session', 'value'}, 'detail': {'session', 'recording_id'},
     'data': {'session', 'recording_id'},
+    'comments_setting': {'session', 'enabled'},
+    'comments': {'session', 'recording_id', 'query', 'page'},
+    'comments_export': {'session', 'recording_id', 'format', 'path'},
     'delete_recording': {'session', 'recording_id'},
     'export': {'session', 'segment_id', 'format', 'path'}, 'export_status': {'session', 'export_id'},
     'transcribe': {'session', 'segment_id'},
 }
+ORDERED_CONTROLS = {'start', 'pause', 'pause_all', 'remove', 'directory'}
 
 def validate_request(operation, arguments):
-    if operation not in FIELDS or type(arguments) is not dict or set(arguments) != FIELDS[operation]:
+    if operation not in FIELDS or type(arguments) is not dict:
+        raise LiveError('直播操作字段无效')
+    fields = set(arguments)
+    if fields != FIELDS[operation] and not (operation in ORDERED_CONTROLS and fields == FIELDS[operation] | {'sequence'}) and not (operation == 'credential' and fields == FIELDS[operation] | {'source'}) and not (operation == 'comments' and
+            fields == FIELDS[operation] | {'range_start', 'range_end'}):
         raise LiveError('直播操作字段无效')
     for key, value in arguments.items():
-        if key == 'page':
+        if key == 'sequence':
+            if type(value) is not int or not 1 <= value <= 2**53 - 1:
+                raise LiveError('直播操作顺序无效')
+        elif key in {'range_start', 'range_end'}:
+            try:
+                valid = type(value) in {int, float} and math.isfinite(value) and value >= 0
+            except OverflowError:
+                valid = False
+            if not valid:
+                raise LiveError('弹幕时间范围无效')
+        elif key == 'enabled':
+            if type(value) is not bool:
+                raise LiveError('弹幕开关无效')
+        elif key == 'page':
             if type(value) is not int or not 1 <= value <= 1000000:
                 raise LiveError('页码无效')
         elif type(value) is not str or len(value) > (16384 if key == 'value' else 4096):
@@ -134,6 +157,8 @@ def validate_request(operation, arguments):
     for key in ('session', 'host_id', 'recording_id', 'segment_id', 'export_id'):
         if key in arguments:
             identifier(arguments[key])
+    if operation == 'credential' and arguments.get('source', 'manual') not in {'browser', 'manual'}:
+        raise LiveError('登录来源无效')
     if operation == 'add':
         public_link(arguments['source'])
     if operation == 'snapshot':
@@ -144,5 +169,11 @@ def validate_request(operation, arguments):
             raise LiveError('搜索内容过长')
     if operation == 'credential' and ('\r' in arguments['value'] or '\n' in arguments['value']):
         raise LiveError('凭据不能包含换行')
+    if operation == 'comments' and len(arguments['query']) > 300:
+        raise LiveError('搜索内容过长')
+    if 'range_start' in arguments and arguments['range_end'] <= arguments['range_start']:
+        raise LiveError('弹幕时间范围无效')
+    if operation == 'comments_export' and arguments['format'] not in {'txt', 'csv'}:
+        raise LiveError('请选择 TXT 或 CSV 文件')
     if operation == 'export' and arguments['format'] not in {'mp4', 'mp3'}:
         raise LiveError('请选择 MP4 视频或 MP3 音频')

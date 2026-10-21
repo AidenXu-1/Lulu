@@ -79,12 +79,12 @@ def _write_phase1a_fixture(directory: str | Path) -> str:
 def _deterministic_pipeline_runner(
     source_path: str,
     *,
-    engine_name: Literal["local_sensevoice"],
+    engine_name: Literal["local_sensevoice_q8"],
     progress,
     is_cancelled,
 ) -> Transcript:
     _deterministic_pipeline_runner.calls.append((source_path, engine_name))
-    if engine_name != "local_sensevoice":
+    if engine_name != "local_sensevoice_q8":
         raise AssertionError(f"unexpected engine: {engine_name}")
     payload = Path(source_path).read_bytes()
     if len(payload) != FIXTURE_SIZE:
@@ -103,7 +103,7 @@ def _deterministic_pipeline_runner(
             Segment(text="音频。", start=1.0, end=3.0),
         ],
         language="zh",
-        engine="local_sensevoice",
+        engine="local_sensevoice_q8",
         source=source_path,
         title=None,
         meta={},
@@ -115,10 +115,10 @@ _deterministic_pipeline_runner.calls = []
 
 
 def _always_ready_model_probe(
-    engine_name: Literal["local_sensevoice"],
+    engine_name: Literal["local_sensevoice_q8"],
 ) -> bool:
     _always_ready_model_probe.calls.append(engine_name)
-    if engine_name != "local_sensevoice":
+    if engine_name != "local_sensevoice_q8":
         raise AssertionError(f"unexpected engine: {engine_name}")
     return True
 
@@ -186,7 +186,7 @@ class Phase1AApplicationServiceContractTests(unittest.TestCase):
         )
         return application, guard, service
 
-    def _request(self, source_path: str | None = None, engine_name: str = "sensevoice"):
+    def _request(self, source_path: str | None = None, engine_name: str = "local_sensevoice_q8"):
         contracts, _application = _load_phase1a_modules()
         return contracts.LocalFileTranscriptionRequestV1(
             source_path=self.source_path if source_path is None else source_path,

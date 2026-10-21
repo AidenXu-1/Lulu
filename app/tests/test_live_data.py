@@ -45,6 +45,27 @@ class DataFileTests(unittest.TestCase):
             self.assertEqual(result['samples'][-1]['like_count'], 5)
             self.assertEqual(result['samples'][-1]['cumulative_view_count'], 70)
 
+    def test_capacity_checks_encoded_row_before_append_and_keeps_chart_readable(self):
+        from src.core.live_recording import data
+        self.sample(title='中文🙂')
+        path = data_path(self.folder)
+        before = path.read_bytes()
+        self.sample(title='中文🙂')
+        complete = path.read_bytes()
+        for limit, accepted in ((len(complete), True), (len(complete)-1, False)):
+            path.write_bytes(before)
+            with patch.object(data, 'MAX_BYTES', limit):
+                if accepted:
+                    self.sample(title='中文🙂')
+                else:
+                    with self.assertRaises(LiveError): self.sample(title='中文🙂')
+                self.assertEqual(path.read_bytes(), complete if accepted else before)
+                self.assertEqual(read_data(self.recording)['sample_count'], 2 if accepted else 1)
+        path.write_bytes(b'')
+        with patch.object(data, 'MAX_BYTES', len(before)-1):
+            with self.assertRaises(LiveError): self.sample(title='中文🙂')
+        self.assertEqual(path.read_bytes(), b'')
+
 
 class DataServiceTests(unittest.TestCase):
     setUp = live_fixtures.ServiceTests.setUp
@@ -63,6 +84,19 @@ class DataServiceTests(unittest.TestCase):
         monitor.update(thread=object(), recording_id=rid, directory=str(folder), data_next=float('inf'), next=float('inf'))
         self.addCleanup(self.service.monitors.clear)
         return hid, rid, monitor
+
+    def test_data_limit_stops_sampling_without_stopping_video(self):
+        from src.core.live_recording.data import DataLimitError
+        hid, rid, monitor = self.recording()
+        with patch('src.core.live_recording.service.append_sample',
+                   side_effect=DataLimitError('容量上限，已停止采样；录像继续')):
+            self.service._save_data(self.service._host(hid), Observation('offline'), monitor)
+        self.assertFalse(monitor['cancel'].is_set())
+        self.assertEqual(monitor['data_next'], float('inf'))
+        self.assertIn('容量上限', monitor['data_error'])
+        with patch.object(self.service.pool, 'submit') as submit:
+            self.service._submit_data(hid, monitor, self.session)
+            submit.assert_not_called()
 
 
     def test_slow_csv_read_and_write_do_not_block_pause_or_heartbeat(self):

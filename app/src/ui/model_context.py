@@ -141,7 +141,7 @@ def _cloud_model_name(provider) -> str:
 
 def _custom_openai_unconfigured_context() -> ModelContext:
     return ModelContext(
-        usage="文案提取",
+        usage="内容提取",
         deployment="api",
         state="unconfigured",
         status_text="大模型 API 未配置",
@@ -155,11 +155,8 @@ def _custom_openai_unconfigured_context() -> ModelContext:
 def asr_model_context(cfg) -> ModelContext:
     provider = providers.PRESETS.get(getattr(cfg, "engine_name", ""))
     if provider is None:
-        provider = providers.PRESETS.get("local_sensevoice")
-    if provider is None:
-        return local_model_context(
-            "文案提取", "SenseVoice", ready=False, broken=True, purpose_index=0
-        )
+        return ModelContext('内容提取', 'local', 'broken', '原模型已退役，请重新选择',
+                            '请选择本地模型', purpose_index=0, sub_index=0, status_kind='warning')
     if provider.kind == "local":
         try:
             downloaded = bool(models_manager.is_downloaded(provider.id))
@@ -168,14 +165,14 @@ def asr_model_context(cfg) -> ModelContext:
             downloaded, issue = False, "status unavailable"
         name = provider.display_name.replace("本地 · ", "").strip()
         return local_model_context(
-            "文案提取",
+            "内容提取",
             name,
             ready=downloaded and issue is None,
             broken=downloaded and issue is not None,
             purpose_index=0,
         )
     if not secrets.configuration_loaded(provider.id):
-        return _unread_api_context("文案提取", _cloud_model_name(provider), 0)
+        return _unread_api_context("内容提取", _cloud_model_name(provider), 0)
     try:
         snapshot = providers.configuration_snapshot(provider.id)
         configured = snapshot.configured
@@ -186,7 +183,7 @@ def asr_model_context(cfg) -> ModelContext:
     if provider.id == "custom_openai" and not model_name:
         return _custom_openai_unconfigured_context()
     return api_model_context(
-        "文案提取",
+        "内容提取",
         model_name or _cloud_model_name(provider),
         configured=configured,
         purpose_index=0,

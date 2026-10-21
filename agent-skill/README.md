@@ -4,7 +4,7 @@
 
 [下载完整 Skill 包（ZIP）](https://github.com/AidenXu-1/lulu-agent/archive/refs/heads/main.zip) · [安装方法](#安装) · [Lulu 产品主页与 App 下载](https://github.com/AidenXu-1/Lulu)
 
-本次更新适配 Lulu 4.0.2 的标准 DMG 安装方式。CLI 已包含在 Lulu App 内；此仓库提供 AI 助手调用它所需的说明与校验脚本，无需另外下载 CLI。
+本次源码适配 Lulu 4.3.1：SenseVoice Q8、Whisper、Whisper 4bit、MOSS Q5 与新版完整转录结果。当前本机修复尚未公开发布，可下载版本以产品发布页为准。CLI 已包含在 Lulu App 内；此仓库提供 AI 助手调用它所需的说明与校验脚本，无需另外下载 CLI。
 
 ## 可以做什么
 
@@ -19,11 +19,11 @@
 
 **可用范围以本机 Lulu 返回的功能清单为准。** Skill 可以比 App 更新；旧版 Lulu 未接通的功能不能通过下载 Skill 获得。模型需要在 Lulu 中准备，Skill 不附带模型。
 
-当前支持 macOS、`/Applications/Lulu.app` 中的 Lulu generation 9 安装，以及 CLI 1.x 中已验证的 1.0.0 协议。同时识别旧版 DMG 安装和新版 App 自包含安装，按当前 App 精确核对对应安装记录。需要 Python 3 标准库运行只读安装检查。首次使用须在 Lulu 中完成正常安装与授权。此仓库不包含 Lulu 主程序或模型，也不提供绕过授权的入口。
+当前支持 macOS、`/Applications/Lulu.app` 中的 Lulu generation 9 安装，以及 CLI 1.x 中已验证的 1.0.0 协议。同时识别旧版 DMG 安装和新版 App 自包含安装，按当前 App 精确核对对应安装记录。需要 Python 3 标准库运行只读安装检查。首次使用须正常打开 Lulu 完成安装准备；新版无需激活码。系统授权窗口若实际出现，由用户本人处理。此仓库不包含 Lulu 主程序或模型。
 
 ## 安装
 
-先安装并打开 Lulu，完成系统授权，再把下面这段话发给你使用的 Agent：
+先安装并打开 Lulu，完成正常安装准备，再把下面这段话发给你使用的 Agent：
 
 > 请访问 https://github.com/AidenXu-1/lulu-agent ，阅读 README，下载完整的 lulu-agent 文件夹，安装到你当前使用的技能目录。先检查脚本和兼容性，不覆盖已有同名内容。保留所有 scripts 和 references 文件。不要改动 Lulu 管理的 ~/.agents/skills/lulu-agent，也不要安装或删除 Lulu 后台组件。安装后按 SKILL.md 验证本机 Lulu，再查询实际可用功能。本次仅安装与检查连接，不下载模型，不修改文稿，不开始转录、配音或云端调用。
 

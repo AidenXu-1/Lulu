@@ -182,6 +182,8 @@ echo "==> 1/5 校验完整产品用户能力"
 LULU_TEST_PRODUCT_BASELINE="$BASELINE_REVISION" "$VENV/python" packaging/product_capability_gate.py \
   --repo .. --candidate HEAD --output "$CAPABILITY_RECEIPT"
 
+"$VENV/python" packaging/build_asr_runtime.py --runtime "$PWD/build/asr-runtime" --verify
+
 echo "==> 2/5 校验 macOS 15 MLX 构建输入"
 "$VENV/python" packaging/macos_compatibility.py verify-build-env
 
@@ -197,7 +199,9 @@ SOURCE_COMMIT="$("$VENV/python" -c 'import json; print(json.load(open("build_pro
 SOURCE_TREE="$("$VENV/python" -c 'import json; print(json.load(open("build_profile.json", encoding="utf-8"))["source_tree"])')"
 
 rm -f update_public_key.pem
-if [[ "$BUILD_IDENTITY" == "production" && "${LULU_UPDATE_RELEASE:-0}" == "1" ]]; then
+# A locally installed production App also needs update verification. This step
+# only bundles the public key; it never creates or uploads a release.
+if [[ "$BUILD_IDENTITY" == "production" ]]; then
   UPDATE_PUBLIC_KEY_PATH="${LULU_UPDATE_PUBLIC_KEY_PATH:-}"
   if [[ -z "$UPDATE_PUBLIC_KEY_PATH" || ! -f "$UPDATE_PUBLIC_KEY_PATH" || -L "$UPDATE_PUBLIC_KEY_PATH" ]]; then
     echo "错误：更新构建必须通过外部普通文件提供 LULU_UPDATE_PUBLIC_KEY_PATH。" >&2
@@ -248,6 +252,7 @@ fi
 "$VENV/python" -m PyInstaller packaging/Lulu.spec --noconfirm --distpath "$DIST_ROOT" --workpath "$BUILD_ROOT"
 cleanup_managed_venv_link
 APP_PATH="${DIST_ROOT}/${APP_PREFIX}.app"
+"$VENV/python" packaging/build_asr_runtime.py --runtime "$PWD/build/asr-runtime" --bundle "$APP_PATH"
 if [[ "$BUILD_PROFILE" != "trusted_test_safe_e2e" ]]; then
   "$VENV/python" packaging/verify_workspace_package.py --app "$APP_PATH" \
     --source-app "$PWD" --output "$DIST_ROOT/workspace-package-receipt.json"
@@ -279,6 +284,7 @@ xattr -dr com.apple.quarantine "$APP_PATH" || true
 /usr/bin/codesign --force --deep --sign - "$APP_PATH"
 /usr/bin/codesign --verify --strict "$APP_PATH"
 /usr/bin/codesign --verify --deep --strict "$APP_PATH"
+"$VENV/python" packaging/build_asr_runtime.py --runtime "$APP_PATH/Contents/Frameworks/asr-runtime" --verify
 if [[ "$BUILD_PROFILE" == "external_candidate" ]]; then
   PYTHONPATH="$PWD" "$VENV/python" packaging/finalize_agent_component_manifest.py finalize-manifest \
     --app "$APP_PATH" --version "$VERSION" --build "$BUILD" \

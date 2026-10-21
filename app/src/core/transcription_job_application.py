@@ -161,19 +161,26 @@ class LocalTranscriptionJobApplication:
         try:
             result = self._transcription_service.transcribe(
                 LocalFileTranscriptionRequestV1(source_path=source_path, engine_name=engine),
-                is_cancelled=lambda: False,
+                is_cancelled=lambda: control.show(job_id).state is not JobState.RUNNING,
             )
+            if control.show(job_id).state is not JobState.RUNNING:
+                raise InterruptedError("转录已取消")
             stored = dict(self._result_store.write(job_id, result))
         except Exception:
             try:
-                control.complete_worker(
-                    job_id,
-                    expected_revision=running.job_revision,
-                    lease_token=lease,
-                    new_state=JobState.FAILED,
-                    result_ref=None,
-                    changed_at=self._now(),
-                )
+                current = control.show(job_id)
+                if current.state is JobState.CANCEL_REQUESTED:
+                    control.settle_cancelled(job_id, expected_revision=current.job_revision,
+                        lease_token=lease, changed_at=self._now())
+                else:
+                    control.complete_worker(
+                        job_id,
+                        expected_revision=running.job_revision,
+                        lease_token=lease,
+                        new_state=JobState.FAILED,
+                        result_ref=None,
+                        changed_at=self._now(),
+                    )
             except Exception as settlement_error:
                 raise LocalTranscriptionJobError(
                     "INTEGRITY_ERROR", "JOB_FAILURE_SETTLEMENT_FAILED"

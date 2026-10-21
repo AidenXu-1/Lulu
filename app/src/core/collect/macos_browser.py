@@ -20,6 +20,13 @@ from . import xhs_browser as system
 launch_observer = None
 
 
+class ChromeLaunchError(RuntimeError):
+    def __init__(self, code, message):
+        self.code = code
+        super().__init__(message)
+
+
+
 def _notify(event, ticket):
     if launch_observer is not None:
         launch_observer(event, ticket)
@@ -106,8 +113,10 @@ def create_page(options, page_factory):
     executable = Path(options.browser_path).expanduser()
     if not executable.is_absolute():
         installation = system._system_chrome()
-        if installation is None or not installation.signature_valid:
-            raise RuntimeError("未找到可用的系统 Google Chrome。")
+        if installation is None:
+            raise ChromeLaunchError('browser_missing', '请先安装 Google Chrome，或手动填写 Cookie。')
+        if not installation.signature_valid:
+            raise ChromeLaunchError('browser_unverified', 'Chrome 当前无法用于登录，请更新或修复 Chrome，或手动填写 Cookie。')
         executable = installation.executable
     else:
         # Accept the existing explicitly selected browser, but only app bundles.

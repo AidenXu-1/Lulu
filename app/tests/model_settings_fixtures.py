@@ -57,7 +57,7 @@ class ControllerCase(unittest.TestCase):
         p = patch('src.core.model_connections.Service', return_value=self.service)
         p.start()
         self.addCleanup(p.stop)
-        self.cfg = SimpleNamespace(engine_name='local_sensevoice', default_tts_model='local_indextts2', theme='warm', save=Mock(return_value=True))
+        self.cfg = SimpleNamespace(engine_name='local_sensevoice_q8', default_tts_model='local_indextts2', theme='warm', save=Mock(return_value=True))
         self.changed = Mock()
         self.c = m.ModelController(self.cfg, on_changed=self.changed)
         self.c.refresh = Mock()

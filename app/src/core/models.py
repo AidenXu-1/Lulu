@@ -202,6 +202,7 @@ class Segment:
     text: str
     start: float | None = None  # 起始秒
     end: float | None = None    # 结束秒
+    speaker_id: int | None = None  # 当前录音内的一基匿名编号；未知为空
 
 
 @dataclass

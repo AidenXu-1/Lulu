@@ -19,7 +19,7 @@ from src.core.transcription_job_application import LocalTranscriptionJobApplicat
 from src.core.transcription_result_store import TranscriptionResultStore
 from tests.test_phase5_job_ledger import FakeIntegrityAnchorStore
 
-ENGINES = ('local_sensevoice', 'local_qwen3', 'local_whisper_mlx')
+ENGINES = ('local_sensevoice_q8', 'local_whisper_mlx', 'local_whisper_mlx_4bit', 'local_moss_q5')
 
 
 class AllLocalAsrTests(unittest.TestCase):
@@ -78,11 +78,11 @@ class AllLocalAsrTests(unittest.TestCase):
                 self.assertEqual(self.store.get_job(jid).frozen_policy['engine'], engine)
                 self.assertEqual(self.results.read(jid)['transcript']['engine'], engine)
         self.assertEqual(self.calls, list(ENGINES))
-        self.assertEqual(len(set(jobs)), 3)
+        self.assertEqual(len(set(jobs)), 4)
         self.assertEqual(set(self.probes), set(ENGINES))
 
     def test_unknown_cloud_duplicate_and_extra_options_do_not_execute(self):
-        for tail in [('--engine', 'openai'), ('--engine', 'local_unknown'),
+        for tail in [('--engine', 'openai'), ('--engine', 'local_sensevoice'), ('--engine', 'local_qwen3'), ('--engine', 'sensevoice'), ('--engine', 'local_unknown'),
                      ('--engine', 'local_qwen3', '--engine', 'local_sensevoice'),
                      ('--secret', 'forbidden'), ('--engine',)]:
             code, result = self.cli('transcribe', 'run', str(self.source), *tail)
@@ -90,10 +90,39 @@ class AllLocalAsrTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertEqual(self.probes, [])
 
-    def test_default_stays_sensevoice(self):
+    def test_default_is_sensevoice_q8(self):
         code, result = self.cli('transcribe', 'run', str(self.source))
         self.assertEqual(code, 0, result)
-        self.assertEqual(self.calls, ['local_sensevoice'])
+        self.assertEqual(self.calls, ['local_sensevoice_q8'])
+
+    def test_verified_control_commands_agree_with_discovery_without_model_effects(self):
+        for command in ('version', 'status', 'doctor', 'help'):
+            code, value = self.cli(command)
+            self.assertEqual(code, 0, value)
+            self.assertEqual(value['result']['formal_cli_state'], 'available', command)
+        _, value = self.cli('capabilities')
+        rows = {row['capability_id']: row for row in value['result']['capabilities']}
+        for number in range(1, 5):
+            row = rows[f'SYS-{number:02}']
+            self.assertTrue(row['executable'])
+            self.assertEqual(row['state'], 'available')
+            self.assertIsNone(row['reason_code'])
+            self.assertTrue(row['argv_template'].endswith('--output json'))
+        self.assertFalse(rows['SYS-05']['executable'])
+        self.assertFalse(rows['AUTH-01']['executable'])
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.store.list_jobs(), ())
+
+    def test_unverified_controls_do_not_advertise_a_business_runtime(self):
+        self.application._runtime_verification['verified'] = False
+        for command in ('version', 'status', 'doctor', 'help'):
+            code, value = self.cli(command)
+            self.assertEqual(code, 0, value)
+            self.assertEqual(value['result']['formal_cli_state'], 'unavailable')
+        _, value = self.cli('capabilities')
+        self.assertFalse(any(row['executable'] for row in value['result']['capabilities']))
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.store.list_jobs(), ())
 
     def test_result_read_preserves_full_unicode_without_repeating_inference(self):
         import base64
@@ -180,7 +209,7 @@ class AllLocalAsrTests(unittest.TestCase):
     def test_wrong_model_result_is_rejected(self):
         self.application._transcription_service._pipeline_runner = lambda source, **kw: Transcript(
             '错误模型', [], 'zh', 'local_sensevoice', source)
-        code, value = self.cli('transcribe', 'run', str(self.source), '--engine', 'local_qwen3')
+        code, value = self.cli('transcribe', 'run', str(self.source), '--engine', 'local_moss_q5')
         self.assertNotEqual(code, 0)
         self.assertEqual(value['error']['code'], 'INTERNAL_ERROR')
         self.assertTrue(all(job.state.value == 'failed' for job in self.store.list_jobs()))
@@ -195,7 +224,7 @@ class AllLocalAsrTests(unittest.TestCase):
         path.write_bytes(path.read_bytes().replace('完整'.encode(), '更改'.encode()))
         code, value = self.cli('jobs', 'result', '--job-id', jid, '--offset', '0')
         self.assertEqual(code, 60, value)
-        self.assertEqual(self.calls, ['local_sensevoice'])
+        self.assertEqual(self.calls, ['local_sensevoice_q8'])
 
     def test_unverified_status_does_not_read_model_files(self):
         from src.core import models_manager as mm
@@ -225,7 +254,7 @@ class AllLocalAsrTests(unittest.TestCase):
         def missing(engine):
             raise LocalModelUnavailable('MODEL_NOT_READY', 'MODEL_NOT_INSTALLED')
         self.application._transcription_service._model_readiness_probe = missing
-        code, value = self.cli('transcribe', 'run', str(self.source), '--engine', 'local_qwen3')
+        code, value = self.cli('transcribe', 'run', str(self.source), '--engine', 'local_moss_q5')
         self.assertEqual(code, 30, value)
         self.assertEqual(value['error']['details']['reason_code'], 'MODEL_NOT_INSTALLED')
         self.assertEqual(self.calls, [])
@@ -240,7 +269,7 @@ class WorkspaceAllAsrTests(unittest.TestCase):
 
     def setUp(self):
         self._Fixture.setUp(self)
-        self.engine = 'local_qwen3'
+        self.engine = 'local_moss_q5'
 
     def pipeline(self, source, *, engine_name, progress, is_cancelled):
         self.calls.append(engine_name)
@@ -274,7 +303,7 @@ class WorkspaceAllAsrTests(unittest.TestCase):
             self.assertEqual(self.control.show(job['job_id']).frozen_policy['engine'], engine)
         self.assertEqual(self.calls, list(ENGINES))
 
-    def test_qwen_cancellation_prevents_late_document_write(self):
+    def test_moss_cancellation_prevents_late_document_write(self):
         self._Fixture.test_cancel_via_common_jobs_entry_blocks_late_result_and_document(self)
 
     def test_workspace_preserves_missing_model_error_without_saving_plan(self):
@@ -284,7 +313,7 @@ class WorkspaceAllAsrTests(unittest.TestCase):
         self.application._model_readiness_probe = missing
         path = self.root / 'request.json'
         path.write_text(json.dumps(dict(conversation_id=self.chat['id'], request_id='missing',
-            source_path=str(self.source), engine='local_qwen3')))
+            source_path=str(self.source), engine='local_moss_q5')))
         output = StringIO()
         code = main(['workspace', 'tasks', 'prepare', '--request', str(path), '--output', 'json'],
                     local_transcription_runtime=self.runtime, stdout=output)

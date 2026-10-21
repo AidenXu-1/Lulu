@@ -79,8 +79,8 @@ class Bridge(QObject):
                 if set(args)!={'purpose'}:
                     raise ValueError('存储操作无效')
                 getattr(c,operation)(**args)
-            elif operation=='open_key_page':
-                url=c.cloud.key_url(args)
+            elif operation in {'open_key_page', 'open_pricing_page'}:
+                url=c.cloud.key_url(args, kind='billing' if operation=='open_pricing_page' else 'keys')
                 if not url.startswith('https://') or not QDesktopServices.openUrl(QUrl(url)):
                     raise RuntimeError('无法打开服务商的密钥页面')
             elif operation=='refresh' and not args:
@@ -151,10 +151,11 @@ class ModelsPage(QWidget):
         self.send('purpose',args)
 
     def show_model(self,model_id,feature=None):
+        from ...core.engines.local_models import LOCAL_MODELS
         display=next((id for id,mid in MODEL_IDS.items() if mid==model_id),None)
         if not display:
             raise ValueError('模型不存在')
-        self.send('purpose',dict(purpose='extract' if display in {'whisper','sensevoice','qwen_asr'} else 'voice',localMode='local',choice=display))
+        self.send('purpose',dict(purpose='extract' if model_id in LOCAL_MODELS else 'voice',localMode='local',choice=display))
 
     def request_feature(self,name):
         id=next((k for k,v in FEATURE_IDS.items() if v==name),name)

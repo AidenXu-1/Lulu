@@ -16,6 +16,9 @@ MAX_POINTS = 10000
 MAX_BYTES = 32 * 1024**2
 STATES = {'ok', 'offline', 'access_limited', 'login_required', 'network_error', 'parse_error'}
 
+class DataLimitError(LiveError):
+    pass
+
 def text(value, limit):
     value = value if type(value) is str else ''
     value = ''.join(c for c in value[:limit] if c >= ' ' and c != '\x7f')
@@ -43,7 +46,7 @@ def _open(path, flags):
         raise LiveError('直播数据文件无法安全读取，原文件保留')
     if info.st_size > MAX_BYTES:
         os.close(fd)
-        raise LiveError('直播数据文件过大，请直接打开文件夹读取；原文件保留')
+        raise DataLimitError('直播数据文件过大，请直接打开文件夹读取；原文件保留')
     return fd
 
 def append_sample(recording, host, observation, *, sampled_at=None):
@@ -81,7 +84,10 @@ def append_sample(recording, host, observation, *, sampled_at=None):
             output.write('\ufeff')
             writer.writerow(COLUMNS)
         writer.writerow(row)
-        file.write(output.getvalue().encode('utf-8'))
+        payload = output.getvalue().encode('utf-8')
+        if size + len(payload) > MAX_BYTES:
+            raise DataLimitError('直播数据已达 32 MiB 容量上限，已停止采样；已有数据保留，录像继续')
+        file.write(payload)
         file.flush()
         os.fsync(file.fileno())
 

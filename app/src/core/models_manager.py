@@ -1,8 +1,7 @@
 """本地模型的下载 / 存储 / 状态管理(统一受管目录)。
 
-三个模型都放 App 受管目录 `<app-data>/Lulu/models/<engine_id>/`:
-- SenseVoice 含两个子模型(主模型 + VAD),放 local_sensevoice/{SenseVoiceSmall,fsmn-vad}。
-- Qwen3 / MLX 各自一个目录。
+四模型各自使用受管目录 `<app-data>/Lulu/models/<engine_id>/`。
+退役模型只保留历史文件和收据识别，不再下载或运行。
 进度由调用方轮询 on_disk_size 估算(运行时无关、稳)。
 """
 
@@ -20,7 +19,8 @@ from importlib import metadata, util
 from pathlib import Path
 import re
 
-from .engines.local_models import LOCAL_MODELS
+from .engines.local_models import LOCAL_MODELS, LOCAL_MODEL_FILES
+from .engines.asr_resource import model_maintenance
 from .artifact_trust import (
     capture_receipt_rebinds,
     install_receipt_valid,
@@ -92,6 +92,7 @@ def model_path(model_id: str) -> Path:
     return managed_dir() / model_id
 
 
+@model_maintenance
 def relocate_models(new_root, progress=None, is_cancelled=None, *, source_root=None) -> None:
     """把已安装的本地模型(models/ + tts/)从当前根移动到 new_root,并由调用方保存配置。
     同盘是快速 rename,跨盘是复制+删除(较慢)。失败抛异常、不动配置。"""
@@ -136,6 +137,7 @@ def relocate_models(new_root, progress=None, is_cancelled=None, *, source_root=N
     progress("已切换安装位置", 1.0)
 
 
+@model_maintenance
 def relocate_and_save(new_root, cfg, progress=None) -> None:
     """Commit the location only after the files and persistent configuration agree."""
     old_value = cfg.models_dir
@@ -159,18 +161,6 @@ def relocate_and_save(new_root, cfg, progress=None) -> None:
         raise RuntimeError("新位置未能保存，模型已恢复原位置。请检查配置目录空间和权限后重试。") from exc
 
 
-def sensevoice_paths() -> tuple[Path, Path]:
-    """返回 SenseVoice 的 (主模型目录, VAD 目录)。"""
-    base = managed_dir() / "local_sensevoice"
-    return base / "SenseVoiceSmall", base / "fsmn-vad"
-
-
-def qwen3_paths() -> tuple[Path, Path]:
-    """返回 Qwen3 的 (ASR 主模型目录, 强制对齐模型目录)。"""
-    base = managed_dir() / "local_qwen3"
-    return base, base / "_aligner"
-
-
 def _receipt_base() -> Path:
     return app_data_dir() / ".artifact-trust"
 
@@ -180,6 +170,10 @@ def _artifact_id(model_id: str) -> str:
 
 
 def _trust_options(model_id: str) -> tuple[dict, ...]:
+    if model_id in LOCAL_MODEL_FILES:
+        return ({"source": "hf", "repositories": [
+            {"repo": repo, "revision": model_revision(repo, "hf")}
+            for repo in LOCAL_MODEL_FILES[model_id]], "file_set": 1},)
     if model_id == "local_sensevoice":
         return ({
             "source": "modelscope",
@@ -189,7 +183,7 @@ def _trust_options(model_id: str) -> tuple[dict, ...]:
             ],
         },)
     if model_id == "local_qwen3":
-        primary = LOCAL_MODELS[model_id].repo
+        primary = "Qwen/Qwen3-ASR-0.6B"
         return tuple({
             "source": "modelscope",
             "repositories": [
@@ -206,7 +200,31 @@ def _trust_options(model_id: str) -> tuple[dict, ...]:
     },)
 
 
+def installed_filename(model_id, name):
+    # mlx-whisper expects this filename; only the name changes, never the bytes.
+    return 'weights.safetensors' if model_id == 'local_whisper_mlx_4bit' and name == 'model.safetensors' else name
+
+
+def verify_pinned_files(model_id, root, check=lambda: None):
+    from .artifact_trust import _sha256_file
+    for files in LOCAL_MODEL_FILES.get(model_id, {}).values():
+        for name, (size, digest) in files.items():
+            check()
+            path = root / installed_filename(model_id, name)
+            if (path.is_symlink() or not path.is_file() or path.stat().st_size != size
+                    or _sha256_file(path, check) != digest):
+                raise RuntimeError('模型文件与固定版本不符，原有模型已保留。')
+
+
 def _shape_downloaded(model_id: str, root: Path) -> bool:
+    if model_id in LOCAL_MODEL_FILES:
+        try:
+            return (root / _DONE).is_file() and all(
+                not (root / installed_filename(model_id, name)).is_symlink()
+                and (root / installed_filename(model_id, name)).stat().st_size == expected[0]
+                for files in LOCAL_MODEL_FILES[model_id].values() for name, expected in files.items())
+        except OSError:
+            return False
     if model_id == "local_sensevoice":
         return (root / "SenseVoiceSmall" / "model.pt").is_file() and (root / "fsmn-vad").is_dir()
     if model_id == "local_qwen3":
@@ -241,7 +259,21 @@ def runtime_issue(model_id: str) -> str | None:
     导入链会查询 torchcodec 的 package metadata;打包时若漏收 dist-info,用户会在
     转录弹窗里看到底层错误。这里把问题前置到就绪判定。
     """
-    if model_id == "local_whisper_mlx":
+    from .engines.local_models import RETIRED_MODELS
+    if model_id in RETIRED_MODELS:
+        return '此模型已退役，请选择 Q8、Whisper 或 MOSS；已有文件和历史文稿保留。'
+    if model_id in {'local_sensevoice_q8', 'local_moss_q5'}:
+        if platform.system() != 'Darwin' or platform.machine().lower() not in {'arm64', 'aarch64'}:
+            return '此模型需要苹果芯 Mac。'
+        try:
+            if tuple(map(int, platform.mac_ver()[0].split('.')[:2])) < (15, 0):
+                return '此模型需要 macOS 15 或更新版本。'
+            from .engines.native_process import checked_tools
+            checked_tools('moss' if model_id == 'local_moss_q5' else 'sensevoice-q8')
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+            return '本地转录运行工具缺失或校验失败，请重新准备或更新 Lulu。'
+        return None
+    if model_id in {"local_whisper_mlx", "local_whisper_mlx_4bit"}:
         if platform.system() != "Darwin" or platform.machine().lower() not in {"arm64", "aarch64"}:
             return "Whisper MLX 只支持 Apple Silicon Mac；可继续使用 SenseVoice。"
         raw_version = platform.mac_ver()[0]
@@ -282,16 +314,6 @@ def runtime_issue(model_id: str) -> str | None:
             )
         return None
 
-    if model_id != "local_qwen3":
-        return None
-    if util.find_spec("torchcodec") is None:
-        return "Qwen3-ASR 运行依赖 torchcodec 缺失,请更新 Lulu 后再使用。"
-    try:
-        metadata.version("torchcodec")
-    except metadata.PackageNotFoundError:
-        return "Qwen3-ASR 运行依赖 torchcodec metadata 缺失,请更新 Lulu 后再使用。"
-    except Exception as exc:  # noqa: BLE001
-        return f"Qwen3-ASR 运行依赖检查失败:{exc}"
     return None
 
 
@@ -386,6 +408,7 @@ def _remove_managed_path(path: Path) -> None:
         raise OSError(f"未能完整删除 {path.name}")
 
 
+@model_maintenance
 def delete(model_id: str) -> None:
     if model_id not in LOCAL_MODELS:
         raise ValueError(f"未知本地模型：{model_id}")
@@ -398,6 +421,7 @@ def delete(model_id: str) -> None:
     remove_install_receipt(_artifact_id(model_id), _receipt_base())
 
 
+@model_maintenance
 def download_blocking(
     model_id: str,
     progress=None,
@@ -408,7 +432,7 @@ def download_blocking(
     is_cancelled = is_cancelled or (lambda: False)
     if is_cancelled():
         raise DownloadCancelled()
-    if model_id == "local_whisper_mlx":
+    if model_id in {"local_whisper_mlx", "local_whisper_mlx_4bit"}:
         issue = runtime_issue(model_id)
         if issue:
             raise RuntimeError(issue)
@@ -416,16 +440,7 @@ def download_blocking(
     parent = managed_dir()
     parent.mkdir(parents=True, exist_ok=True)
     resume_cache, candidate = _private_candidate(model_id)
-    transaction = Path(tempfile.mkdtemp(prefix=f".{model_id}-install-", dir=parent))
-    backup = transaction / "previous"
-    failed = transaction / "failed-candidate"
-    dest = parent / model_id
     selected_trust: dict
-    promoted = False
-    had_previous = os.path.lexists(dest)
-    previous_backed_up = False
-    completed = False
-    old_receipt = snapshot_install_receipt(_artifact_id(model_id), _receipt_base())
     expected = max(1, int(m.approx_size_mb * 1024 * 1024))
     transferred = resumable_download_size(model_id)
     progress_lock = threading.Lock()
@@ -478,67 +493,14 @@ def download_blocking(
 
     try:
         report(0)
-        if model_id == "local_sensevoice":
-            ms_progress = modelscope_progress_class()
-            for sub, repo in _SENSEVOICE_SUBMODELS.items():
-                if is_cancelled():
-                    raise DownloadCancelled()
-                modelscope_snapshot_download(
-                    repo,
-                    revision=model_revision(repo, "modelscope"),
-                    local_dir=str(candidate / sub),
-                    progress_callbacks=[ms_progress],
-                )
-                transferred = max(transferred, _tree_size(candidate))
-                report(0)
-            selected_trust = _trust_options(model_id)[0]
-        elif model_id == "local_qwen3":
-            ms_progress = modelscope_progress_class()
-            modelscope_snapshot_download(
-                m.repo,
-                revision=model_revision(m.repo, "modelscope"),
-                local_dir=str(candidate),
-                progress_callbacks=[ms_progress],
-            )
-            aligner_dir = candidate / "_aligner"
-            from .model_transfer import current, hf_snapshot
-            session = current()
-            prefer_hf = bool(session and session.find(_QWEN3_ALIGNER_REPO,
-                             model_revision(_QWEN3_ALIGNER_REPO, "hf"), aligner_dir))
-            try:
-                provider = hf_snapshot if prefer_hf else modelscope_snapshot_download
-                provider(
-                    _QWEN3_ALIGNER_REPO,
-                    revision=model_revision(_QWEN3_ALIGNER_REPO, "hf" if prefer_hf else "modelscope"),
-                    local_dir=str(aligner_dir),
-                    **({"tqdm_class": _HFProgress} if prefer_hf else {"progress_callbacks": [ms_progress]}),
-                )
-                selected_trust = _trust_options(model_id)[1 if prefer_hf else 0]
-            except DownloadCancelled:
-                raise
-            except Exception:                                # ModelScope 没有则回退 HuggingFace
-                if prefer_hf:
-                    raise
-                if session:
-                    session.report("正在切换备用来源，重新核对下载量…", -1)
-                    session.snapshots = [p for p in session.snapshots if p.root != aligner_dir]
-                from .model_transfer import hf_snapshot as _hf
-                _hf(
-                    _QWEN3_ALIGNER_REPO,
-                    revision=model_revision(_QWEN3_ALIGNER_REPO, "hf"),
-                    local_dir=str(aligner_dir),
-                    tqdm_class=_HFProgress,
-                )
-                selected_trust = _trust_options(model_id)[1]
-            (aligner_dir / _DONE).write_text("ok", encoding="utf-8")
-        elif m.repo_source == "modelscope":
-            ms_progress = modelscope_progress_class()
-            modelscope_snapshot_download(
-                m.repo,
-                revision=model_revision(m.repo, "modelscope"),
-                local_dir=str(candidate),
-                progress_callbacks=[ms_progress],
-            )
+        if model_id in LOCAL_MODEL_FILES:
+            from .model_transfer import hf_snapshot
+            for repo, files in LOCAL_MODEL_FILES[model_id].items():
+                hf_snapshot(repo, revision=model_revision(repo, 'hf'), local_dir=str(candidate),
+                            tqdm_class=_HFProgress, allow_patterns=list(files))
+            if model_id == 'local_whisper_mlx_4bit':
+                (candidate / 'model.safetensors').replace(candidate / 'weights.safetensors')
+            verify_pinned_files(model_id, candidate, lambda: report(0))
             selected_trust = _trust_options(model_id)[0]
         else:  # hf
             from .model_transfer import hf_snapshot as snapshot_download
@@ -555,37 +517,66 @@ def download_blocking(
         (candidate / _DONE).write_text("ok", encoding="utf-8")
         if not _shape_downloaded(model_id, candidate):
             raise RuntimeError("模型下载不完整，关键文件缺失；原有模型已保留。")
-        if had_previous:
-            dest.replace(backup)
-            previous_backed_up = True
-        candidate.replace(dest)
-        promoted = True
-        try:
-            write_install_receipt(_artifact_id(model_id), dest, selected_trust, _receipt_base())
-        except BaseException:
-            dest.replace(failed)
-            if had_previous:
-                backup.replace(dest)
-            raise
-        if not is_downloaded(model_id):
-            raise RuntimeError("模型安装收据未能通过复核；原有模型已保留。")
-        completed = True
+        dest = _promote_candidate(model_id, candidate, selected_trust, is_cancelled)
+        shutil.rmtree(resume_cache, ignore_errors=True)
         progress(1.0)
         return dest
-    except BaseException as exc:
-        if promoted and failed.exists() is False and os.path.lexists(dest):
-            dest.replace(failed)
-        if previous_backed_up and backup.exists() and not os.path.lexists(dest):
-            backup.replace(dest)
-        if failed.exists() and not os.path.lexists(candidate):
-            candidate.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            failed.replace(candidate)
+    except _SDKCancelled as exc:
+        raise DownloadCancelled() from exc
+
+
+@model_maintenance
+def _promote_candidate(model_id, candidate, trust, is_cancelled=lambda: False):
+    parent = managed_dir()
+    transaction = Path(tempfile.mkdtemp(prefix=f'.{model_id}-install-', dir=parent))
+    backup, failed, dest = transaction/'previous', transaction/'failed', model_path(model_id)
+    old_receipt = snapshot_install_receipt(_artifact_id(model_id), _receipt_base())
+    backed_up = promoted = completed = False
+    try:
+        if is_cancelled(): raise DownloadCancelled()
+        if os.path.lexists(dest):
+            dest.replace(backup)
+            backed_up = True
+        candidate.replace(dest)
+        promoted = True
+        write_install_receipt(_artifact_id(model_id), dest, trust, _receipt_base())
+        if not is_downloaded(model_id):
+            raise RuntimeError('模型安装收据未能通过复核；原有模型已保留。')
+        completed = True
+        return dest
+    except BaseException:
+        if promoted and os.path.lexists(dest): dest.replace(failed)
+        if backed_up and backup.exists() and not os.path.lexists(dest): backup.replace(dest)
+        if failed.exists() and not os.path.lexists(candidate): failed.replace(candidate)
         restore_install_receipt(old_receipt)
-        if isinstance(exc, _SDKCancelled):
-            raise DownloadCancelled() from exc
         raise
     finally:
-        if completed or not backup.exists():
-            shutil.rmtree(transaction, ignore_errors=True)
-        if completed:
-            shutil.rmtree(resume_cache, ignore_errors=True)
+        if completed or not backup.exists(): shutil.rmtree(transaction, ignore_errors=True)
+
+
+@model_maintenance
+def import_local_model(model_id, source_root, *, is_cancelled=lambda: False):
+    """Explicit import copies only pinned bytes; never moves the supplied source."""
+    if model_id not in LOCAL_MODEL_FILES: raise ValueError('此模型不支持该导入方式')
+    source_root = Path(source_root)
+    if any(p.is_symlink() for p in (source_root, *source_root.parents)):
+        raise ValueError('请选择原始模型文件夹，不使用符号链接')
+    if source_root.resolve() == model_path(model_id).resolve():
+        raise ValueError('源文件夹已是当前安装位置，请使用修复')
+    cache, candidate = _private_candidate(model_id)
+    for files in LOCAL_MODEL_FILES[model_id].values():
+        for name in files:
+            source = source_root/name
+            if not source.exists(): source = source_root/installed_filename(model_id, name)
+            if source.is_symlink() or not source.is_file(): raise ValueError('模型源文件缺失或路径无效')
+            with source.open('rb') as inp, (candidate/installed_filename(model_id, name)).open('wb') as out:
+                while data := inp.read(1024*1024):
+                    if is_cancelled(): raise DownloadCancelled()
+                    out.write(data)
+    def check():
+        if is_cancelled(): raise DownloadCancelled()
+    verify_pinned_files(model_id, candidate, check)
+    (candidate/_DONE).write_text('ok')
+    dest = _promote_candidate(model_id, candidate, _trust_options(model_id)[0], is_cancelled)
+    shutil.rmtree(cache, ignore_errors=True)
+    return dest

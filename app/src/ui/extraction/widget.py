@@ -1,6 +1,8 @@
 """Narrow native bridge: the page cannot supply paths or execute arbitrary commands."""
 import json
 import time
+import threading
+from queue import SimpleQueue, Empty
 from dataclasses import replace
 from pathlib import Path
 
@@ -62,9 +64,15 @@ class Bridge(QObject):
     snapshot = Signal(str)
     reply = Signal(str, str)
     notice = Signal(str)
+    linkInput = Signal(str)
     def __init__(self, widget): super().__init__(widget);self.widget=widget
     @Slot()
-    def ready(self): self.widget.ready=True;self.widget.publish(force=True)
+    def ready(self):
+        if self.widget.closing: return
+        self.widget.ready=True;self.widget.publish(force=True)
+        if self.widget._pending_link is not None:
+            text=self.widget._pending_link;self.widget._pending_link=None
+            self.linkInput.emit(text)
     @Slot(str,str,str)
     def request(self, request_id, action, raw):
         if self.widget.closing: return
@@ -84,7 +92,11 @@ class ExtractionWorkspace(QWidget):
         self.main=main;self.ready=False;self.closing=False;self._last='';self._ids={};self._next_id=1
         self._started={};self._elapsed={};self._deleting={};self._models=[]
         self._preferences={}
+        self._pending_link=None
         self._models_at=0
+        self._model_epoch=0
+        self._model_pending=None
+        self._model_results=SimpleQueue()
         prepare_webengine_runtime()
         self.view=View(self);self.profile=QWebEngineProfile(self)
         self.interceptor=Resources(self.profile);self.profile.setUrlRequestInterceptor(self.interceptor)
@@ -99,6 +111,13 @@ class ExtractionWorkspace(QWidget):
         self.timer=QTimer(self);self.timer.setInterval(200);self.timer.timeout.connect(self.publish);self.timer.start()
         self.view.load(QUrl.fromLocalFile(str(ROOT/'index.html')))
 
+    def stage_link(self, text):
+        """Fill the current input only; never create or start a task."""
+        if self.closing: raise RuntimeError('内容提取页面已关闭，请重新打开后再试。')
+        if type(text) is not str or len(text)>4096: raise ValueError('作品链接无效')
+        if self.ready: self.bridge.linkInput.emit(text)
+        else: self._pending_link=text
+
     def shutdown(self):
         # Closing ends the undo window. Only remove settled queue records;
         # never delete their source files, results or a running worker here.
@@ -107,7 +126,70 @@ class ExtractionWorkspace(QWidget):
             if task and not task.is_active:
                 self.main._delete_task(tid)
         self._deleting.clear()
-        self.closing=True;self.timer.stop();self.page.setWebChannel(None)
+        self.closing=True
+        if self._model_pending is not None:
+            self._model_pending.set()
+        self.timer.stop();self.page.setWebChannel(None)
+
+    def invalidate_model_status(self):
+        self._models_at=0
+        self._model_epoch+=1
+        if self._model_pending is not None:
+            self._model_pending.set()
+        self._models=[dict(row, ready=False, checking=not row['cloud'], issue='') for row in self._models]
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.invalidate_model_status()
+        self.publish(force=True)
+
+    def hideEvent(self, event):
+        self._model_epoch+=1
+        if self._model_pending is not None:
+            self._model_pending.set()
+        super().hideEvent(event)
+
+    def _refresh_models(self):
+        while True:
+            try:
+                epoch, rows = self._model_results.get_nowait()
+            except Empty:
+                break
+            self._model_pending=None
+            if epoch == self._model_epoch and rows is not None:
+                self._models=rows
+                self._models_at=time.monotonic()
+        from ...core.engines.providers import PRESETS
+        if not self._models:
+            self._models=[dict(id=p.id, name=p.display_name.removeprefix('本地 · '), ready=False,
+                checking=p.kind=='local', cloud=p.requires_network,
+                detail='云端转录 · 音频会上传到服务商' if p.requires_network else '本地转录') for p in PRESETS.values()]
+        if (not self.isVisible() or self._model_pending is not None
+                or self._models_at and time.monotonic()-self._models_at <= 15):
+            return
+        cancel=self._model_pending=threading.Event()
+        epoch, results, presets = self._model_epoch, self._model_results, tuple(PRESETS.values())
+        # The daemon captures no Qt object. A blocked volume cannot keep a
+        # destroyed page alive, call back into it, or accumulate more workers.
+        def read():
+            from ...core.models_manager import is_ready
+            rows=[]
+            try:
+                for preset in presets:
+                    if cancel.is_set():
+                        return
+                    issue=''
+                    try:
+                        ready=is_ready(preset.id) if preset.kind=='local' else False
+                    except Exception:
+                        ready=False
+                        issue='模型状态未能检查，稍后会重试'
+                    rows.append(dict(id=preset.id, name=preset.display_name.removeprefix('本地 · '),
+                        ready=ready, checking=False, issue=issue, cloud=preset.requires_network,
+                        detail='云端转录 · 音频会上传到服务商' if preset.requires_network else '本地转录'))
+            finally:
+                results.put((epoch, None if cancel.is_set() else rows))
+        threading.Thread(target=read, name='lulu-extraction-model-status', daemon=True).start()
 
     def initial_policy(self, source, kind):
         cfg=self.main.cfg
@@ -147,7 +229,11 @@ class ExtractionWorkspace(QWidget):
             if display_state==TaskState.RUNNING:
                 self._started.setdefault(task.id,now)
                 self._elapsed[task.id]=int(now-self._started[task.id])
+            else:
+                self._started.pop(task.id,None)
             group=groups.get(task.id);policy=task.execution_policy;tr=task.transcript;meta=(tr.meta or {}) if tr else {}
+            paused=bool(display_state==TaskState.QUEUED and group
+                and group.id in getattr(self.main,'_paused_task_group_ids',set()))
             selected=outputs(policy)
             if policy and policy.requested_outputs is None:
                 selected=('text',)+(('video',) if policy.material_snapshot.save_media and policy.material_snapshot.download_mode=='video' else ())+ (('cover',) if policy.material_snapshot.save_cover else ())
@@ -166,9 +252,9 @@ class ExtractionWorkspace(QWidget):
                 folder=(policy.media_directory if policy else None) or self.main.cfg.media_dir,
                 group=str(group.id) if group else None,groupName=group.name if group else '',
                 skipped=[dict(name=m.title,reason=m.skipped_reason) for m in group.members if m.is_skipped] if group else [],
-                progress=task.progress,message=task.message,error=task.error,stage=getattr(task,'_execution_stage',''),
+                progress=task.progress,message='批次已暂停，点击继续' if paused else task.message,error=task.error,stage=getattr(task,'_execution_stage',''),
                 model=policy.engine_name if policy else self.main.cfg.engine_name,elapsed=self._elapsed.get(task.id,0),
-                readOnly=bool(getattr(task,'_core_view_only',False)),editableOutputs=task.kind=='link' and (policy is None or policy.origin=='single_link'),recovered=bool(getattr(task,'_core_recovered_queue',False)),
+                readOnly=bool(getattr(task,'_core_view_only',False)),editableOutputs=task.kind=='link' and (policy is None or policy.origin=='single_link'),recovered=bool(paused or getattr(task,'_core_recovered_queue',False)),
                 savePending=needs_result_save(task),
                 documentId=task.library_id,hasDocument=has_document(task),assets=meta.get('extraction_assets',{}),hasResult=bool(has_document(task) or meta.get('extraction_assets'))))
         return result
@@ -180,12 +266,7 @@ class ExtractionWorkspace(QWidget):
             if time.monotonic() >= self._deleting[tid] and (task is None or task.state not in {TaskState.RUNNING,TaskState.QUEUED}):
                 self._deleting.pop(tid,None)
                 if task:self.main._delete_task(tid)
-        if not self._models or time.monotonic()-self._models_at>15:
-            from ...core.engines.providers import PRESETS
-            from ...core.models_manager import is_ready
-            self._models=[dict(id=p.id,name=p.display_name.removeprefix('本地 · '),ready=is_ready(p.id) if p.kind=='local' else False,
-                cloud=p.requires_network,detail='云端转录 · 音频会上传到服务商' if p.requires_network else '本地转录') for p in PRESETS.values()]
-            self._models_at=time.monotonic()
+        self._refresh_models()
         main=self.main
         recorder=getattr(main,'_recorder_obj',None)
         active_record=main._rec_elapsed_timer.isActive() or bool(recorder and recorder.is_recording()) or bool(getattr(main,'_mixed_pending_stop',False))
@@ -269,7 +350,17 @@ class ExtractionWorkspace(QWidget):
                             main._retry_result_save(task.id)
                         continue
                     if task.execution_policy and task.execution_policy.requested_outputs is not None:
-                        task.execution_policy=replace(task.execution_policy,engine_name=None)
+                        policy=task.execution_policy
+                        # Older live tasks used this fixed title and policy before
+                        # local_only existed. Tighten their retry without rewriting
+                        # the admitted historical input or applying it to other files.
+                        legacy_live=(task.kind=='file' and task.title=='直播录像转录'
+                            and policy.origin=='single_link' and not policy.stable_key
+                            and policy.requested_outputs==('text',)
+                            and policy.media_destination=='none' and policy.prefer_subtitles is False
+                            and policy.material_snapshot==MaterialPreferenceSnapshot('audio',False,False))
+                        task.execution_policy=replace(policy,engine_name=None,
+                            local_only=policy.local_only or legacy_live)
                     task.transcript=None
                     task._extraction_result_ref=None
                     task.state=TaskState.PENDING;task.error=None

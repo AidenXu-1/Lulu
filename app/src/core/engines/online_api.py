@@ -59,7 +59,7 @@ class OpenAICompatEngine(TranscriptionEngine):
             raise InterruptedError("转录已取消")
         if not self._api_key:
             raise RuntimeError(
-                f"{self.display_name} 还没配置 API Key。请在「AI 大模型配置」→「文案提取」→ 云端 API 里填入,或切回本地引擎。"
+                f"{self.display_name} 还没配置 API Key。请在「AI 大模型配置」→「内容提取」→ 云端 API 里填入,或切回本地引擎。"
             )
         progress(f"上传音频到 {self.display_name}…", -1.0)
         # 优先要 verbose_json(带分段/时间戳),厂家不支持时退回纯 json
@@ -91,7 +91,7 @@ class OpenAICompatEngine(TranscriptionEngine):
             ) from exc
 
         if resp.status_code == 401:
-            raise RuntimeError(f"{self.display_name}:API Key 无效或无权限(401)。请在「AI 大模型配置」→「文案提取」→ 云端 API 核对 Key。")
+            raise RuntimeError(f"{self.display_name}:API Key 无效或无权限(401)。请在「AI 大模型配置」→「内容提取」→ 云端 API 核对 Key。")
         if resp.status_code == 403:
             raise RuntimeError(f"{self.display_name}:无权限或余额不足(403)。")
         if resp.status_code == 429:

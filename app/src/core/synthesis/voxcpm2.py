@@ -10,7 +10,7 @@ import os
 import sys
 from pathlib import Path
 
-from ..engines.local_sensevoice import detect_device
+from ..audio.device import detect_device
 from . import local_models
 from .base import SynthesisEngine, SynthesisError, SynthesisRequest, SynthesisResult, _noop
 from .errors import scrub_detail

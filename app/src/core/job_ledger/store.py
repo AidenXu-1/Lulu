@@ -1412,6 +1412,8 @@ class JobLedgerStore(_LedgerReadProjection):
                 previous = _policy_to_dict(_policy_from_dict(previous, schema_version=SCHEMA_VERSION))
             if previous == normalized:
                 return deepcopy(job)
+            if previous and previous.get("local_only") and not normalized.get("local_only"):
+                raise conflict("GUI_POLICY_IMMUTABLE")
             # Old batches may already be queued with these two settings unset.
             # Bind only empty fields once; every admitted value remains immutable.
             late_binding_fields = {"engine_name", "prefer_subtitles"}

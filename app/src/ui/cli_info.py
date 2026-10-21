@@ -6,7 +6,7 @@ AGENT_SKILL_REPOSITORY_URL = "https://github.com/AidenXu-1/lulu-agent"
 CLI_FEATURES = (
     ("文稿与版本", "查找、读取和创建文稿；整稿保存、局部修改、撤销与恢复历史版本。"),
     ("AI 对话", "使用已配置的模型处理内容；创建会话、查询进度或取消任务。"),
-    ("本地音视频转录", "转录本机音视频，查询模型与完整结果。支持 SenseVoice、Qwen3-ASR、Whisper MLX。"),
+    ("本地音视频转录", "转录本机音视频，查询模型与完整结果。支持 SenseVoice Q8、Whisper MLX、Whisper 4bit、MOSS Q5。"),
     ("本地配音", "使用已准备的 IndexTTS 2.5 / 2、VoxCPM2、Qwen3-TTS；查询音色、参数和生成结果。"),
     ("链接素材", "下载视频、音频、封面和公开作品资料，无需启动转录模型。"),
     ("任务与技能", "查询与取消任务、读取完成回执；管理 Lulu 内部技能，以及工作区备份与恢复。"),

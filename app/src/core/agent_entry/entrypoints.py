@@ -283,8 +283,11 @@ class CoreCommandDispatcher:
             self._verify_installation(installation)
         if command == "argv" and argv == ["version", "--output", "json"]:
             stdout, stderr = StringIO(), StringIO()
+            # Installation and measured transport already verified this entry.
+            # Reading version metadata must not bootstrap jobs or model services.
             exit_code = control_plane_main(argv, stdout=stdout, stderr=stderr,
-                product_identity=self._identity, resource_root=self._resource_root)
+                product_identity=self._identity, resource_root=self._resource_root,
+                verified_control_entry=True)
             return {"exit_code": exit_code, "stdout": stdout.getvalue(), "stderr": stderr.getvalue()}
 
         if not self._runtime_loaded:

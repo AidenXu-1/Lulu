@@ -43,6 +43,7 @@ def _execution_policy(policy: TaskExecutionPolicy | None) -> dict[str, object] |
         "media_directory": policy.media_directory,
         "prefer_subtitles": policy.prefer_subtitles,
         "engine_name": policy.engine_name,
+        **({"local_only": True} if policy.local_only else {}),
         **({"requested_outputs": list(policy.requested_outputs)} if policy.requested_outputs is not None else {}),
         "material_snapshot": {
             "download_mode": snapshot.download_mode,
@@ -378,28 +379,8 @@ class CoreTaskQueueStore:
             raise RuntimeError("CORE_TASK_RESULT_INTEGRITY_ERROR")
         try:
             payload = json.loads(raw)
-            if (set(payload) != {"schema_id", "schema_revision", "job_id", "transcript"}
-                    or payload["schema_id"] != "lulu.transcription-result/v1"
-                    or type(payload["schema_revision"]) is not int or payload["schema_revision"] != 1
-                    or payload["job_id"] != job_id):
-                raise ValueError()
-            value = payload["transcript"]
-            if (set(value) != {"text", "segments", "language", "engine"}
-                    or type(value["text"]) is not str or type(value["segments"]) is not list
-                    or (value["language"] is not None and type(value["language"]) is not str)
-                    or type(value["engine"]) is not str):
-                raise ValueError()
-            segments = []
-            for segment in value["segments"]:
-                if set(segment) != {"text", "start", "end"} or type(segment["text"]) is not str:
-                    raise ValueError()
-                for key in ("start", "end"):
-                    timestamp = segment[key]
-                    if timestamp is not None and (type(timestamp) not in {int, float} or not math.isfinite(timestamp) or timestamp < 0):
-                        raise ValueError()
-                segments.append(Segment(**segment))
-            return Transcript(text=value["text"], segments=segments, language=value["language"],
-                              engine=value["engine"], source="", title=None, meta={})
+            from .transcription_contracts import decode_transcription_result
+            return decode_transcription_result(payload, job_id=job_id)
         except (ValueError, TypeError, KeyError) as exc:
             raise RuntimeError("CORE_TASK_RESPONSE_INVALID") from exc
 

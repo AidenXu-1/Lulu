@@ -825,7 +825,7 @@ class MainWindow(QWidget):
         self._library_count_labels = {}
         self._page_navs: list = []
         lay.addWidget(self._nav_label("工作台"))
-        lay.addWidget(self._page_nav("headphones", "文案提取", 0, live_count=0))
+        lay.addWidget(self._page_nav("headphones", "内容提取", 0, live_count=0))
         lay.addWidget(self._page_nav("workspace_grid", "主页采集", 5))
         lay.addWidget(self._page_nav("mic", "文案配音", 4))
         lay.addWidget(self._page_nav("video", "直播录制", LIVE_RECORDING_PAGE))
@@ -982,8 +982,8 @@ class MainWindow(QWidget):
             self._switch_page(index)
 
     def _request_update_install(self) -> None:
-        if self.live_controller.active:
-            self._toast("请先暂停直播监控并等待录像保存完成，再安装更新。")
+        if self.live_controller.active or getattr(self.live_controller, 'has_pending_work', False):
+            self._toast("请先等直播操作完成，暂停监控并保存录像后再安装更新。")
             return
         gate = self.update_controller.install_gate()
         if gate == "active":
@@ -1073,7 +1073,7 @@ class MainWindow(QWidget):
 
     def _on_models_changed(self) -> None:
         workspace = self.extraction_workspace
-        workspace._models_at = 0
+        workspace.invalidate_model_status()
         if self.voice_page is not None:
             self.voice_page.invalidate_model_status()
         # Do not refresh a hidden dubbing workbench inside the settings click.
@@ -1277,6 +1277,7 @@ class MainWindow(QWidget):
             widget = VoicePage(self.cfg, self)
             self.voice_page = widget
         elif index == 5:
+            live = self._ensure_page_loaded(LIVE_RECORDING_PAGE)
             from .collection_page import CollectionPage
             widget = CollectionPage(
                 self.cfg,
@@ -1285,8 +1286,12 @@ class MainWindow(QWidget):
                 cover_preference_service=self._cover_preferences,
                 cover_workflow=self._collection_cover_workflow,
                 collection_task_states=self._collection_task_states,
+                douyin_login_open=live._settings, douyin_login_state=live.login_state,
+                douyin_login_busy=lambda: bool(self.live_controller.login_worker or live._credential_pending),
             )
             self.collection_page = widget
+            self.live_controller.snapshot.connect(lambda _: widget._refresh_login_status())
+            live.login_state_changed.connect(widget._refresh_login_status)
         elif index == 6:
             from .settings_page import SettingsPage
             widget = SettingsPage(
@@ -1310,7 +1315,9 @@ class MainWindow(QWidget):
             self.settings_page = widget
         elif index == LIVE_RECORDING_PAGE:
             from .live_recording_page import LiveRecordingPage
-            widget = LiveRecordingPage(self.live_controller, transcribe=self._live_transcribe, parent=self)
+            widget = LiveRecordingPage(self.live_controller, transcribe=self._live_transcribe, parent=self,
+                collection_busy=lambda: bool(self.collection_page and (self.collection_page._collect_running() or
+                    any(w and w.isRunning() for w in (self.collection_page._login_worker, self.collection_page._xhs_login_worker)))))
             self.live_recording_page = widget
         elif index == 8:
             return self.stack.widget(0)
@@ -1473,11 +1480,14 @@ class MainWindow(QWidget):
             return False
         if self._task_start_blocked():
             return False
-        engine = self.cfg.engine_name if self.cfg.engine_name in LOCAL_MODELS else DEFAULT_ENGINE
+        engine = self.cfg.engine_name
+        if engine not in LOCAL_MODELS:
+            self._toast('请先在模型设置中选择 Q8、Whisper 或 MOSS，再转录录像')
+            return False
         policy = TaskExecutionPolicy(origin='single_link', mode='materialize', stable_key='',
             material_snapshot=MaterialPreferenceSnapshot('audio', False, False),
             media_destination='none', prefer_subtitles=False, engine_name=engine,
-            requested_outputs=('text',))
+            requested_outputs=('text',), local_only=True)
         task = self._add_task(str(path), "file", "直播录像转录", execution_policy=policy)
         self._switch_page(0)
         if task.state == TaskState.FAILED:
@@ -2252,9 +2262,12 @@ class MainWindow(QWidget):
         except OSError:
             self._toast("录音保存目录不可写，请重新选择")
             return None
+        from uuid import uuid4
+
         now = datetime.now()
         self._rec_started_label = now.strftime("%m-%d %H:%M")
-        return str(d / f"{prefix}_{now.strftime('%Y%m%d_%H%M%S')}.m4a")
+        # Separate attempts must never share an output, including within one second.
+        return str(d / f"{prefix}_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex}.m4a")
 
     def _start_microphone_recording(self) -> None:
         rec = self._ensure_recorder()
@@ -2541,6 +2554,10 @@ class MainWindow(QWidget):
         self._toast(f"录音失败：{msg}")
 
     def _pump(self) -> None:
+        if self.current is None and any(getattr(self, key, False) for key in (
+                '_close_settling', '_result_recovery_failed', '_task_queue_store_failed')):
+            from ..core.engines.asr_resource import finish_batch
+            finish_batch(getattr(self, '_asr_batch_owner', None))
         if getattr(self, "_close_settling", False):
             return
         if getattr(self, "_result_recovery_failed", False):
@@ -2575,6 +2592,8 @@ class MainWindow(QWidget):
             None,
         )
         if nxt is None:
+            from ..core.engines.asr_resource import finish_batch
+            finish_batch(getattr(self, '_asr_batch_owner', None))
             return
         if asynchronous and nxt.state is TaskState.QUEUED and getattr(nxt, "_core_state", None) != "queued":
             self._persist_task_queue()
@@ -2632,6 +2651,10 @@ class MainWindow(QWidget):
             ),
         )
         worker.audit_job_id = nxt.id
+        if not getattr(self, '_asr_batch_owner', None):
+            from uuid import uuid4
+            self._asr_batch_owner = uuid4().hex
+        worker._asr_batch_owner = self._asr_batch_owner
 
         def owns_attempt():
             return self.current is not None and self.current[0] is nxt and self.current[1] is worker
@@ -2737,6 +2760,11 @@ class MainWindow(QWidget):
         try:
             task._extraction_result_ref = save_result(str(task.id), transcript)
         except (OSError, ValueError, RuntimeError):
+            # The document may already exist, but the combined result is not committed.
+            # Reuse the normal pending-save recovery path and its stable document id.
+            if task.library_id:
+                task._pending_library_id = task.library_id
+                task.library_id = None
             task.state = TaskState.FAILED
             task.message = "结果待保存"
             task.error = "结果记录未保存，已生成的文件仍保留"
@@ -2784,17 +2812,7 @@ class MainWindow(QWidget):
                 if not entry_id:
                     raise OSError("素材库没有返回有效 id")
                 task._pending_library_id = entry_id
-            current_body = library.load_markdown(entry_id)
-            # 新记录最初只含原始正文。先一次性落成素材库与 Obsidian
-            # 共用的标准成稿，再允许任务进入 DONE；重试时不覆盖用户编辑。
-            if current_body == task.transcript.text:
-                canonical_body = obsidian.note_body(task.transcript, task.title)
-                library.save_markdown(entry_id, canonical_body, preserve_timestamps=True,
-                                      expected_hash=library._content_hash(current_body))
-                if library.load_markdown(entry_id) != canonical_body:
-                    raise OSError("素材库成稿复读失败")
-            if library.load(entry_id) is None:
-                raise OSError("素材库复读失败")
+            library.finish_transcript_document(entry_id, task.transcript, task.title)
         except Exception as exc:  # noqa: BLE001
             if trace:
                 trace.returned("save_failed", exc)
@@ -3603,7 +3621,7 @@ class MainWindow(QWidget):
         if getattr(self, '_storage_relocation_in_progress', False):
             return True
         live = getattr(self, "live_controller", None)
-        if live is not None and live.active:
+        if live is not None and (live.active or getattr(live, 'has_pending_work', False)):
             return True
         if any(task.is_active for task in self.tasks):
             return True
@@ -3673,7 +3691,7 @@ class MainWindow(QWidget):
                         continue
                 if MainWindow._update_activity_running(worker):
                     return "这个模型正在生成或释放后台。请先取消当前任务或等它完成，再卸载。"
-            if model_id == "local_sensevoice":
+            if model_id == "local_sensevoice_q8":
                 reference_workers = (
                     getattr(voice_page, "_ref_worker", None),
                     getattr(voice_page, "_new_voice_worker", None),
@@ -3960,6 +3978,10 @@ class MainWindow(QWidget):
             if self._transcript_cover_retry_worker.isRunning():
                 self._defer_close_until_workers_settle(e)
                 return
+        from ..core.engines.asr_resource import finish_batch
+        if not finish_batch(getattr(self, '_asr_batch_owner', None)):
+            self._defer_close_until_workers_settle(e)
+            return
         if self._transcript_cover_retry_worker is not None:
             self._transcript_cover_retry_worker = None
         if self.models_page is not None:

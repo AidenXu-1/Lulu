@@ -330,8 +330,8 @@ QWidget#root{scope} QFrame#coreCanvas {{
     );
     border: none;
 }}
-/* 原生工作台沿用文案提取标题栏的纸色。
-   选择器必须带 workspacePage，避免反向命中文案提取母版。 */
+/* 原生工作台沿用内容提取标题栏的纸色。
+   选择器必须带 workspacePage，避免反向命中内容提取母版。 */
 QWidget#root{scope}[workspacePage="voice"],
 QWidget#root{scope}[workspacePage="liveClips"],
 QWidget#root{scope}[workspacePage="collection"],
@@ -671,7 +671,7 @@ QMenu{scope}::item:selected {{ background: {t.accent_wash}; color: {t.accent}; f
 
 
 def build_consumer_sample_qss(t: ConsumerTheme) -> str:
-    """仅生成文案提取样板页的范围化样式。"""
+    """仅生成内容提取样板页的范围化样式。"""
     scope = '[consumerThemeScope="transcriptionWorkbench"]'
     return f"""
 

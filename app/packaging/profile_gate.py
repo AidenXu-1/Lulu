@@ -930,6 +930,29 @@ def _bundle_executable_inventory(
     return records, findings, _canonical_digest(records)
 
 
+def _native_asr_executables(app: Path, analysis: dict, modules: list[str]) -> dict[str, str]:
+    """Only admit the exact native payload bound before bundle assembly."""
+    expected = analysis.get('native_asr_manifest_sha256')
+    declared = any((app/f'Contents/{directory}/asr-runtime').exists()
+                   for directory in ('Frameworks', 'Resources'))
+    required = 'src.core.engines.local_native' in modules
+    if expected is None:
+        if declared or required:
+            raise SystemExit('原生转录工具没有绑定构建输入清单')
+        return {}
+    root = app/'Contents/Frameworks/asr-runtime'
+    manifest = app/'Contents/Resources/asr-runtime/manifest.json'
+    if manifest.is_symlink() or not manifest.is_file() or _sha256(manifest) != expected:
+        raise SystemExit('原生转录工具清单与构建输入不一致')
+    builder = runpy.run_path(str(Path(__file__).with_name('build_asr_runtime.py')))
+    try:
+        payload = builder['verify_runtime'](root)
+    except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+        raise SystemExit('原生转录工具内容或签名校验失败') from exc
+    return {f'Contents/Frameworks/asr-runtime/{name}': 'verified_native_asr'
+            for name in builder['EXECUTABLES']}
+
+
 def scan_collected_members(profile: str, modules: list[tuple[str, str]], resources: list[str]) -> dict:
     if profile not in PROFILES:
         raise ValueError("未知 build profile")
@@ -974,7 +997,8 @@ def scan_collected_members(profile: str, modules: list[tuple[str, str]], resourc
     }
 
 
-def write_analysis_receipt(path: Path, profile: str, modules, resources, profile_sha256: str) -> dict:
+def write_analysis_receipt(path: Path, profile: str, modules, resources, profile_sha256: str,
+                           *, native_asr_manifest_sha256: str | None = None) -> dict:
     path = Path(path)
     normalized_modules = [(str(item[0]), str(item[1])) for item in modules if len(item) >= 2]
     normalized_resources = [str(item[0] if isinstance(item, (tuple, list)) else item) for item in resources]
@@ -986,6 +1010,10 @@ def write_analysis_receipt(path: Path, profile: str, modules, resources, profile
         "resources": resource_inventory,
         "profile_sha256": profile_sha256,
     }
+    if native_asr_manifest_sha256 is not None:
+        if not re.fullmatch(r'[0-9a-f]{64}', native_asr_manifest_sha256):
+            raise ValueError('Invalid native ASR manifest digest')
+        inventory['native_asr_manifest_sha256'] = native_asr_manifest_sha256
     result = {
         "schema": 2,
         **scan,
@@ -994,6 +1022,8 @@ def write_analysis_receipt(path: Path, profile: str, modules, resources, profile
         "resources": resource_inventory,
         "inventory_digest": _canonical_digest(inventory),
     }
+    if native_asr_manifest_sha256 is not None:
+        result['native_asr_manifest_sha256'] = native_asr_manifest_sha256
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     if result["forbidden_count"]:
@@ -1438,7 +1468,13 @@ def _load_analysis(path: Path, profile: str, profile_sha: str) -> tuple[dict, st
     resources = analysis.get("resources")
     if not isinstance(modules, list) or not isinstance(resources, list) or modules != sorted(set(modules)) or resources != sorted(set(resources)):
         raise SystemExit("Analysis inventory 非规范集合")
-    expected_digest = _canonical_digest({"modules": modules, "resources": resources, "profile_sha256": profile_sha})
+    inventory = {"modules": modules, "resources": resources, "profile_sha256": profile_sha}
+    if 'native_asr_manifest_sha256' in analysis:
+        digest = analysis['native_asr_manifest_sha256']
+        if type(digest) is not str or not re.fullmatch(r'[0-9a-f]{64}', digest):
+            raise SystemExit('原生转录工具清单摘要无效')
+        inventory['native_asr_manifest_sha256'] = digest
+    expected_digest = _canonical_digest(inventory)
     if analysis.get("inventory_digest") != expected_digest:
         raise SystemExit("Analysis inventory digest 不匹配")
     return analysis, _sha256(path)
@@ -1616,6 +1652,7 @@ def _verify_app_with_reader(
         str(entry["relative_path"]): str(entry["contract"])
         for entry in entry_contracts
     }
+    approved_executables.update(_native_asr_executables(app, analysis, module_names))
     executable_records, executable_findings, executable_inventory_digest = _bundle_executable_inventory(
         app,
         approved_executables,

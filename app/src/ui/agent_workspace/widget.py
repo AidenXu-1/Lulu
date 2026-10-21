@@ -245,8 +245,12 @@ class Bridge(QObject):
                 if not path:
                     self.respond(request_id, True, None)
                     return
+                from ...core.engines.local_models import LOCAL_MODELS
+                engine = getattr(self.widget.cfg, 'engine_name', None)
+                if engine not in LOCAL_MODELS:
+                    raise ValueError('请先在模型设置中选择本地转录模型')
                 options = dict(conversation_id=args['conversation_id'], request_id=uuid4().hex,
-                               source_path=str(Path(path).resolve()), engine='local_sensevoice')
+                               source_path=str(Path(path).resolve()), engine=engine)
                 # File hashing and readiness checks run off the Qt thread.
                 self.widget.pool.start(Work(request_id, 'prepare_media', options, self.widget.results, self.widget.dispatch))
                 return
@@ -416,8 +420,7 @@ class AgentWorkspace(QWidget):
                         content_hash=target['content_hash'],reference_ids=target['reference_ids'])]})
             elif result['action']=='transcription':
                 self.main._switch_page(0)
-                self.main.link_input.setText(result['url'])
-                self.main.link_input.setFocus()
+                self.main.extraction_workspace.stage_link(result['url'])
                 self.main._toast('已带入作品链接，请确认配置后开始' if result['url'] else '请选择要转录的文件，当前会话已保留')
             elif result['action']=='skills':
                 self.main._switch_page(6)

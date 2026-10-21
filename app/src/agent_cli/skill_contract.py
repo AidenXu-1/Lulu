@@ -498,7 +498,7 @@ def decide_link_configuration(event: Mapping[str, object]) -> dict[str, object]:
         configuration = {
             "platform": _link_platform(url),
             "url": url,
-            "engine": "local_sensevoice",
+            "engine": "local_sensevoice_q8",
             "prefer_subtitles": False,
             "subtitle_fallback": "local_transcription",
             "media_mode": "audio",
@@ -524,7 +524,8 @@ def decide_link_configuration(event: Mapping[str, object]) -> dict[str, object]:
         if not changes or not set(changes).issubset(_LINK_MUTABLE_FIELDS):
             raise SkillContractError("UNKNOWN_FIELD", "changes")
         candidate = {**configuration, **dict(changes)}
-        if candidate["engine"] != "local_sensevoice":
+        from ..core.engines.local_models import LOCAL_MODELS
+        if candidate["engine"] not in LOCAL_MODELS:
             raise SkillContractError("UNKNOWN_ENUM", "changes.engine")
         if candidate["subtitle_fallback"] not in {"local_transcription", "fail"}:
             raise SkillContractError("UNKNOWN_ENUM", "changes.subtitle_fallback")

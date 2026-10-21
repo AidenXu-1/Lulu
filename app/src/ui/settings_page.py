@@ -51,7 +51,7 @@ _PATH_OPTIONS = (
     ("last_output_dir", "文稿导出", "从文稿库或提取结果导出文稿时，默认打开此文件夹。", "storage_document"),
     (
         "media_dir", "视频与封面下载",
-        "文案提取中选择的视频和封面保存到这里；主页采集的素材由 Lulu 单独管理。",
+        "内容提取中选择的视频和封面保存到这里；主页采集的素材由 Lulu 单独管理。",
         "storage_media",
     ),
     ("recording_dir", "录音文件", "麦克风与系统声音的原始录音保存在这里。", "storage_recording"),

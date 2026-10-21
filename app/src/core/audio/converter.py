@@ -109,7 +109,26 @@ def to_wav_mono(src: Path, dst: Path, sr: int = TARGET_SR, *, is_cancelled=None,
 
 def to_wav_16k_mono(src: Path, dst: Path, *, is_cancelled=None, timeout=None) -> Path:
     """把 src 转成 16k 单声道 wav 写到 dst,返回 dst。"""
-    return to_wav_mono(src, dst, sr=TARGET_SR, is_cancelled=is_cancelled, timeout=timeout)
+    result = to_wav_mono(src, dst, sr=TARGET_SR, is_cancelled=is_cancelled, timeout=timeout)
+    reject_zero_pcm(result, is_cancelled=is_cancelled)
+    return result
+
+
+def reject_zero_pcm(path: Path, *, is_cancelled=None) -> None:
+    """Reject only exact digital silence, never a volume threshold or phrase."""
+    import wave
+    with wave.open(str(path), 'rb') as wav:
+        # FFmpeg's WAV default here is signed 16-bit PCM.
+        if wav.getsampwidth() != 2 or wav.getcomptype() != 'NONE':
+            raise ValueError('音频准备结果无效，请重新导入。')
+        while True:
+            if is_cancelled and is_cancelled():
+                raise InterruptedError('转录已取消')
+            data = wav.readframes(65536)
+            if not data:
+                raise ValueError('音频为空或完全静音，未开始转录。')
+            if any(data):
+                return
 
 
 def wav_to_mp3(src: Path, dst: Path, bitrate: str = "192k") -> Path:

@@ -112,6 +112,20 @@ class AgentWorkspaceUiTests(unittest.TestCase):
         self.js('document.querySelector("#prompt-menu").click()')
         self.until(lambda:self.js('Boolean(document.querySelector("#skill-settings"))'))
         self.assertFalse(self.js('Boolean(document.querySelector("#agent-tools"))'))
+        # Reopen a saved tool card through the real bundled page; history stays unchanged.
+        payload=dict(job_id='old-job',calls=[dict(id='old-call',name='prepare_transcription',arguments={'url':'https://example.com/video'})],results=[dict(
+            state='needs_input',action='transcription',label='前往文案提取',url='https://example.com/video')])
+        old=service.store.append(cid,'tool','历史提取入口',payload)
+        other=library.save_document('临时切换文稿','切换用文稿')
+        self.widget.open_entry(other)
+        self.until(lambda:self.js('window.lulu.state.doc?.id')==other)
+        self.widget.open_entry(self.eid)
+        self.until(lambda:self.js('window.lulu.state.doc?.id')==self.eid)
+        self.until(lambda:self.js('Boolean(document.querySelector("[data-handoff-call=old-call]"))'))
+        self.assertEqual(self.js('document.querySelector("[data-handoff-call=old-call]").textContent'),'前往内容提取')
+        self.assertEqual(self.js('document.querySelector("[data-handoff-call=old-call]").dataset.handoffMessage'),old['id'])
+        self.assertEqual(self.js('document.querySelector("[data-handoff-call=old-call]").closest("article").querySelector("header b").textContent'),'前往内容提取')
+        self.assertEqual(next(m for m in service.store.messages(cid) if m['id']==old['id']),old)
 
     def test_selected_scope_survives_direct_edit_and_followup(self):
         from tests.test_agent_workspace_tools import reply

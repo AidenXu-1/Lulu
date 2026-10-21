@@ -12,6 +12,7 @@ from pathlib import Path
 from contextlib import contextmanager
 
 from ..models import Transcript
+from .segments import speaker_text, valid_interval
 
 SUPPORTED_FORMATS = ("txt", "md", "srt")
 
@@ -68,9 +69,9 @@ def render(transcript: Transcript, fmt: str) -> str:
         if transcript.has_timestamps:
             # 有时间戳:每段一行,前缀 `[mm:ss]`(加粗便于扫读)
             for seg in transcript.segments:
-                text = (seg.text or "").strip()
-                if not text:
+                if not (seg.text or "").strip():
                     continue
+                text = speaker_text(seg)
                 if seg.start is not None:
                     lines.append(f"**[{_clock(seg.start)}]** {text}")
                 else:
@@ -82,13 +83,14 @@ def render(transcript: Transcript, fmt: str) -> str:
     if fmt == "srt":
         if not transcript.has_timestamps:
             raise ValueError("当前转录结果没有时间戳,无法导出 srt。请改用 txt / md。")
+        meaningful = [s for s in transcript.segments if (s.text or '').strip()]
+        if not meaningful or not all(valid_interval(s) for s in meaningful):
+            raise ValueError("部分文字缺少有效时间，无法完整导出字幕。请改用 txt / md。")
         blocks = []
         idx = 1
-        for seg in transcript.segments:
-            if seg.start is None or seg.end is None:
-                continue
+        for seg in meaningful:
             blocks.append(
-                f"{idx}\n{_srt_time(seg.start)} --> {_srt_time(seg.end)}\n{seg.text}\n"
+                f"{idx}\n{_srt_time(seg.start)} --> {_srt_time(seg.end)}\n{speaker_text(seg)}\n"
             )
             idx += 1
         return "\n".join(blocks) + "\n"

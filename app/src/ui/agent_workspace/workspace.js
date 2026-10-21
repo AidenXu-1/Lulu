@@ -95,9 +95,9 @@ function documentOrigin(record) {
   const platform = record.platform || record.meta?.platform;
   const platformName = {douyin:"抖音", xiaohongshu:"小红书", bilibili:"B站", youtube:"YouTube"}[platform] || platform;
   if (record.source_label && !/^(local_|[\/]|https?:)/.test(record.source_label)) return record.source_label;
-  if (platformName) return platformName + " · 文案提取";
-  if (/^(\/|[A-Za-z]:[\\/])/.test(record.source || "")) return "本地导入 · 文案提取";
-  if (/^local_/.test(record.engine || "")) return "本地转录 · 文案提取";
+  if (platformName) return platformName + " · 内容提取";
+  if (/^(\/|[A-Za-z]:[\\/])/.test(record.source || "")) return "本地导入 · 内容提取";
+  if (/^local_/.test(record.engine || "")) return "本地转录 · 内容提取";
   if (record.source && !/[\\/]|^local_/.test(record.source)) return record.source;
   return record.kind === "rewrite" ? "创作文稿" : "文稿";
 }
@@ -110,7 +110,7 @@ function renderRows() {
     const details = voice ? `<span class="voice-description" title="${esc([row.voice_name, voiceModel(row)].filter(Boolean).join(" · "))}">${esc([row.voice_name, voiceModel(row)].filter(Boolean).join(" · ") || "音频")}</span>` : name ? `<span class="avatar" aria-hidden="true">${esc([...name][0])}</span><span class="author" title="${esc(name)}">${esc(name)}</span>${fans ? `<span class="author-fans">${esc(fans)} 粉丝</span>` : ""}` : `<span class="author">${esc(documentOrigin(row))}</span>`;
     return heading + `<div class="entry ${voice ? "audio-entry" : "manuscript-entry"} ${voice || m ? "" : "no-metrics"} ${(state.batch ? state.selected.has(row.id) : state.doc?.id === row.id) ? "selected" : ""}" role="option" tabindex="0" aria-selected="${state.batch ? state.selected.has(row.id) : state.doc?.id === row.id}" data-entry="${esc(row.id)}"><div class="entry-top"><div class="entry-title">${state.batch ? `<input type="checkbox" tabindex="-1" ${state.selected.has(row.id) ? "checked" : ""} aria-label="选择">` : voice ? icon("audio") : ""}<strong title="${esc(row.title)}">${esc(row.title || "未命名")}</strong></div><div class="row-right"><span class="row-folder" title="${esc(folderName(row.folder_id))}">${esc(folderName(row.folder_id))}</span><span class="row-words">${esc(voice ? (row.duration_seconds == null ? "音频" : audioClock(row.duration_seconds * 1000)) : (row.display_char_count ?? row.char_count ?? 0) + " 字")}</span></div></div>${voice ? `<div class="audio-summary">${details}</div><div class="entry-data">${icon("clock")}<time class="created-time" title="创建时间 ${esc(row.created_at)}">${esc(date(row.created_at))}</time><span class="grow"></span><span>${esc(audioFormat(row.audio_filename))} · 本地文件</span></div>` : `<div class="entry-data">${details}</div><div class="entry-stats"><span class="entry-metrics">${m}</span><time class="created-time" title="创建时间 ${esc(row.created_at)}">${esc(date(row.created_at))}</time></div>`}</div>`;
   }).join("") + (state.next != null ? '<button id="list-more" class="list-more">加载更多</button>' : "");
-  if (!state.rows.length) $("list").innerHTML = '<div class="workspace-error">' + ($("search").value ? "没有找到匹配的资料" : "这里还没有资料，可新建文稿或从文案提取开始。") + "</div>";
+  if (!state.rows.length) $("list").innerHTML = '<div class="workspace-error">' + ($("search").value ? "没有找到匹配的资料" : "这里还没有资料，可新建文稿或从内容提取开始。") + "</div>";
   $("count").textContent = state.total + (state.kind === "voice" ? " 个" : " 篇");
   $("list-info").textContent = state.total + (state.kind === "voice" ? " 个音频" : " 篇文稿");
   $("list").querySelectorAll("[data-entry]").forEach((node) => {
@@ -838,16 +838,17 @@ function toolStepMarkup(message, open) {
   const waiting = results.filter((r) => r.state === "needs_input").length;
   const steps = results.map((result, index) => {
     const call = calls[index] || {};
+    const label = result.action === "transcription" ? "前往内容提取" : result.label;
     const stateLabels = { completed: "已完成", succeeded: "已完成", needs_input: "等待你操作", paused: "已暂停", error: "失败", unavailable: "暂不可用" };
     const statusLabel = stateLabels[result.state] || "已返回";
     const targetCount = (result.target?.reference_ids || []).length;
     const target = result.target ? `<details class="partial-result"><summary>${targetCount ? `查看 ${targetCount} 个引用片段的配音文字` : "查看当前文稿的配音文字"}</summary><div class="message-text">${esc(result.target.text)}</div></details>` : "";
-    const actions = (result.state === "needs_input" || (result.state === "completed" && result.action === "skills")) ? `<div class="result-actions">${target}${result.action === "transcription" && !result.url ? '<button class="secondary" data-choose-media>选择文件 · SenseVoice</button>' : ""}${call.id ? `<button class="secondary" data-handoff-message="${esc(message.id)}" data-handoff-call="${esc(call.id)}">${esc(result.label || "前往工作台")}</button>` : ""}</div>` : "";
+    const actions = (result.state === "needs_input" || (result.state === "completed" && result.action === "skills")) ? `<div class="result-actions">${target}${result.action === "transcription" && !result.url ? '<button class="secondary" data-choose-media>选择文件 · SenseVoice</button>' : ""}${call.id ? `<button class="secondary" data-handoff-message="${esc(message.id)}" data-handoff-call="${esc(call.id)}">${esc(label || "前往工作台")}</button>` : ""}</div>` : "";
     const changes = result.changes?.length ? `<details class="edit-diff"><summary>查看修改内容</summary>${result.changes.map(c => `<div class="change-block old"><small>修改前</small><div>${esc(c.before || '（空白）')}</div></div><div class="change-block new"><small>修改后</small><div>${esc(c.after)}</div></div>`).join('')}</details>` : '';
     const receipt = result.receipt;
     const undo = receipt ? `<button class="text-button" data-undo-edit="${esc(receipt.request_id)}" ${state.doc?.revision === receipt.revision && state.doc?.content_hash === receipt.content_hash ? '' : 'disabled'}>撤销这次修改</button>` : '';
     const output = call.name === 'create_document' && result.document_id ? `<button class="text-button" data-created-document="${esc(result.document_id)}">打开新文稿</button>` : '';
-    return `<article class="agent-tool-step"><header><b>${esc(result.label || call.name || `步骤 ${index + 1}`)}</b><small>${esc(statusLabel)}</small></header><p>${esc(result.message || "已收到这一步的结果。")}</p>${changes}${actions}${undo}${output}</article>`;
+    return `<article class="agent-tool-step"><header><b>${esc(label || call.name || `步骤 ${index + 1}`)}</b><small>${esc(statusLabel)}</small></header><p>${esc(result.message || "已收到这一步的结果。")}</p>${changes}${actions}${undo}${output}</article>`;
   }).join("");
   const intro = payload.assistant_text ? `<div class="agent-tool-intro">${esc(payload.assistant_text)}</div>` : "";
   return `${intro}<details class="agent-tool-group" ${open ? "open" : ""}><summary><span>执行了 ${results.length} 个步骤</span><small>${waiting ? `有 ${waiting} 项等你操作` : "查看过程"}</small></summary><div class="agent-tool-steps">${steps}</div></details>`;
@@ -1554,7 +1555,7 @@ async function chooseMedia() {
   if (!plan) return;
   // The plan remains bound to the originating chat even if navigation happened
   // while the native picker or the Core readiness check was open.
-  dialog("转录为新文稿", `<p><b>${esc(plan.filename)}</b></p><p>${esc(plan.message)}</p><p class="muted">${(plan.bytes / 1024 / 1024).toFixed(1)} MB · 当前模型：SenseVoice<br>需要其他模型时，可前往文案提取工作台选择。</p><div class="dialog-actions"><button id="media-back" class="text-button">返回</button><button id="media-start" class="primary">开始本地转录</button></div>`);
+  dialog("转录为新文稿", `<p><b>${esc(plan.filename)}</b></p><p>${esc(plan.message)}</p><p class="muted">${(plan.bytes / 1024 / 1024).toFixed(1)} MB · 当前模型：SenseVoice<br>需要其他模型时，可前往内容提取工作台选择。</p><div class="dialog-actions"><button id="media-back" class="text-button">返回</button><button id="media-start" class="primary">开始本地转录</button></div>`);
   bind("media-back", () => $("dialog").close());
   bind("media-start", async () => {
     const button = $("media-start");

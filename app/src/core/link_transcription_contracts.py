@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 @dataclass(frozen=True, slots=True)
 class LinkTranscriptionRequestV1:
     source: str
-    engine: str = "local_sensevoice"
+    engine: str = "local_sensevoice_q8"
     format: str = "txt"
     prefer_subtitles: bool = False
     subtitle_fallback: str = "local_transcription"

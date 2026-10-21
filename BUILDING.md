@@ -1,69 +1,62 @@
-# 从源码构建和运行 Lulu
+# 从源码构建 Lulu
 
-本仓库提供 Lulu **4.2.1 / 20261015.2** 的完整产品源码、界面资源、必要构建文件和 Agent Skill。第一方采用 [MIT 许可](LICENSE)，第三方组件及模型保持各自许可，见 [第三方说明](THIRD_PARTY_NOTICES.md)。
+本候选为 **4.3.1 / 20261021.7**，提供实际产品的完整第一方源码、资源、CLI、后台、Skill 与构建入口。第一方 MIT，第三方保留原许可。无需激活码、维护者私钥或维护者的个人资料。
 
-## 准备环境
+## 环境与依赖
 
-使用 Apple Silicon Mac、macOS 15 或更新版本、Python 3.11 和 Xcode Command Line Tools。可用 `python3.11 --version` 和 `xcode-select -p` 检查；缺少命令行工具时先运行 `xcode-select --install`，按 macOS 提示完成安装。首次安装 Python 依赖需要联网。
-
-从[发布页](https://github.com/AidenXu-1/Lulu/releases/tag/v4.2.1)下载 **Source code (zip)** 或 **Source code (tar.gz)**，解压并在终端进入该文件夹。以下命令均从能看到 `README.md`、`SOURCE_MANIFEST.json` 和 `app/` 的根目录执行。无需另行克隆仓库，也无需预先安装 Lulu。
-
-## 安装依赖并打包完整 App
+使用 Apple Silicon、macOS 15+、Python 3.11、Xcode Command Line Tools 和 Git。以下命令从源码根目录执行。依赖和上游源码首次获取需要联网，不会下载模型权重。
 
 ```sh
 python3.11 -m venv .venv
 .venv/bin/python -m pip install -r app/requirements.txt
-.venv/bin/python -m pip install 'pyinstaller==6.20.0'
+.venv/bin/python -m pip install 'pyinstaller==6.20.0' 'cmake==4.1.2'
+```
 
-export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261015.2"
-export LULU_DIST_ROOT="$PWD/app/dist/phase10-production-20261015.2"
+## 原生 ASR 工具
+
+SenseVoice Q8 和 MOSS 需要随包原生工具。其固定源码版本和完整性检查位于 app/packaging/build_asr_runtime.py。先取得以下公开源码，保持源码原样：
+
+```sh
+mkdir -p app/build/asr-sources
+
+git clone --no-checkout https://github.com/QwenAudio/SenseVoice.git app/build/asr-sources/sensevoice-source
+git -C app/build/asr-sources/sensevoice-source checkout --detach 6991744856587fa44379e8b5dcc432debffeb1be
+
+git clone --no-checkout https://github.com/ggml-org/llama.cpp.git app/build/asr-sources/llama-source
+git -C app/build/asr-sources/llama-source checkout --detach 8086439a4cea94c71a5dfb8fe4ad1546aebd640f
+
+mkdir app/build/asr-sources/moss-source
+curl --fail --location https://github.com/handy-computer/transcribe.cpp/archive/10eefba7e33d6a2fcbed0b6af82c752fe0369b42.tar.gz -o app/build/asr-sources/moss-source.tar.gz
+tar -xzf app/build/asr-sources/moss-source.tar.gz --strip-components=1 -C app/build/asr-sources/moss-source
+
+.venv/bin/python -B app/packaging/build_asr_runtime.py   --build-root "$PWD/app/build/asr-sources"   --cmake "$PWD/.venv/bin/cmake" --output "$PWD/app/build/asr-runtime"
+```
+
+构建脚本验证固定源码、MOSS 源码树摘要、arm64、macOS 15 最低目标、依赖、权限和签名。原生运行工具不含模型权重。若上游源码树不匹配，停止并检查来源，不修改期望摘要来绕过检查。
+
+## 正式产品检查与完整 App
+
+```sh
+.venv/bin/python -B app/packaging/product_capability_gate.py   --repo "$PWD" --output /private/tmp/lulu-product-checks.json
+
+export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261021.7"
+export LULU_DIST_ROOT="$PWD/app/dist/phase10-production-20261021.7"
 export LULU_PRODUCTION_RELEASE_AUTHORIZED=1
+export LULU_UPDATE_RELEASE=0
+export LULU_UPDATE_PUBLIC_KEY_PATH="$PWD/app/packaging/update-verification-key.pem"
 bash app/packaging/build_app.sh --identity production --venv "$PWD/.venv"
 ```
 
-首次处理源码压缩包时，脚本先逐件核对源码清单，再自动建立这份源码的本地版本记录。此过程不联网，不下载旧程序，也不依赖维护者的私人开发历史。记录属于本地构建快照，不冒充维护者的发布提交。正常 Git 克隆仍使用原有版本记录。
+打包时会再次执行正式产品检查、源码与运行依赖校验、隐私、签名和包内检查。构建开关只确认要生成产品包，不上传或发布。随源码提供的 RSA 验证公钥来自正式 App，可公开；官方更新签署私钥由维护者保存在源码仓库外，构建无需该私钥。
 
-界面库、语音处理核心和打包工具固定为本流程验收使用的版本；先按这些版本构建，再单独验证依赖升级。
+Git 克隆使用公开祖先版本，源码 ZIP 通过 SOURCE_MANIFEST.json 校验后自动建立本地构建记录，均不依赖私人开发提交。修改源码前先按 source_repository.py 的流程准备 Git 记录，再修改并提交；构建要求干净工作区。使用新的输出目录，避免不同构建相互覆盖。
 
-构建执行全部明确列出的产品检查，并校验源码、界面资源、隐私、签名和包内运行。成功后生成 `$LULU_DIST_ROOT/Lulu.app`；不会自动安装、替换程序或上传文件。输出目录须位于当前源码的 `app/build/` 和 `app/dist/`，首次使用新目录。重试仅复用脚本确认归属的同次构建目录，勿混入其他版本产物。
+将生成的 Lulu.app 放入“应用程序”运行。已有 Lulu 时先保存资料并退出，再按系统标准方式覆盖。模型与资料独立存放，普通覆盖不会清空。
 
-## 安装并运行自己构建的 Lulu
+## GUI、安装镜像与配音运行时
 
-在 Finder 打开 `app/dist/phase10-production-20261015.2/`，把 `Lulu.app` 拖入“应用程序”文件夹，再从“应用程序”打开。后台准备完成后使用完整的文稿、任务及 Agent 功能。已有 Lulu 时，覆盖前先备份自己的资料；系统密码和授权提示由使用者亲自处理。
+源码开发可在 app/ 运行 ../.venv/bin/python -B run_app.py；此窗口使用本机配置，建议隔离开发资料。完整后台和 CLI 请使用自己构建并安装的 App。
 
-代码不附带模型权重。转录或配音前，在应用的“AI 大模型”中选择并下载所需的本地模型；云端功能需要使用者主动配置服务。未下载模型不影响启动界面和打包，也不代表已经完成转录或配音实测。
+标准拖拽镜像使用 app/packaging/create_drag_delivery.py，应用更新包使用 make_update_release.py。正式发布必须以最终冻结的公开源码构建、签署和核验，源码检查通过不能代替新安装包验收。
 
-## 单独检查或开发界面
-
-在源码根目录检查当前产品：
-
-```sh
-.venv/bin/python -B app/packaging/product_capability_gate.py \
-  --repo "$PWD" --output /private/tmp/lulu-product-checks.json
-```
-
-此入口只运行明确列出的当前产品检查，并隔离配置、模型目录、文稿、网络和凭据。基础检查不代替所有模型、云服务和长时间直播实测。源码包可直接运行此入口，首次同样会建立本地版本记录。
-
-开发界面时可使用：
-
-```sh
-cd app
-../.venv/bin/python -B run_app.py
-```
-
-该窗口用于源码开发。完整的后台服务和 Agent 使用前面自己构建并安装的 App。源码界面使用本机配置，开发时使用独立 macOS 用户或隔离资料，避免写入日常文稿。
-
-如需改源码，先运行 `.venv/bin/python app/packaging/source_repository.py --repo "$PWD"` 完成原始源码核对，再修改并用 Git 提交；构建要求工作区干净。修改前直接删除文件或改写清单会使原始源码核对失败。
-
-## 生成安装镜像
-
-在源码根目录，用刚构建的 App 生成标准拖拽安装镜像，输出文件须尚不存在：
-
-```sh
-PYTHONPATH="$PWD/app" .venv/bin/python app/packaging/create_drag_delivery.py \
-  --app "$LULU_DIST_ROOT/Lulu.app" --output /private/tmp/Lulu-local.dmg
-```
-
-应用内更新包由 `app/packaging/make_update_release.py` 生成。官方更新清单须由维护者使用源码仓库外的私钥签署；自己构建的 App 不自动成为官方更新。安装身份、调用方验证、资料归属及更新验签限制均保留。
-
-当前官方安装包使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证；首次打开按 macOS 提示处理。文稿编辑器源码及构建入口在 `app/src/ui/agent_workspace/`，已提交的网页资源可直接使用。配音运行环境的依赖、固定版本和构建入口在 `app/packaging/tts_runtimes/`，与主程序分开；模型及第三方运行环境依各自许可另行取得。
+文稿编辑器的前端源码和锁文件位于 app/src/ui/agent_workspace/，已提交资源可直接使用。配音运行时的依赖、版本和构建入口位于 app/packaging/tts_runtimes/；第三方模型权重单独取得并遵守原许可。

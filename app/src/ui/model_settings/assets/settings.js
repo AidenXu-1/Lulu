@@ -21,8 +21,9 @@ const paths = {
 function icon(name, extra='') { return `<svg class="icon ${extra}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name] || paths.info}"></path></svg>`; }
 
 // Public model metadata arrives from Python. Credentials are never in snapshots.
-const state = {purpose:'extract',localMode:'local',choice:{extract:null,voice:null},provider:null,asr:null};
+const state = {purpose:'extract',localMode:'local',choice:{extract:null,voice:null},voiceFeature:'clone',provider:null,asr:null};
 let snapshot = null, bridge = null, requestSequence = 0, menuAnchor = null, toastTimer, modalReturn, snapshotDeferred = false;
+let renderedSnapshotLayout = '', snapshotPointerActive = false, snapshotPointerTimer;
 const pending = new Map(), drafts = new Map(), services = new Map(), actionPending = new Set();
 const brand = (p, large=false) => `<span class="brand-mark ${large?'large':''} ${p.logo?'has-logo':''}" data-provider="${esc(p.id)}" aria-hidden="true">${p.logo && /^[a-zA-Z0-9_-]+\.(svg|png|ico|webp)$/.test(p.logo)?`<img src="logos/${esc(p.logo)}" alt="" width="46" height="46" draggable="false">`:esc(p.mark || '+')}</span>`;
 function notify(message) { clearTimeout(toastTimer);$('toast').textContent=String(message || '');$('toast').hidden=false;toastTimer=setTimeout(()=>{$('toast').hidden=true;},3600); }
@@ -79,6 +80,7 @@ function cloudArgs(p,d){const s=serviceFor(p);return {purpose:state.purpose,prov
 function canTest(p,d){return !d.busy&&available(p)&&hasCredential(d)&&validEndpoint(p,d);}
 function canSave(p,d){return canTest(p,d)&&(state.purpose==='assistant'?d.selected.size>0:!isCustom(p)||Boolean(d.modelId.trim()));}
 function modelState(m){return m.ready?'已安装':m.repair?'需要修复':m.issue?'待处理':m.installed?'待准备':'未安装';}
+function jobMessage(job){return job.message || (job.paused?'安装已暂停':'正在准备模型');}
 function sectionHeading(cloud=false){
   const extract=state.purpose==='extract';
   return `<div class="section-heading"><div><h2>${extract?'转录模型':state.purpose==='voice'?'配音模型':'云端连接'}</h2><p>${extract?(cloud?'云端转录时，音频会上传到所选服务商。':'在本机转录，音频不上传。'):state.purpose==='voice'?'在本机配音，按需要准备声音能力。':'连接一次，在文稿中随时选用。'}</p></div>${extract?`<div class="segment" aria-label="转录方式"><button data-local-mode="local" aria-pressed="${!cloud}">${icon('lock')}本机离线</button><button data-local-mode="cloud" aria-pressed="${cloud}">${icon('cloud')}云端 API</button></div>`:`<span class="quiet-status">${icon(cloud?'lock':'shield')}${cloud?'密钥保存在本机':'本机离线'}</span>`}</div>`;
@@ -86,17 +88,33 @@ function sectionHeading(cloud=false){
 function progressMarkup(job,label){const value=Number(job.progress);return `<progress ${value>=0?`value="${Math.min(100,value)}"`:''} max="100" aria-label="${esc(label)}"></progress>`;}
 function localActions(m){
   const job=snapshot.jobs?.[m.id],busy=actionPending.has('local:'+m.id);
-  if(job&&!['complete','idle','ready'].includes(job.status))return `<div class="install-zone"><div class="install-row"><div class="install-progress"><div class="progress-heading"><h3>${esc(job.message || (job.paused?'安装已暂停':'正在准备模型'))}</h3><span class="progress-value">${Number(job.progress)>=0?Math.round(job.progress)+'%':''}</span></div>${progressMarkup(job,'模型安装进度')}</div><div class="inline-actions"><button class="secondary" data-local-action="${job.paused?'resume':'pause'}" ${busy?'disabled':''}>${job.paused?'继续安装':'暂停'}</button><button class="icon-button" data-local-action="cancel" aria-label="取消模型安装" ${busy?'disabled':''}>${icon('close')}</button></div></div></div>`;
+  if(job&&!['complete','idle','ready'].includes(job.status))return `<div class="install-zone"><div class="install-row"><div class="install-progress" data-job="${esc(m.id)}"><div class="progress-heading"><h3>${esc(jobMessage(job))}</h3><span class="progress-value">${Number(job.progress)>=0?Math.round(job.progress)+'%':''}</span></div>${progressMarkup(job,'模型安装进度')}</div><div class="inline-actions"><button class="secondary" data-local-action="${job.paused?'resume':'pause'}" ${busy?'disabled':''}>${job.paused?'继续安装':'暂停'}</button><button class="icon-button" data-local-action="cancel" aria-label="取消模型安装" ${busy?'disabled':''}>${icon('close')}</button></div></div></div>`;
   const qwen=m.id==='qwen_tts',hint=m.issue || (qwen?'各项功能独立安装，共用文件只保存一份。':m.ready?`默认模型用于新的${state.purpose==='extract'?'转录':'配音'}任务。`:m.repair?'已有文件会保留，核验后只补齐缺失的部分。':'准备模型后，即可在本机使用。');
   return `<div class="install-zone"><div class="install-row"><p class="install-hint">${esc(hint)}</p><div class="inline-actions">${m.ready?(m.default?`<span class="installed-label">${icon('check')}当前默认</span>`:`<button class="primary" data-local-action="default" ${busy?'disabled':''}>设为默认</button>`):qwen?'':`<button class="primary" data-local-action="install" ${busy||m.issue?'disabled':''}>${icon('download')}${busy?'正在处理':m.issue?'当前不可用':m.repair?'修复并复用':m.importOnly?'导入安装包':m.resumable?'继续安装':'下载模型'}</button>`}<button id="local-more" class="icon-button" aria-label="模型更多操作" aria-haspopup="menu" ${busy?'disabled':''}>${icon('more')}</button></div></div></div>`;
 }
-function renderFeatures(){return `<div class="feature-list">${(snapshot.voiceFeatures || []).map(f=>{const job=snapshot.jobs?.['feature:'+f.id],busy=actionPending.has('feature:'+f.id);return `<div class="feature-row"><span class="feature-icon">${icon(f.icon || 'mic')}</span><div class="feature-description"><h3>${esc(f.name)}</h3><p>${esc(f.description)}${!f.ready&&f.size?' · 约 '+esc(f.size):''}</p></div>${job&&!['complete','idle','ready'].includes(job.status)?`<div class="feature-progress" title="${esc(job.message)}">${progressMarkup(job,f.name+'安装进度')}<div class="job-actions"><button data-feature="${esc(f.id)}" data-feature-action="${job.paused?'resume':'pause'}" ${busy?'disabled':''}>${job.paused?'继续安装':'暂停安装'}</button><button class="icon-button" data-feature="${esc(f.id)}" data-feature-action="cancel" aria-label="取消${esc(f.name)}安装" ${busy?'disabled':''}>${icon('close')}</button></div></div>`:f.ready?`<span class="status good">已安装</span><button class="icon-button" data-feature-more="${esc(f.id)}" aria-label="${esc(f.name)}更多操作" aria-haspopup="menu">${icon('more')}</button>`:`<button class="secondary" data-feature="${esc(f.id)}" data-feature-action="install" ${busy?'disabled':''}>${icon('download')}${busy?'处理中':f.installed?'修复环境':'安装'}</button>`}</div>`;}).join('')}</div>`;}
+function renderFeatures(){return `<div class="feature-list">${(snapshot.voiceFeatures || []).filter(f=>f.id===state.voiceFeature).map(f=>{const job=snapshot.jobs?.['feature:'+f.id],busy=actionPending.has('feature:'+f.id);return `<div class="feature-row"><span class="feature-icon">${icon(f.icon || 'mic')}</span><div class="feature-description"><h3>${esc(f.name)}</h3><p>${esc(f.description)}${!f.ready&&f.size?' · 约 '+esc(f.size):''}</p></div>${job&&!['complete','idle','ready'].includes(job.status)?`<div class="feature-progress" data-job="feature:${esc(f.id)}" title="${esc(job.message)}">${progressMarkup(job,f.name+'安装进度')}<div class="job-actions"><button data-feature="${esc(f.id)}" data-feature-action="${job.paused?'resume':'pause'}" ${busy?'disabled':''}>${job.paused?'继续安装':'暂停安装'}</button><button class="icon-button" data-feature="${esc(f.id)}" data-feature-action="cancel" aria-label="取消${esc(f.name)}安装" ${busy?'disabled':''}>${icon('close')}</button></div></div>`:f.ready?`<span class="status good">已安装</span><button class="icon-button" data-feature-more="${esc(f.id)}" aria-label="${esc(f.name)}更多操作" aria-haspopup="menu">${icon('more')}</button>`:`<button class="secondary" data-feature="${esc(f.id)}" data-feature-action="install" ${busy?'disabled':''}>${icon('download')}${busy?'处理中':f.installed?'修复环境':'安装'}</button>`}</div>`;}).join('')}</div>`;}
+function metric(label,value,unit,note){return `<div class="metric"><span>${esc(label)}</span><strong class="${value===null?'no-data':''}">${value===null?'尚无同条件数据':esc(value)}${value!==null?`<small>${esc(unit)}</small>`:''}</strong><em>${esc(note)}</em></div>`;}
+function capabilities(features){return `<div class="capabilities">${features.map(([name,value,enabled])=>`<div class="${enabled?'':'muted'}">${icon(enabled?'check':'info')}<div><strong>${esc(name)}</strong><p>${esc(value)}</p></div></div>`).join('')}</div>`;}
+function modelInformation(m){
+  const i=m.presentation;if(!i)return `<p class="local-description">${esc(m.description)}</p>${m.id==='qwen_tts'?renderFeatures():''}`;
+  const asr=state.purpose==='extract',qwen=m.id==='qwen_tts',f=qwen?(snapshot.voiceFeatures || []).find(f=>f.id===state.voiceFeature):null,v=f?{...i,...f.presentation}:i,special=qwen&&state.voiceFeature!=='clone';
+  const metrics=asr?metric('近 20 分钟音频耗时',v.time,'秒','不含首次加载与预热')+metric('实测内存峰值',v.memory,'GB','模型、音频及运行工具')+metric('模型文件下载',v.size,v.sizeUnit,'缺少时才下载'):
+    metric(special?'首份样音耗时':'40 字文案首次等待',v.first,'秒',special?'不同文本 / 语种的批次记录':'含加载、参考准备和生成')+metric(special?'其余样音耗时':'紧接着再次生成',v.repeat,'秒','不含模型下载和环境安装')+metric('模型进程内存峰值',v.memory,'GiB','不含 Lulu 和系统');
+  const features=special?(state.voiceFeature==='preset'?[['9 种官方音色','无需参考录音',true],['表达描述','先试听确认效果',true],['独立安装','按需要准备',true]]:[['文字设计声音','先生成候选，再试听',true],['保存并复用','继续克隆需声音克隆能力',true],['资源与速度','尚无同条件速度数据',false]]):i.features;
+  return `${qwen?`<div class="feature-choices" role="tablist" aria-label="Qwen3-TTS 能力">${(snapshot.voiceFeatures || []).map(f=>`<button data-voice-feature="${esc(f.id)}" role="tab" aria-selected="${f.id===state.voiceFeature}">${esc(f.name)}</button>`).join('')}</div>`:''}<h3 class="model-position">${esc(v.position)}</h3><p class="model-reason">${esc(v.reason)}</p><div class="metric-row">${metrics}</div><div class="measure-note"><span>${asr?'2026-10-16 · M4 Pro / 48 GiB · 同条件独立实测；Lulu 完整等待时间会更长。':esc(i.date)+' · M4 Pro / 48 GiB · 历史实测参考，未在本轮安装版重测。'+(special?'本项与 40 字克隆测试不可直接比较。':'')}</span><button id="model-measure">查看测试与对比 ${icon('external')}</button></div>${capabilities(features)}<p class="boundary">${icon('info')}${esc(i.boundary)}</p>${qwen?renderFeatures():''}`;
+}
 function renderLocal(){
   const kind=state.purpose,rows=publicRows(kind),m=rows.find(x=>x.id===state.choice[kind]) || rows.find(x=>x.default) || rows[0];
   if(!m)return sectionHeading()+`<p class="loading-state">暂时没有可用的本地模型。</p>`;state.choice[kind]=m.id;
-  return `${sectionHeading()}<div class="workspace local-workspace"><nav class="rail" aria-label="${kind==='extract'?'转录':'配音'}模型"><div class="rail-heading">选择模型</div>${rows.map(x=>`<button class="rail-model" data-local="${esc(x.id)}" aria-pressed="${x.id===m.id}">${brand(x)}<span><span class="rail-name">${esc(x.name)} ${x.id==='whisper'?'':esc(x.version)}</span><span class="rail-subtitle">${x.default?'当前默认':esc(x.subtitle)}</span></span></button>`).join('')}</nav><section class="detail local-detail" aria-label="模型详情"><div class="detail-top">${brand(m,true)}<div class="detail-title"><h2>${esc(m.name)}${m.id==='whisper'?'':' '+esc(m.version)}</h2><p>${esc(m.id==='whisper'?'large-v3-turbo · MLX':m.source)}</p></div><span class="status ${m.ready?'good':''}">${m.ready?icon('check'):''}${modelState(m)}</span></div><p class="local-description">${esc(m.description)}</p><div class="local-body"><section class="local-capabilities" aria-labelledby="capabilities-title"><h3 class="group-title" id="capabilities-title">${m.id==='qwen_tts'?'选择声音能力':kind==='extract'?'模型特点':'可用功能'}</h3>${m.id==='qwen_tts'?renderFeatures():`<ul class="capability-list ${kind==='extract'?'transcription-features':''}">${(m.features || []).map(f=>`<li class="capability">${icon('check')}<span>${esc(f)}</span></li>`).join('')}</ul>`}</section><aside class="local-specs" aria-labelledby="specs-title"><h3 class="group-title" id="specs-title">安装信息</h3><dl><div><dt>支持语言</dt><dd>${esc(m.languages)}</dd></div><div><dt>所需下载</dt><dd>${esc(m.size)}</dd></div></dl></aside></div>${localActions(m)}</section>${renderStorage(kind)}</div>`;
+  const i=m.presentation||{},feature=m.id==='qwen_tts'?(snapshot.voiceFeatures || []).find(f=>f.id===state.voiceFeature):null,job=snapshot.jobs?.[feature?'feature:'+feature.id:m.id],label=job&&!['complete','idle','ready'].includes(job.status)?(job.paused?'已暂停':'正在安装'):feature?(feature.ready?'已安装':feature.installed?'待准备':'未安装'):modelState(m);
+  return `${sectionHeading()}<div class="workspace local-workspace"><nav class="rail" aria-label="${kind==='extract'?'转录':'配音'}模型"><div class="rail-heading">选择模型</div>${rows.map(x=>`<button class="rail-model" data-local="${esc(x.id)}" aria-pressed="${x.id===m.id}">${brand(x)}<span><span class="rail-name">${esc(x.presentation?.name||x.name+' '+x.version)}</span><span class="rail-subtitle">${x.default?'当前默认':esc(x.presentation?.subtitle||x.subtitle)}</span></span></button>`).join('')}</nav><section class="detail local-detail" aria-label="模型详情"><div class="detail-top">${brand(m,true)}<div class="detail-title"><h2>${esc(i.name||(m.id==='whisper'?m.name:m.name+' '+m.version))}</h2><p>${esc(i.source||m.source)}</p></div><span class="status ${(feature?feature.ready:m.ready)?'good':''}">${esc(label)}</span></div>${modelInformation(m)}${localActions(m)}</section>${renderStorage(kind)}</div>`;
 }
-function renderStorage(kind){const path=snapshot.storage?.[kind] || '正在读取…';return `<section class="model-storage" aria-labelledby="storage-title"><div class="storage-location">${icon('folder')}<div><h3 id="storage-title">模型保存位置</h3><p class="storage-path" title="${esc(path)}">${esc(path)}</p></div></div><div class="storage-actions"><button class="secondary" id="reveal-storage">${icon('folder')}在访达中打开</button><button class="secondary" id="change-storage">${icon('edit')}更改默认保存位置</button></div></section>`;}
+function renderStorage(kind){const path=snapshot.storage?.[kind] || '正在读取…';return `<section class="model-storage"><div class="storage-location">${icon('folder')}<span class="storage-path" title="${esc(path)}">保存位置　${esc(path)}</span></div><div class="storage-actions"><button class="link-button" id="reveal-storage">打开文件夹 ${icon('external')}</button><button class="link-button" id="change-storage">更改位置</button></div></section>`;}
+function showMeasurements(){
+ const asr=state.purpose==='extract',rows=publicRows(state.purpose).filter(m=>m.presentation),table=`<div class="table-wrap"><table class="compare-table"><thead><tr><th>模型</th><th>${asr?'近 20 分钟音频':'40 字首次等待'}</th><th>${asr?'内存峰值':'再次生成'}</th><th>${asr?'短音频字错率':'内存峰值'}</th><th>${asr?'会议字错率':'测试日期'}</th></tr></thead><tbody>${rows.map(m=>{const i=m.presentation;return `<tr><td>${esc(i.name)}${m.id==='qwen_tts'?' 声音克隆':''}</td><td>${esc(asr?i.time:i.first)} 秒</td><td>${esc(asr?i.memory:i.repeat)} ${asr?'GB':'秒'}</td><td>${esc(asr?i.cer[0]:i.memory)}${asr?'':' GiB'}</td><td>${esc(asr?i.cer[1]:i.date)}</td></tr>`;}).join('')}</tbody></table></div>`;
+ const details=asr?'2026-10-16，M4 Pro 14 核 CPU / 48 GiB，接电、普通功耗。速度为同一段 19 分 56.98 秒朗读的两轮平均，不含首次加载与预热。峰值包含模型、音频和工具，不含 Lulu 和系统，也不代表电脑最低内存。字错率越低越好；30 段短音频共 4 分 15 秒，3 段会议共 9 分 32 秒。原版 Whisper 的准确率优势限本次短音频样本。测试未单独评估分人、时间戳或多语言精度。':'2026-09-16 / 17 历史参考；M4 Pro / 48 GiB，40 字中文文案、12.85 秒参考音频。Index 两版使用 CPU，其余使用 MPS。首次含加载、参考准备和生成；再次生成的输出时长随模型不同，不能当作绝对速度排名。内存为模型进程 physical footprint，单位 GiB。本轮安装版尚未重测。Qwen 克隆整轮最高 8.65 GiB；官方音色批次约 8.15 GiB，声音设计约 6.16 GiB，输入不同不参与此表速度排名。';
+ modal(asr?'转录实测与对比':'配音历史实测',table+`<p class="measurement-conditions">${details}</p>`);$('modal').classList.add('measurement-modal');
+}
 function serviceControls(p){
   const modes=p.modes || [],m=modeFor(p),s=serviceFor(p),regions=m.regions || p.regions || [];
   const regionLabel=r=>typeof r==='string'?r:(r.name || r.label || '');
@@ -112,11 +130,12 @@ function keyField(p,d){
 }
 function feedback(d,asr){return d.feedback || (d.saved?'连接已保存':asr?'保存后，用于下一次云端转录。':`已选 ${d.selected.size} 个模型`);}
 function modelRow(m,d){return `<div class="model-row"><label class="model-toggle"><input type="checkbox" data-model="${esc(m.id)}" ${d.selected.has(m.id)?'checked':''}><span><span class="model-title" title="${esc(m.label || m.id)}">${esc(m.label || m.id)}</span><span class="model-id" title="${esc(m.id)}">${esc(m.id)}</span></span></label>${d.defaultModel===m.id?'<span class="model-badge">默认</span>':''}<button class="icon-button" data-model-more="${esc(m.id)}" aria-label="${esc(m.label || m.id)}更多操作" aria-haspopup="menu">${icon('more')}</button></div>`;}
+function cloudInformation(p,asr){const m=modeFor(p),billing=Boolean(m.billing||p.billing),account=Boolean(scoped(m.keys,p)||p.keys);return `<div class="cloud-info"><div><span>处理位置</span><strong>服务商云端</strong><p>${asr?'上传待转录音频':'发送所选文本'}</p></div><div><span>使用费用</span><strong>按服务商规则计费</strong>${billing||account?`<button class="link-button" id="service-pricing" data-pricing="${billing?'billing':'account'}">${billing?'查看官方计费':'服务商后台'} ${icon('external')}</button>`:''}</div><div><span>本机资源</span><strong>无需加载本地模型</strong><p>耗时受网络和服务端影响</p></div></div>`;}
 function renderCloud(){
   const p=currentProvider();if(!p)return sectionHeading(true)+'<p class="loading-state">正在读取服务商…</p>';
   const d=hydrate(p),asr=state.purpose==='extract',m=modeFor(p),models=modelsFor(p,d),groups=savedGroups(p);
   const blocked=!available(p),reason=m.reason || m.unavailableReason || m.unavailable_reason || '此服务暂未开放接入，请选择其他服务类型。';
-  return `${sectionHeading(true)}<div class="workspace cloud-workspace"><nav class="rail" aria-label="服务商"><div class="rail-heading">选择服务商</div>${providerRows().map(x=>`<button data-provider="${esc(x.id)}" aria-pressed="${x.id===p.id}">${brand(x)}<span class="rail-name">${esc(x.name)}</span></button>`).join('')}</nav><section class="detail" aria-label="服务商详情"><div class="detail-top">${brand(p,true)}<div class="detail-title"><h2>${esc(p.name)}</h2><p>${asr?'用于文案提取':'用于文稿助手'}</p></div><span class="status ${d.saved?'good':''}">${d.saved?'已保存':'未保存'}</span></div>${!asr&&groups.length>0?`<div class="saved-line"><span>已保存的密钥</span><button id="saved-connection" class="select-button" aria-haspopup="menu">${esc(savedKeyLabel(groups.find(c=>c.credential_id===d.credentialId&&c.base===d.base&&c.protocol===d.protocol),groups))}${icon('chevron')}</button></div>`:''}${customFields(p,d)}${serviceControls(p)}${blocked?`<div class="service-unavailable"><h3>此服务暂未开放接入</h3><p>${esc(reason)}</p></div>`:`${keyField(p,d)}${asr?`<section class="models-block"><h3>转录模型</h3>${isCustom(p)?`<label class="custom-fields">模型 ID<input id="asr-model-id" value="${esc(d.modelId)}" placeholder="服务商提供的转录模型 ID" autocomplete="off" spellcheck="false"></label>`:`<div class="asr-model">${brand({id:p.modelId,logo:p.modelLogo || p.logo})}<div><h3>${esc(p.model)}</h3><p>${esc(p.modelId)}</p></div><span class="status">已自动匹配</span></div>`}</section>`:`<section class="models-block"><div class="block-heading"><h3>启用的模型<span class="model-source">${d.fetched?'已获取目录':''}</span></h3><div class="inline-actions"><button id="fetch-models" class="link-button" ${canTest(p,d)?'':'disabled'}>${icon('refresh',d.busy==='discover'?'spin':'')}${d.busy==='discover'?'获取中':'获取模型'}</button><button id="add-model" class="icon-button" aria-label="添加模型" aria-haspopup="menu">${icon('plus')}</button></div></div><div id="model-list" tabindex="0" role="region" aria-label="可用模型列表" data-scope="${esc(d.scope)}">${models.length?models.map(x=>modelRow(x,d)).join(''):'<div class="model-empty">获取模型列表，或添加服务商提供的模型 ID。</div>'}</div></section>`}<details class="auto-settings"><summary>连接详情</summary><dl><dt>服务地址</dt><dd id="resolved-base">${esc(baseFor(p,d) || '按所选服务自动匹配')}</dd>${!asr?`<dt>模型设置</dt><dd>上下文容量与输出限制随模型规格匹配</dd>`:''}<dt>测试范围</dt><dd>仅检查服务连接，不发送文稿${asr?'或音频':''}。模型实际调用权限需单独验证。</dd></dl></details><div class="detail-footer"><p id="connection-feedback" class="feedback ${d.status==='error'?'error':d.status==='success'?'good':''}" role="status">${esc(feedback(d,asr))}</p><button id="save-connection" class="primary" ${canSave(p,d)?'':'disabled'}>${d.busy==='save'?'正在保存':asr?'保存并选用':'保存连接'}</button></div>`}</section></div>`;
+  return `${sectionHeading(true)}<div class="workspace cloud-workspace"><nav class="rail" aria-label="服务商"><div class="rail-heading">选择服务商</div>${providerRows().map(x=>`<button data-provider="${esc(x.id)}" aria-pressed="${x.id===p.id}">${brand(x)}<span class="rail-name">${esc(x.name)}</span></button>`).join('')}</nav><section class="detail" aria-label="服务商详情"><div class="detail-top">${brand(p,true)}<div class="detail-title"><h2>${esc(p.name)}</h2><p>${asr?'用于内容提取':'用于文稿助手'}</p></div><span class="status ${d.saved?'good':''}">${d.saved?'已保存':'未保存'}</span></div>${cloudInformation(p,asr)}${!asr&&groups.length>0?`<div class="saved-line"><span>已保存的密钥</span><button id="saved-connection" class="select-button" aria-haspopup="menu">${esc(savedKeyLabel(groups.find(c=>c.credential_id===d.credentialId&&c.base===d.base&&c.protocol===d.protocol),groups))}${icon('chevron')}</button></div>`:''}${customFields(p,d)}${serviceControls(p)}${blocked?`<div class="service-unavailable"><h3>此服务暂未开放接入</h3><p>${esc(reason)}</p></div>`:`${keyField(p,d)}${asr?`<section class="models-block"><h3>转录模型</h3>${isCustom(p)?`<label class="custom-fields">模型 ID<input id="asr-model-id" value="${esc(d.modelId)}" placeholder="服务商提供的转录模型 ID" autocomplete="off" spellcheck="false"></label>`:`<div class="asr-model">${brand({id:p.modelId,logo:p.modelLogo || p.logo})}<div><h3>${esc(p.model)}</h3><p>${esc(p.modelId)}</p></div><span class="status">已自动匹配</span></div>`}</section>`:`<section class="models-block"><div class="block-heading"><h3>启用的模型<span class="model-source">${d.fetched?'已获取目录':''}</span></h3><div class="inline-actions"><button id="fetch-models" class="link-button" ${canTest(p,d)?'':'disabled'}>${icon('refresh',d.busy==='discover'?'spin':'')}${d.busy==='discover'?'获取中':'获取模型'}</button><button id="add-model" class="icon-button" aria-label="添加模型" aria-haspopup="menu">${icon('plus')}</button></div></div><div id="model-list" tabindex="0" role="region" aria-label="可用模型列表" data-scope="${esc(d.scope)}">${models.length?models.map(x=>modelRow(x,d)).join(''):'<div class="model-empty">获取模型列表，或添加服务商提供的模型 ID。</div>'}</div></section>`}<details class="auto-settings"><summary>连接详情</summary><dl><dt>服务地址</dt><dd id="resolved-base">${esc(baseFor(p,d) || '按所选服务自动匹配')}</dd>${!asr?`<dt>模型设置</dt><dd>上下文容量与输出限制随模型规格匹配</dd>`:''}<dt>测试范围</dt><dd>仅检查服务连接，不发送文稿${asr?'或音频':''}。模型实际调用权限需单独验证。</dd></dl></details><div class="detail-footer"><p id="connection-feedback" class="feedback ${d.status==='error'?'error':d.status==='success'?'good':''}" role="status">${esc(feedback(d,asr))}</p><button id="save-connection" class="primary" ${canSave(p,d)?'':'disabled'}>${d.busy==='save'?'正在保存':asr?'保存并选用':'保存连接'}</button></div>`}</section></div>`;
 }
 function updateView(focusId){
   if(!snapshot)return;snapshotDeferred=false;
@@ -128,11 +147,38 @@ function updateView(focusId){
   $('purpose-content').innerHTML=state.purpose==='assistant'||(state.purpose==='extract'&&state.localMode==='cloud')?renderCloud():renderLocal();
   bindPage();const list=$('model-list');if(list)list.scrollTop=drafts.get(list.dataset.scope)?.modelScroll || 0;
   if(focus&&$(focus)&&!$(focus).disabled){$(focus).focus({preventScroll:true});if(selection&&$(focus).setSelectionRange)try{$(focus).setSelectionRange(...selection);}catch{}}
+  renderedSnapshotLayout=snapshotLayout(snapshot);
+}
+function snapshotLayout(value){
+  // Byte counts and progress messages do not change the controls on the page.
+  return JSON.stringify({...value,
+    localModels:Object.fromEntries(Object.entries(value.localModels || {}).map(([kind,rows])=>
+      [kind,rows.map(({resumable,...model})=>({...model,resumable:Boolean(resumable)}))])),
+    jobs:Object.fromEntries(Object.entries(value.jobs || {}).map(([id,{progress,message,...job}])=>[id,job]))});
+}
+function syncJobProgress(){
+  document.querySelectorAll('[data-job]').forEach(container=>{
+    const job=snapshot.jobs?.[container.dataset.job];if(!job)return;
+    const progress=container.querySelector('progress'),value=Number(job.progress);
+    if(progress){if(value>=0)progress.value=Math.min(100,value);else progress.removeAttribute('value');}
+    const heading=container.querySelector('.progress-heading h3'),percent=container.querySelector('.progress-value');
+    if(heading)heading.textContent=jobMessage(job);
+    if(percent)percent.textContent=value>=0?Math.round(value)+'%':'';
+    if(container.classList.contains('feature-progress'))container.title=job.message || '';
+  });
+}
+function refreshSnapshot(){
+  if(renderedSnapshotLayout===snapshotLayout(snapshot)){
+    snapshotDeferred=false;syncJobProgress();return;
+  }
+  // Structural transitions must also preserve the target until click is sent.
+  if(snapshotPointerActive){snapshotDeferred=true;return;}
+  updateView();
 }
 function receiveSnapshot(raw){
   try {snapshot=typeof raw==='string'?JSON.parse(raw):raw;
     // A state/progress refresh must never dismiss an open choice or edit dialog.
-    if(!$('menu').hidden||$('modal').open){snapshotDeferred=true;return;}updateView();
+    if(!$('menu').hidden||$('modal').open){snapshotDeferred=true;return;}refreshSnapshot();
   }catch {notify('模型状态读取失败，请重新打开此页。');}
 }
 function dirty(d,{invalidate=false,credential=false}={}){d.saved=false;d.feedback='';d.revision++;if(invalidate){d.status='idle';d.busy=null;}if(credential){d.credentialId='';d.hasCredential=false;d.fetched=null;}}
@@ -203,7 +249,7 @@ async function simpleOperation(operation,args={}){try{const value=await api(oper
 function closeMenu(restore=true){
   const el=$('menu');el.hidden=true;el.innerHTML='';
   if(menuAnchor){menuAnchor.setAttribute('aria-expanded','false');if(restore&&menuAnchor.isConnected)menuAnchor.focus({preventScroll:true});}menuAnchor=null;
-  if(snapshotDeferred&&!$('modal').open)queueMicrotask(()=>{if(snapshotDeferred&&$('menu').hidden&&!$('modal').open)updateView();});
+  if(snapshotDeferred&&!$('modal').open)queueMicrotask(()=>{if(snapshotDeferred&&$('menu').hidden&&!$('modal').open)refreshSnapshot();});
 }
 function menu(anchor,items,{search=false}={}){
   closeMenu(false);menuAnchor=anchor;anchor.setAttribute('aria-expanded','true');
@@ -217,7 +263,7 @@ function menu(anchor,items,{search=false}={}){
   }
   draw();if(search){$('menu-search').oninput=e=>draw(e.target.value);$('menu-search').focus();}else el.querySelector('[aria-checked="true"]:not(:disabled),button:not(:disabled)')?.focus();
 }
-function modal(title,body,bind){closeMenu(false);modalReturn=document.activeElement;$('modal-title').textContent=title;$('modal-body').innerHTML=body;$('modal').showModal();if(bind)bind();}
+function modal(title,body,bind){$('modal').classList.remove('measurement-modal');closeMenu(false);modalReturn=document.activeElement;$('modal-title').textContent=title;$('modal-body').innerHTML=body;$('modal').showModal();if(bind)bind();}
 function closeModal(){$('modal').close();}
 function selectModel(id,checked){const d=currentDraft();if(checked){d.selected.add(id);if(!d.defaultModel)d.defaultModel=id;}else{d.selected.delete(id);if(d.defaultModel===id)d.defaultModel=d.selected.values().next().value || '';}dirty(d);updateView();document.querySelector(`[data-model="${CSS.escape(id)}"]`)?.focus({preventScroll:true});}
 function modelMenu(anchor,id){
@@ -233,6 +279,8 @@ function addModel(anchor){
   })},...rows.filter(m=>!d.selected.has(m.id)).map(m=>({label:m.label || m.id,description:m.id,action:()=>selectModel(m.id,true)}))],{search:true});
 }
 function bindPage(){
+  document.querySelectorAll('[data-voice-feature]').forEach(b=>b.onclick=()=>{state.voiceFeature=b.dataset.voiceFeature;updateView();});
+  if($('model-measure'))$('model-measure').onclick=showMeasurements;
   document.querySelectorAll('[data-local-mode]').forEach(b=>b.onclick=()=>{state.localMode=b.dataset.localMode;updateView();});
   document.querySelectorAll('[data-local]').forEach(b=>b.onclick=()=>{state.choice[state.purpose]=b.dataset.local;updateView();});
   document.querySelectorAll('button[data-provider]').forEach(b=>b.onclick=()=>{if(state.purpose==='assistant')state.provider=b.dataset.provider;else state.asr=b.dataset.provider;updateView();});
@@ -251,6 +299,7 @@ function bindPage(){
   if($('remove-key'))$('remove-key').onclick=removeCredential;
   if(!available(p))return;
   $('key-visibility').onclick=()=>{d.visible=!d.visible;const input=$('api-key');input.type=d.visible?'text':'password';$('key-visibility').innerHTML=icon(d.visible?'eyeoff':'eye');$('key-visibility').setAttribute('aria-label',d.visible?'隐藏密钥':'显示密钥');$('key-visibility').setAttribute('aria-pressed',String(d.visible));};
+  if($('service-pricing'))$('service-pricing').onclick=()=>simpleOperation($('service-pricing').dataset.pricing==='billing'?'open_pricing_page':'open_key_page',{purpose:state.purpose,provider:p.id,mode:s.mode,region:s.region});
   if($('get-key'))$('get-key').onclick=()=>simpleOperation('open_key_page',{purpose:state.purpose,provider:p.id,mode:s.mode,region:s.region});
   $('test-connection').onclick=()=>cloudOperation('test');$('save-connection').onclick=()=>cloudOperation('save');
   if($('fetch-models'))$('fetch-models').onclick=()=>cloudOperation('discover');
@@ -265,11 +314,11 @@ function bindPage(){
 }
 function receiveCommand(action,raw){
   let value={};try{value=typeof raw==='string'?JSON.parse(raw):raw || {};}catch{return;}
-  if(action==='purpose'&&['extract','voice','assistant'].includes(value.purpose)){state.purpose=value.purpose;if(['local','cloud'].includes(value.localMode))state.localMode=value.localMode;if(value.choice)state.choice[value.purpose]=value.choice;updateView();}
+  if(action==='purpose'&&['extract','voice','assistant'].includes(value.purpose)){state.purpose=value.purpose;if(['local','cloud'].includes(value.localMode))state.localMode=value.localMode;if(value.choice)state.choice[value.purpose]=value.choice;if(['clone','preset','design'].includes(value.feature))state.voiceFeature=value.feature;updateView();}
   if(action==='notice')notify(value.message);
 }
 $('modal-close').innerHTML=icon('close');$('modal-close').onclick=closeModal;
-$('modal').addEventListener('close',()=>{if(modalReturn?.isConnected)modalReturn.focus({preventScroll:true});$('modal-body').innerHTML='';if(snapshotDeferred)updateView();});
+$('modal').addEventListener('close',()=>{if(modalReturn?.isConnected)modalReturn.focus({preventScroll:true});$('modal-body').innerHTML='';if(snapshotDeferred)refreshSnapshot();});
 let backdropDown=false;
 $('modal').addEventListener('pointerdown',e=>{const r=$('modal').getBoundingClientRect();backdropDown=e.target===$('modal')&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom);});
 $('modal').addEventListener('click',e=>{const r=$('modal').getBoundingClientRect();if(backdropDown&&e.target===$('modal')&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom))closeModal();backdropDown=false;});
@@ -277,7 +326,19 @@ document.querySelectorAll('[data-purpose]').forEach(b=>b.onclick=()=>{state.purp
 $('purpose-tabs').addEventListener('keydown',e=>{
   if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const tabs=[...document.querySelectorAll('[data-purpose]')],i=tabs.indexOf(document.activeElement),target=e.key==='Home'?0:e.key==='End'?tabs.length-1:(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;tabs[target].click();tabs[target].focus();
 });
+document.addEventListener('keydown',e=>{const feature=e.target.closest?.('[data-voice-feature]');if(!feature||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const tabs=[...document.querySelectorAll('[data-voice-feature]')],i=tabs.indexOf(feature),n=e.key==='Home'?0:e.key==='End'?tabs.length-1:(i+(e.key==='ArrowRight'?1:tabs.length-1))%tabs.length,id=tabs[n].dataset.voiceFeature;state.voiceFeature=id;updateView();document.querySelector('[data-voice-feature="'+id+'"]').focus();});
 document.addEventListener('pointerdown',e=>{if(!$('menu').hidden&&!$('menu').contains(e.target)&&!menuAnchor?.contains(e.target))closeMenu(false);});
+document.addEventListener('pointerdown',()=>{clearTimeout(snapshotPointerTimer);snapshotPointerActive=true;},true);
+function finishSnapshotPointer(){
+  clearTimeout(snapshotPointerTimer);
+  snapshotPointerTimer=setTimeout(()=>{
+    snapshotPointerActive=false;
+    if(snapshotDeferred&&$('menu').hidden&&!$('modal').open)refreshSnapshot();
+  },0);
+}
+document.addEventListener('pointerup',finishSnapshotPointer,true);
+document.addEventListener('pointercancel',finishSnapshotPointer,true);
+window.addEventListener('blur',finishSnapshotPointer);
 document.addEventListener('keydown',e=>{
   if($('menu').hidden)return;if(e.key==='Escape'){e.preventDefault();closeMenu();return;}if(e.key==='Tab'){closeMenu(false);return;}
   const buttons=[...$('menu').querySelectorAll('button:not(:disabled)')],i=buttons.indexOf(document.activeElement);

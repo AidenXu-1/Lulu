@@ -64,6 +64,7 @@ def _timecode(seconds: object) -> str:
 def format_transcript_for_export(transcript: object) -> str:
     """为表格出口补上已有分段时间；无可用时间戳时保留原文。"""
 
+    from ..output.segments import speaker_text
     plain = str(getattr(transcript, "text", "") or "")
     if (getattr(transcript, "meta", {}) or {}).get("segments_stale", False):
         return plain
@@ -76,6 +77,7 @@ def format_transcript_for_export(transcript: object) -> str:
         text = str(getattr(segment, "text", "") or "").strip()
         if not text:
             continue
+        text = speaker_text(segment)
         stamp = _timecode(getattr(segment, "start", None))
         if stamp:
             has_timestamp = True

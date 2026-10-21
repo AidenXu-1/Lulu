@@ -7,8 +7,8 @@ from pathlib import Path
 import stat
 import sys
 
-__version__ = "4.2.1"
-__build__ = "20261015.2"
+__version__ = "4.3.1"
+__build__ = "20261021.7"
 __channel__ = "production"
 
 _PROFILE_CHANNELS_BY_PARTS = {

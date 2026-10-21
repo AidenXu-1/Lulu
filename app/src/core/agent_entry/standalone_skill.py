@@ -35,15 +35,23 @@ def owned_digests(installation, owner):
     # Earlier authenticated installation receipts can authorize replacement of
     # precisely their optional files, never a user's unrelated directory.
     root = installation.paths.state_root.parents[1]
-    candidates = [root/'ownership.json'] + list((root/'app-generations').glob('*/ownership.json'))
+    local = getattr(installation.keys, 'storage_scheme', None) == 'local-integrity-v1'
+    generations = root/('local-app-generations' if local else 'app-generations')
+    if generations.is_symlink():
+        raise RuntimeError('AGENT_ENTRY_OWNERSHIP_CONFLICT')
+    candidates = ([] if local else [root/'ownership.json']) + list(generations.glob('*/ownership.json'))
     actual = {name: object_digest(path) if os.path.lexists(path) else None
               for name, path in _targets(installation).items()}
     if all(value is None for value in actual.values()):
         return actual
     for path in candidates:
+        if path.parent.is_symlink():
+            raise RuntimeError('AGENT_ENTRY_OWNERSHIP_CONFLICT')
         if not path.exists():
             continue
         previous = verify_ownership_receipt(path, key_store=installation.keys)
+        if previous['installation_id_digest'] != owner['installation_id_digest']:
+            continue
         digests = previous.get('managed_effect_digests', {})
         optional = path.parent/'optional/ownership.json'
         if optional.exists():

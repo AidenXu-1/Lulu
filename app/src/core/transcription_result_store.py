@@ -14,6 +14,8 @@ from .storage_layout import SharedProductStorageLayout, StorageLayoutError
 from .transcription_contracts import LocalFileTranscriptionResultV1
 from .transcription_contracts import LocalTranscriptionSegmentV1
 from .models import Transcript
+from .transcription_contracts import (encode_transcription_result, decode_transcription_result,
+    result_from_transcript, TRANSCRIPTION_SCHEMAS)
 
 
 _JOB_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")
@@ -133,24 +135,7 @@ class TranscriptionResultStore:
     ) -> dict[str, str]:
         if type(result) is not LocalFileTranscriptionResultV1:
             raise TranscriptionResultStoreError("转录结果类型无效")
-        payload = {
-            "schema_id": "lulu.transcription-result/v1",
-            "schema_revision": 1,
-            "job_id": job_id,
-            "transcript": {
-                "text": result.text,
-                "segments": [
-                    {
-                        "text": segment.text,
-                        "start": segment.start,
-                        "end": segment.end,
-                    }
-                    for segment in result.segments
-                ],
-                "language": result.language,
-                "engine": result.engine,
-            },
-        }
+        payload = encode_transcription_result(job_id, result)
         return self._write_payload(job_id, payload)
 
     def write_extraction(self, job_id: str, extraction: dict[str, object]) -> dict[str, str]:
@@ -228,23 +213,7 @@ class TranscriptionResultStore:
         """Persist a link pipeline result through the existing canonical store."""
         if not isinstance(result, Transcript) or not result.engine:
             raise TranscriptionResultStoreError("链接转录结果类型无效")
-        return self.write(
-            job_id,
-            LocalFileTranscriptionResultV1(
-                text=result.text,
-                segments=tuple(
-                    LocalTranscriptionSegmentV1(
-                        text=segment.text,
-                        start=segment.start,
-                        end=segment.end,
-                    )
-                    for segment in result.segments
-                ),
-                language=result.language,
-                engine=result.engine,  # type: ignore[arg-type]
-                source_path=result.source,
-            ),
-        )
+        return self.write(job_id, result_from_transcript(result))
 
     def _read_bytes(self, target: Path) -> bytes:
         _validate_regular_file(target)
@@ -312,7 +281,7 @@ class TranscriptionResultStore:
             raise TranscriptionResultStoreError('恢复期间转录结果发生变化')
         return dict(result_ref=ref, content_hash=digest)
 
-    def read_verified_bytes(self, job_id: str, result_ref: str, *, schema_id: str = "lulu.transcription-result/v1") -> bytes:
+    def read_verified_bytes(self, job_id: str, result_ref: str, *, schema_id: str | None = None) -> bytes:
         """Read only a result bound by the caller's authenticated job ledger."""
         self._ensure_layout()
         raw = self._read_bytes(self.directory / self._target_name(job_id))
@@ -324,7 +293,12 @@ class TranscriptionResultStore:
         except (ValueError, UnicodeError) as exc:
             raise TranscriptionResultStoreError("转录结果JSON无效") from exc
         if (type(payload) is not dict or payload.get("job_id") != job_id
-                or payload.get("schema_id") != schema_id
+                or payload.get("schema_id") not in (TRANSCRIPTION_SCHEMAS if schema_id is None else {schema_id})
                 or payload.get("schema_revision") != 1 or _canonical_bytes(payload) != raw):
             raise TranscriptionResultStoreError("转录结果身份无效")
+        if payload["schema_id"] in TRANSCRIPTION_SCHEMAS:
+            try:
+                decode_transcription_result(payload, job_id=job_id)
+            except (ValueError, TypeError) as exc:
+                raise TranscriptionResultStoreError("转录结果内容无效") from exc
         return raw

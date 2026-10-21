@@ -1,6 +1,6 @@
 ---
 name: lulu-agent
-description: Operate Lulu through its verified packaged Agent CLI for manuscript search, edits, conversations, local audio/video transcription (SenseVoice, Qwen3-ASR, Whisper MLX), speech, and downloading video, audio, covers or public work data from links (作品链接下载/封面/音频/作品数据); discover installed capabilities before acting.
+description: Operate Lulu through its verified packaged Agent CLI for manuscript search, edits, conversations, local audio/video transcription (SenseVoice Q8, Whisper MLX, Whisper 4bit, MOSS Q5), speech, and downloading video, audio, covers or public work data from links (作品链接下载/封面/音频/作品数据); discover installed capabilities before acting.
 ---
 
 # Lulu Agent
@@ -19,7 +19,7 @@ Run `capabilities --output json` using the verified CLI before any business comm
 
 ## Route by need
 
-- For 本地音频/视频转文字、提取逐字稿、用 Qwen3-ASR 或 Whisper 转录 requests, read the local transcription and result-reading sections in [workflows.md](references/workflows.md). Check installed model status, preserve the selected engine, and return complete text through the supported result reader.
+- For 本地音频/视频转文字、提取逐字稿、用 Q8、Whisper 或 MOSS 转录 requests, read the local transcription and result-reading sections in [workflows.md](references/workflows.md). Check installed model status, preserve the selected engine, and return complete text through the supported result reader.
 
 - For 文稿/改稿/笔记/会话/技能目录 requests, read [workspace.md](references/workspace.md). Use direct document operations when authorized; call conversations.send only when the user wants Lulu AI to process a request.
 

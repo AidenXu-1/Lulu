@@ -174,7 +174,7 @@ class InstalledRuntimeBootstrapPublicTests(unittest.TestCase):
         calls = []
         def pipeline(source_path, **kwargs):
             calls.append(source_path)
-            return Transcript(text="隔离新转录结果", segments=[], language="zh", engine="local_sensevoice",
+            return Transcript(text="隔离新转录结果", segments=[], language="zh", engine="local_sensevoice_q8",
                 source=source_path, title=None, meta={}, saved_media=None)
         def build(**kwargs):
             return _build_measured_core_runtime(**kwargs, pipeline_runner=pipeline, model_readiness_probe=lambda _: True)

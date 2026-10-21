@@ -11,7 +11,8 @@
           "label": "按量计费 API",
           "keys": "https://platform.deepseek.com/api_keys",
           "base": "https://api.deepseek.com/v1",
-          "catalog": "deepseek"
+          "catalog": "deepseek",
+          "billing": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/"
         }
       ]
     },
@@ -36,7 +37,8 @@
             "https://api.moonshot.cn/v1",
             "https://api.moonshot.ai/v1"
           ],
-          "catalog": "kimi"
+          "catalog": "kimi",
+          "billing": "https://platform.kimi.com/docs/pricing/chat"
         },
         {
           "id": "coding",
@@ -115,7 +117,8 @@
             "https://api.minimax.cn/anthropic",
             "https://api.minimax.io/anthropic"
           ],
-          "catalog": "minimax"
+          "catalog": "minimax",
+          "billing": "https://platform.minimax.cn/docs/pricing/overview"
         },
         {
           "id": "token",
@@ -166,7 +169,8 @@
           "label": "按量计费 API",
           "keys": "https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key",
           "base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-          "catalog": "qwen"
+          "catalog": "qwen",
+          "billing": "https://help.aliyun.com/zh/model-studio/model-pricing"
         },
         {
           "id": "token-personal",
@@ -218,7 +222,8 @@
           "label": "按量计费 API",
           "keys": "https://openrouter.ai/settings/keys",
           "base": "https://openrouter.ai/api/v1",
-          "catalog": "openrouter"
+          "catalog": "openrouter",
+          "billing": "https://openrouter.ai/models"
         }
       ]
     },
@@ -269,7 +274,8 @@
       "modelId": "paraformer-realtime-v2",
       "keys": "https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key",
       "description": "中文语音识别",
-      "base": "由百炼转录接口自动匹配"
+      "base": "由百炼转录接口自动匹配",
+      "billing": "https://help.aliyun.com/zh/model-studio/model-pricing"
     },
     {
       "id": "openai",
@@ -318,62 +324,7 @@
     }
   ],
   "localModels": {
-    "extract": [
-      {
-        "id": "whisper",
-        "name": "Whisper",
-        "version": "large-v3-turbo",
-        "mark": "W",
-        "logo": "openai.png",
-        "subtitle": "多语言 · 带时间戳",
-        "description": "适合外语音视频转写和字幕制作，需使用苹果芯 Mac。",
-        "languages": "多语言",
-        "runtime": "本机 · MLX",
-        "size": "约 1.6 GB",
-        "features": [
-          "自动识别音频中的语言",
-          "转写时保留每句话的时间点",
-          "可导出 SRT 字幕，方便剪辑"
-        ],
-        "source": "OpenAI Whisper · MLX 社区版本"
-      },
-      {
-        "id": "sensevoice",
-        "name": "SenseVoice",
-        "version": "Small",
-        "mark": "S",
-        "logo": "qwenaudio.png",
-        "subtitle": "日常转录 · 中文与粤语",
-        "description": "中文、粤语录音可选；只提取文字，不提供字幕时间点。",
-        "languages": "中 / 英 / 粤 / 日 / 韩",
-        "runtime": "本机 · FunASR",
-        "size": "约 950 MB",
-        "features": [
-          "擅长中文、粤语转写",
-          "可识别说话情绪",
-          "可标出笑声、掌声等声音"
-        ],
-        "source": "阿里 · SenseVoice Small"
-      },
-      {
-        "id": "qwen_asr",
-        "name": "Qwen3-ASR",
-        "version": "0.6B",
-        "mark": "Q",
-        "logo": "qwen.png",
-        "subtitle": "多语言与方言 · 带时间戳",
-        "description": "适合方言录音，也支持多国语言转写。",
-        "languages": "30 种语言 / 22 种中文方言",
-        "runtime": "本机 · Transformers",
-        "size": "约 3 GB",
-        "features": [
-          "支持四川话、闽南语等方言",
-          "自动判断录音里说的语言",
-          "中英等 11 种语言支持字幕时间点"
-        ],
-        "source": "阿里 · Qwen3-ASR"
-      }
-    ],
+    "extract": [],
     "voice": [
       {
         "id": "indextts2",

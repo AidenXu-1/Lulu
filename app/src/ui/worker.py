@@ -96,9 +96,12 @@ class TranscribeWorker(QThread):
         return self._cancel or self.isInterruptionRequested()
 
     def _uses_local_file_transcription_service(self) -> bool:
+        from ..core.engines.local_models import LOCAL_MODELS
+        if self._execution_policy is not None and self._execution_policy.requested_outputs is not None:
+            return False
         if (
             self._local_file_transcription_authorization_guard is None
-            or self._engine_name != "local_sensevoice"
+            or self._engine_name not in LOCAL_MODELS
         ):
             return False
         from ..core.audio.extractor import extract_url
@@ -121,7 +124,7 @@ class TranscribeWorker(QThread):
             result = service.transcribe(
                 LocalFileTranscriptionRequestV1(
                     source_path=self._source,
-                    engine_name="sensevoice",
+                    engine_name=self._engine_name,
                 ),
                 progress=lambda msg, frac: self.progress.emit(msg, frac),
                 is_cancelled=self._is_cancelled,
@@ -141,6 +144,11 @@ class TranscribeWorker(QThread):
         self.finished_ok.emit(result.to_transcript())
 
     def run(self) -> None:  # 在子线程里执行
+        from ..core.engines.asr_resource import batch_context
+        with batch_context(getattr(self, '_asr_batch_owner', None)):
+            self._run_transcription()
+
+    def _run_transcription(self) -> None:
         from ..core.diagnostics import TranscriptionAttemptTrace
         trace = TranscriptionAttemptTrace(self.audit_job_id) if hasattr(self, "audit_job_id") else None
         self._attempt_trace = trace
@@ -515,7 +523,9 @@ class ReferenceTranscribeWorker(QThread):
         try:
             transcript = transcribe_source(
                 self._audio_path,
+                engine_name="local_sensevoice_q8",
                 enable_link_download=False,
+                is_cancelled=self.isInterruptionRequested,
                 progress=lambda msg, frac: self.progress.emit(msg, frac),
             )
             self.finished_ok.emit(transcript.text.strip())

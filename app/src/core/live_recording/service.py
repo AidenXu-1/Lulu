@@ -1,5 +1,6 @@
 """Core-owned monitors, leased producers and a bounded GUI media inventory."""
 from concurrent.futures import ThreadPoolExecutor
+from collections import OrderedDict
 from copy import deepcopy
 from datetime import datetime, timezone
 import csv
@@ -16,13 +17,16 @@ from ..job_ledger.contracts import JobLedgerError, JobState, TERMINAL_STATES
 from .contracts import (LiveError, LIVE_MESSAGES, MESSAGES, QUERY_ERRORS,
                         confirmed_live_state, public_link, recording_message, validate_request)
 from .douyin import DouyinProvider
-from .data import append_sample, data_path, read_data
+from .data import DataLimitError, append_sample, data_path, read_data
+from .comments import CommentReadCache, read_comments, export_comments, status_text as comment_status
+from .danmaku import CommentRecorder
 from .index import LiveIndex, directory
 from .media import SegmentProducer, bundled_ffmpeg, export_media, fingerprint, managed_file, probe
 
 KIND = 'live_recording'
 ACTIVE = {JobState.PREPARED, JobState.QUEUED, JobState.RUNNING, JobState.CANCEL_REQUESTED}
 RECONNECT_TIMEOUT = 120.0  # No new video bytes; finish this recording, keep monitoring.
+PREPARE_TIMEOUT = 3.0  # Return before the GUI transport's five-second deadline.
 
 def uid(prefix):
     return prefix + '-' + uuid4().hex
@@ -44,14 +48,18 @@ def move_to_trash(path):
 class LiveService:
     def __init__(self, root, control, installation_id, *, provider=None, ffmpeg=None,
                  secret_read=None, secret_write=None, disk_free=None, producer_factory=SegmentProducer,
-                 historical_recordings=None):
-        self.index = LiveIndex(Path(root) / 'live-recording')
+                 historical_recordings=None, comments_factory=CommentRecorder):
+        self.root = Path(root)
+        self.index = LiveIndex(self.root / 'live-recording')
         self.control, self.installation_id = control, installation_id
         # Supplied only by the Core's verified handover, never by GUI arguments.
         self.historical_recordings = deepcopy(historical_recordings or {})
         self.provider = provider or DouyinProvider()
         self.ffmpeg = ffmpeg
         self.producer_factory = producer_factory
+        self.comments_factory = comments_factory
+        self.comments, self.comments_io, self.comment_cache = {}, {}, {}
+        self.comment_readers = OrderedDict()
         self.secret_read, self.secret_write = secret_read, secret_write
         self.disk_free = disk_free or (lambda p: shutil.disk_usage(p).free)
         self.lock = threading.RLock()
@@ -65,12 +73,20 @@ class LiveService:
         self.closing = True
         self.credential = ''
         self.monitors, self.checks, self.exports = {}, {}, {}
+        self.starts, self.disk_checks = {}, {}
+        self.prepare_reads = {}
+        self.host_sequences = {}
+        self.pause_sequence = self.directory_sequence = 0
+        self.disk_checked_at = {}
+        self.output_revision = 0
         self.data_checks = set()
         self.deleting = {}
         self.transcribing = set()
         self.free, self.disk_warning, self.last_disk = None, False, 0.0
         self.recovery = []
         self.monitor_bytes, self.started_at = 0, time.monotonic()
+        self.index.write("UPDATE recordings SET comments_state='interrupted' WHERE comments_enabled=1 "
+                         "AND comments_state IN ('connecting','waiting','recording','reconnecting','retrying')")
         for row in self.index.all("SELECT * FROM recordings WHERE ended IS NULL OR reason='recovery_required'"):
             self.index.write('UPDATE recordings SET ended=COALESCE(ended,?), reason=? WHERE id=?',
                              (time.time(), 'recovery_required', row['id']))
@@ -113,6 +129,8 @@ class LiveService:
         return value
 
     def _read_credentials(self):
+        if self.index.setting('login_update_pending'):
+            raise LiveError('上次登录保存未能确认，请重新保存或清除后再开始监控')
         try:
             self.credential = self._credentials()
         except Exception:
@@ -120,12 +138,16 @@ class LiveService:
 
     def handle(self, operation, arguments):
         validate_request(operation, arguments)
+        if operation in {'start', 'directory'}:
+            return self._prepare_request(operation, arguments)
         if operation == 'data':
             return self._data(arguments)
         if operation == 'delete_recording':
             return self._delete_recording(arguments)
         if operation == 'transcribe':
             return self._transcribe(arguments)
+        if operation in {'comments', 'comments_export'}:
+            return self._comments_request(operation, arguments)
         with self.lock:
             if operation == 'open':
                 nonce = arguments['nonce']
@@ -136,6 +158,8 @@ class LiveService:
                 if self.busy():
                     raise LiveError('上一场录制正在收尾，请稍后重试')
                 self.session, self.nonce = uid('session'), nonce
+                self.host_sequences.clear()
+                self.pause_sequence = self.directory_sequence = 0
                 self.deadline, self.closing = time.monotonic() + 30, False
                 # A previous session's response is not a current observation.
                 self.index.write("UPDATE hosts SET live_state='unknown',live_error=''")
@@ -155,6 +179,11 @@ class LiveService:
                     self._background_recovery(rows, self.session)
                 return {'session': self.session}
             token = arguments['session']
+            if (operation == 'heartbeat' and token == self.session and not self.closing
+                    and time.monotonic() >= self.deadline):
+                # The GUI may wake before the scheduler. Acknowledge expiry
+                # without renewing the old lease or hiding unfinished work.
+                self._stop_session()
             self._current(token)
             if operation == 'heartbeat':
                 if not self.closing:
@@ -167,6 +196,7 @@ class LiveService:
                 return self.snapshot(**{k: v for k, v in arguments.items() if k != 'session'})
             if self.closing:
                 raise LiveError('Lulu 正在结束直播任务，请稍后操作')
+            self._accept_sequence(operation, arguments)
             if operation == 'add':
                 source = public_link(arguments['source'])
                 old = self.index.one('SELECT * FROM hosts WHERE source=?', (source,))
@@ -176,53 +206,61 @@ class LiveService:
                 self.index.write('INSERT INTO hosts(id,source,created) VALUES(?,?,?)', (hid, source, time.time()))
                 self._submit_check(hid, token, identify_only=True)
                 return {'host_id': hid}
-            if operation in {'start', 'pause', 'remove'}:
+            if operation in {'pause', 'remove'}:
                 host = self._host(arguments['host_id'])
-                if operation == 'start':
-                    if self.monitors.get(host['id'], {}).get('thread'):
-                        raise LiveError('正在保存最后一段，请稍后开始')
-                    if not self.ffmpeg:
-                        self.ffmpeg = bundled_ffmpeg()
-                    output = directory(self.output_dir(), create=True)
-                    if self.disk_free(output) < 2 * 1024**3:
-                        raise LiveError('可用空间不足 2 GB，请先释放空间或更换保存位置')
-                    self._read_credentials()
-                    self.index.write('UPDATE hosts SET enabled=1 WHERE id=?', (host['id'],))
-                    self._enable(host)
-                else:
-                    self._pause(host['id'])
-                    if operation == 'remove':
-                        monitor = self.monitors.get(host['id'])
-                        if monitor and monitor.get('thread'):
-                            monitor['remove'] = True
-                        else:
-                            self.index.write('DELETE FROM hosts WHERE id=?', (host['id'],))
-                            self.monitors.pop(host['id'], None)
+                self._pause(host['id'])
+                if operation == 'remove':
+                    monitor = self.monitors.get(host['id'])
+                    if monitor and monitor.get('thread'):
+                        monitor['remove'] = True
+                    else:
+                        self.index.write('DELETE FROM hosts WHERE id=?', (host['id'],))
+                        self.monitors.pop(host['id'], None)
                 return {'changed': True}
             if operation == 'pause_all':
                 for host in self.index.all('SELECT id FROM hosts'):
-                    self._pause(host['id'])
+                    if self.host_sequences.get(host['id'], 0) <= arguments.get('sequence', 2**53):
+                        self._pause(host['id'])
                 return {'changed': True}
-            if operation == 'directory':
-                path = directory(arguments['path'])
-                self.index.set_setting('directory', str(path))
-                self.last_disk = 0
-                return {'path': str(path)}
+            if operation == 'comments_setting':
+                self.index.set_setting('comments_enabled', '1' if arguments['enabled'] else '0')
+                return {'enabled': arguments['enabled']}
             if operation == 'credential':
                 if self.busy():
-                    raise LiveError('请先暂停全部直播监控，再更换或删除凭据')
+                    raise LiveError('请先暂停全部直播监控，再更换或清除登录')
+                from ..collect.douyin_login import LoginStore, LoginBusyError
+                def read():
+                    if self.secret_read:
+                        return self.secret_read()
+                    from ..secrets import get_key
+                    return get_key('douyin-live', require_access=True)
+                def write(value):
+                    if self.secret_write:
+                        return self.secret_write(value)
+                    from ..secrets import set_key_verified
+                    return set_key_verified('douyin-live', value)
                 value = arguments['value'].strip()
                 try:
-                    if self.secret_write:
-                        self.secret_write(value)
+                    store = LoginStore(self.root, self.index, read, write)
+                    if value:
+                        store.save(value, arguments.get('source', 'manual'))
                     else:
-                        from ..secrets import set_key_verified
-                        set_key_verified('douyin-live', value)
-                except Exception:
-                    raise LiveError('凭据未能保存或删除，请重试；未改变监控配置') from None
+                        store.clear()
+                except LoginBusyError as exc:
+                    raise LiveError(str(exc)) from None
+                except Exception as exc:
+                    from ..diagnostics import record_failure
+                    record_failure('douyin_login_save' if value else 'douyin_login_clear', exc, root=self.root)
+                    action = '保存' if value else '完全清除'
+                    raise LiveError(f'登录信息未能{action}，请重新打开 Lulu 后重试；原资料保留。') from None
+                finally:
+                    # This explicit, idle-only control request can wait on an OS
+                    # confirmation or profile cleanup. Its queued heartbeat must
+                    # get a fresh interval once control becomes available again.
+                    if not self.closing and arguments['session'] == self.session:
+                        self.deadline = time.monotonic() + 30
                 self.credential = ''
-                self.index.set_setting('credential', 'configured' if value else '')
-                return {'configured': bool(value)}
+                return {'configured': bool(value), 'login': self._login_state()}
             if operation == 'detail':
                 row = self._recording(arguments['recording_id'])
                 segments = self.index.all('SELECT * FROM segments WHERE recording_id=? ORDER BY started', (row['id'],))
@@ -302,6 +340,11 @@ class LiveService:
             return '本场录像正在准备文案任务，请完成后删除'
         if rid in self.data_checks:
             return '本场直播数据正在保存，请稍后删除'
+        if rid in self.comments:
+            return '本场弹幕正在保存或收尾，请稍后删除'
+        if any(work['recording_id'] == rid or (work.get('target') and
+               Path(work['target']).is_relative_to(folder)) for work in self.comments_io.values()):
+            return '本场弹幕正在读取或导出，请稍后删除'
         for work in self.exports.values():
             if work['state'] == 'running' and (rid in work.get('recording_ids', ()) or
                     (work.get('target') and Path(work['target']).is_relative_to(folder))):
@@ -387,6 +430,199 @@ class LiveService:
     def output_dir(self):
         return self.index.setting('directory', str(Path.home() / 'Movies' / 'Lulu直播录制'))
 
+    def _accept_sequence(self, operation, arguments):
+        """Preserve click order even when preparation and pause arrive out of order."""
+        sequence = arguments.get('sequence')
+        if sequence is None:
+            return  # Existing internal callers retain their synchronous contract.
+        if operation in {'start', 'pause', 'remove'}:
+            hid = arguments['host_id']
+            self._host(hid)
+            if sequence <= max(self.pause_sequence, self.host_sequences.get(hid, 0),
+                               self.directory_sequence if operation == 'start' else 0):
+                raise LiveError('此操作已被后续操作取消')
+            self.host_sequences[hid] = sequence
+        elif operation == 'pause_all':
+            if sequence <= self.pause_sequence:
+                raise LiveError('此操作已被后续操作取消')
+            self.pause_sequence = sequence
+        elif operation == 'directory':
+            if sequence <= self.directory_sequence:
+                raise LiveError('保存位置已有更新，此前操作已取消')
+            self.directory_sequence = sequence
+
+    def _wait_preparation_read(self, path, kind, read, token, revision, pending, deadline):
+        """Share a bounded volume read; each caller retains its own cancellation."""
+        while True:
+            with self.lock:
+                if not self._can_run(token) or (pending is not None and pending.is_set()):
+                    raise LiveError('操作已停止，未开始监控')
+                if revision != self.output_revision:
+                    raise LiveError('保存位置已有更新，此前操作已停止，请重新开始')
+                if time.monotonic() >= deadline:
+                    raise LiveError('保存位置响应过慢，操作已停止；请检查磁盘连接后重试')
+                work = self.prepare_reads.get(path)
+                if work is None:
+                    if len(self.prepare_reads) >= 4:
+                        raise LiveError('保存位置仍在检查，请稍后重试或选择其他位置')
+                    work = {'done': threading.Event(), 'kind': kind}
+                    self.prepare_reads[path] = work
+                    def run(work=work):
+                        try:
+                            work['result'] = read(work)
+                        except Exception as exc:
+                            work['error'] = exc
+                        finally:
+                            with self.lock:
+                                if self.prepare_reads.get(path) is work:
+                                    self.prepare_reads.pop(path, None)
+                            work['done'].set()
+                    try:
+                        threading.Thread(target=run, daemon=True, name='lulu-live-prepare').start()
+                    except Exception:
+                        self.prepare_reads.pop(path, None)
+                        raise
+            # A directory-only check cannot satisfy a space read. Wait for that
+            # one path to settle before admitting another read, without a queue.
+            compatible = work['kind'] == kind or (kind == 'directory' and work['kind'] == 'space')
+            while not work['done'].wait(.025):
+                with self.lock:
+                    if not self._can_run(token) or (pending is not None and pending.is_set()):
+                        raise LiveError('操作已停止，未开始监控')
+                    if revision != self.output_revision:
+                        raise LiveError('保存位置已有更新，此前操作已停止，请重新开始')
+                if kind == 'directory' and 'directory_result' in work:
+                    break  # Choosing a validated folder need not wait for free-space I/O.
+                if time.monotonic() >= deadline:
+                    raise LiveError('保存位置响应过慢，操作已停止；请检查磁盘连接后重试')
+            with self.lock:
+                if not self._can_run(token) or (pending is not None and pending.is_set()):
+                    raise LiveError('操作已停止，未开始监控')
+                if revision != self.output_revision:
+                    raise LiveError('保存位置已有更新，此前操作已停止，请重新开始')
+            if compatible:
+                if kind == 'directory' and 'directory_result' in work:
+                    return work['directory_result']
+                if 'error' in work:
+                    raise work['error']
+                return work['result']
+
+    def _read_preparation(self, operation, folder, token, revision, pending, *, recording_id=None):
+        # Only bounded daemon workers touch the volume. They never publish
+        # monitor/job state, so a disconnected drive cannot hold application exit.
+        deadline = time.monotonic() + PREPARE_TIMEOUT
+        def volume(work):
+            result = {'path': directory(folder, create=operation != 'directory')}
+            work['directory_result'] = dict(result)
+            if operation != 'directory':
+                result['ffmpeg'] = self.ffmpeg or bundled_ffmpeg()
+                result['free'] = self.disk_free(result['path'])
+            return result
+        result = dict(self._wait_preparation_read(folder,
+            'directory' if operation == 'directory' else 'space', volume, token, revision, pending, deadline))
+        if recording_id and result['free'] >= 2 * 1024**3:
+            target = result['path'] / recording_id
+            def make_folder(work):
+                target.mkdir(mode=0o700)
+                return {'recording_folder': target}
+            result.update(self._wait_preparation_read(str(target), 'folder', make_folder,
+                token, revision, pending, deadline))
+        return result
+
+    def _prepare_request(self, operation, arguments):
+        """Request workers may wait for a volume; the control lock never does."""
+        token = arguments['session']
+        pending = None
+        with self.lock:
+            self._current(token)
+            if not self._can_run(token):
+                raise LiveError('直播会话正在结束，请稍后操作')
+            self._accept_sequence(operation, arguments)
+            if operation == 'start':
+                hid = arguments['host_id']
+                self._host(hid)
+                if self.monitors.get(hid, {}).get('thread'):
+                    raise LiveError('正在保存最后一段，请稍后开始')
+                if hid in self.starts or len(self.starts) >= 4:
+                    raise LiveError('正在检查保存位置，请稍后重试')
+                pending = self.starts[hid] = threading.Event()
+                folder = self.output_dir()
+            else:
+                folder = arguments['path']
+                self.output_revision += 1
+            output_revision = self.output_revision
+        try:
+            result = self._read_preparation(operation, folder, token, output_revision, pending)
+            path = result['path']
+            with self.lock:
+                if not self._can_run(token):
+                    raise LiveError('操作已停止，未开始监控')
+                if output_revision != self.output_revision:
+                    raise LiveError('保存位置已有更新，此前操作已停止，请重新开始')
+                if operation == 'directory':
+                    self.index.set_setting('directory', str(path))
+                    self.last_disk, self.free, self.disk_warning = 0, None, False
+                    return {'path': str(path)}
+                if pending.is_set() or self.output_dir() != folder:
+                    raise LiveError('开始操作已停止或保存位置已变化，请重新开始')
+                if result['free'] < 2 * 1024**3:
+                    raise LiveError('可用空间不足 2 GB，请先释放空间或更换保存位置')
+                host = self._host(hid)
+                self.ffmpeg = result['ffmpeg']
+                self._read_credentials()
+                self.index.write('UPDATE hosts SET enabled=1 WHERE id=?', (hid,))
+                self._enable(host)
+                return {'changed': True}
+        finally:
+            if pending is not None:
+                with self.lock:
+                    if self.starts.get(hid) is pending:
+                        self.starts.pop(hid, None)
+
+    def _submit_disk_checks(self):
+        # Separate daemon workers: a wedged volume cannot exhaust network workers
+        # or delay shutdown. At most four paths, and one outstanding read per path.
+        folder, token, output_revision = self.output_dir(), self.session, self.output_revision
+        targets = {folder: []}
+        for hid, monitor in self.monitors.items():
+            if not monitor['cancel'].is_set():
+                targets.setdefault(monitor.get('directory', folder), []).append((hid, monitor))
+        self.disk_checked_at = {p: at for p, at in self.disk_checked_at.items()
+                                if p in targets or p in self.disk_checks}
+        for path in sorted(targets, key=lambda p: self.disk_checked_at.get(p, 0)):
+            monitors = targets[path]
+            if path in self.disk_checks or len(self.disk_checks) >= 4:
+                continue
+            identity = object()
+            self.disk_checks[path] = identity
+            self.disk_checked_at[path] = time.monotonic()
+            def check(path=path, monitors=tuple(monitors), identity=identity):
+                free = None
+                try:
+                    free = self.disk_free(directory(path, create=path == folder))
+                except Exception:
+                    pass  # Only a public unavailable-volume state is applied below.
+                with self.lock:
+                    if self.disk_checks.get(path) is not identity:
+                        return
+                    self.disk_checks.pop(path, None)
+                    if not self._can_run(token):
+                        return
+                    current_folder = self.output_dir()
+                    current_output = output_revision == self.output_revision
+                    if path == folder and folder == current_folder and current_output:
+                        self.free = free
+                        self.disk_warning = free is not None and free < 5 * 1024**3
+                    for hid, monitor in monitors:
+                        if (self.monitors.get(hid) is monitor and not monitor['cancel'].is_set()
+                                and ('directory' in monitor or current_output)
+                                and monitor.get('directory', current_folder) == path):
+                            if free is None:
+                                self._pause(hid, 'write_error')
+                            elif free < 2 * 1024**3:
+                                self._pause(hid, 'disk_full')
+            threading.Thread(target=check, name='lulu-live-disk', daemon=True).start()
+
     def _enable(self, host, delay=0):
         previous = self.monitors.get(host['id'])
         if previous and previous.get('thread'):
@@ -410,12 +646,15 @@ class LiveService:
             (confirmed_live_state(state), state if state in QUERY_ERRORS else '', time.time(), hid))
 
     def _pause(self, hid, reason='paused'):
+        if hid in self.starts:
+            self.starts[hid].set()
         if hid in self.checks:
             self.checks[hid].set()
         monitor = self.monitors.get(hid)
         if monitor:
             monitor['cancel'].set()
             monitor['reason'] = reason
+            self._stop_comments(monitor.get('recording_id'))
             self._stop_cancelled(monitor)
             jid = monitor.get('job_id')
             if jid:
@@ -450,7 +689,11 @@ class LiveService:
 
     def _stop_session(self):
         self.closing = True
+        for pending in self.starts.values():
+            pending.set()
         self.credential = ''
+        for recorder in self.comments.values():
+            recorder.request_stop()
         # Physical cancellation precedes every disk write, including full-disk failures.
         for monitor in self.monitors.values():
             monitor['cancel'].set()
@@ -475,8 +718,10 @@ class LiveService:
                 pass  # An unavailable index cannot keep a producer running.
     def busy(self):
         return (any(not m['cancel'].is_set() or m.get('thread') for m in self.monitors.values())
+                or any(not pending.is_set() for pending in self.starts.values())
                 or bool(self.checks) or bool(self.data_checks) or bool(self.deleting)
                 or bool(self.transcribing)
+                or bool(self.comments) or bool(self.comments_io)
                 or any(e['state'] == 'running' for e in self.exports.values()))
 
     def _schedule(self):
@@ -488,24 +733,7 @@ class LiveService:
                     if not self.closing:
                         if time.monotonic() - self.last_disk >= 10:
                             self.last_disk = time.monotonic()
-                            folder = self.output_dir()
-                            try:
-                                folder = directory(folder, create=True)
-                                self.free = self.disk_free(folder)
-                                self.disk_warning = self.free < 5 * 1024**3
-                            except (OSError, LiveError):
-                                self.free = None
-                            # Each recording keeps its own path, including when the
-                            # default folder or another recording's disk is unavailable.
-                            for hid, monitor in list(self.monitors.items()):
-                                if monitor['cancel'].is_set():
-                                    continue
-                                try:
-                                    disk = monitor.get('directory', str(folder))
-                                    if self.disk_free(directory(disk)) < 2 * 1024**3:
-                                        self._pause(hid, 'disk_full')
-                                except (OSError, LiveError):
-                                    self._pause(hid, 'write_error')
+                            self._submit_disk_checks()
                         for hid, monitor in list(self.monitors.items()):
                             if (not monitor['cancel'].is_set() and not monitor.get('thread')
                                     and hid not in self.checks and monitor['next'] <= time.monotonic()
@@ -519,6 +747,7 @@ class LiveService:
                     # Stop owned work even if a recording is currently validating a file.
                     for monitor in list(self.monitors.values()) + list(self.exports.values()):
                         self._stop_cancelled(monitor)
+                    self._collect_comments()
             except Exception:
                 # Fail closed. No raw provider/process exception escapes or persists.
                 with self.lock:
@@ -536,6 +765,107 @@ class LiveService:
         with self.lock:
             self.monitor_bytes += value.received_bytes
         return value
+
+    def _start_comments(self, observation, monitor, token):
+        # Starting the thread is fast; all connection and file work stays outside controls.
+        with self.lock:
+            rid = monitor['recording_id']
+            if monitor['cancel'].is_set() or not self._can_run(token):
+                return
+            row = self._recording(rid)
+            if not row['comments_enabled'] or row['ended'] is not None:
+                return
+            if not observation.room_id:
+                self.comment_cache[rid] = {'comments_state': 'unavailable', 'comments_count': 0,
+                                          'comments_message': comment_status('unavailable')}
+                try:
+                    self.index.write("UPDATE recordings SET comments_state='unavailable' WHERE id=?", (rid,))
+                except Exception:
+                    pass
+                return
+            try:
+                recorder = self.comments_factory(row, observation.room_id, self.credential,
+                                                origin=monitor['comments_origin'])
+                self.comments[rid] = recorder
+                recorder.start()
+            except Exception:
+                self.comment_cache[rid] = {'comments_state': 'interrupted', 'comments_count': 0,
+                                          'comments_message': comment_status('interrupted')}
+                self.comments.pop(rid, None)
+
+    def _stop_comments(self, rid):
+        recorder = self.comments.get(rid)
+        if recorder:
+            recorder.request_stop()
+
+    def _collect_comments(self):
+        for rid, recorder in list(self.comments.items()):
+            summary = recorder.snapshot()
+            changed = summary != self.comment_cache.get(rid)
+            self.comment_cache[rid] = summary
+            if changed:
+                try:
+                    self.index.write('UPDATE recordings SET comments_count=?,comments_state=? WHERE id=?',
+                                     (summary['comments_count'], summary['comments_state'], rid))
+                except Exception:
+                    pass  # The append-only local file remains authoritative; video continues.
+            if not recorder.alive():
+                self.comments.pop(rid, None)
+
+    def _comment_summary(self, row):
+        recorder = self.comments.get(row['id'])
+        if recorder:
+            return recorder.snapshot()
+        return dict(self.comment_cache.get(row['id']) or {
+            'comments_state': row.get('comments_state', 'legacy'),
+            'comments_count': row.get('comments_count', 0),
+            'comments_message': comment_status(row.get('comments_state', 'legacy'), row.get('comments_count', 0))})
+
+    def _comments_request(self, operation, arguments):
+        token, rid, work_id = arguments['session'], arguments['recording_id'], uid('comments')
+        with self.lock:
+            self._current(token)
+            if self.closing:
+                raise LiveError('Lulu 正在结束直播任务，请稍后操作')
+            row = self._recording(rid)
+            recorder = self.comments.get(rid)
+            io_lock = recorder.log.lock if recorder else None
+            reader = self.comment_readers.pop(rid, None) or CommentReadCache()
+            self.comment_readers[rid] = reader
+            while len(self.comment_readers) > 2:
+                self.comment_readers.popitem(last=False)
+            self.comments_io[work_id] = {'recording_id': rid,
+                'target': arguments.get('path') if operation == 'comments_export' else None}
+        try:
+            if operation == 'comments_export':
+                path = export_comments(row, arguments['path'], arguments['format'],
+                                       cancelled=lambda: not self._can_run(token), io_lock=io_lock)
+                return {'path': path}
+            try:
+                time_range = ((arguments['range_start'], arguments['range_end'])
+                              if 'range_start' in arguments else None)
+                result = read_comments(row, arguments['query'], arguments['page'],
+                                       io_lock=io_lock, time_range=time_range, cache=reader,
+                                       log=recorder.log if recorder else None)
+            except (OSError, ValueError):
+                result = {'messages': [], 'total': None, 'matching': None, 'page': 1, 'pages': 1,
+                          'events': [], 'folder': '', 'has_file': False, 'read_error': True,
+                          'error': '弹幕记录未能读取，原文件保留；请检查保存位置'}
+            with self.lock:
+                self._current(token)
+                if self.closing:
+                    raise LiveError('直播连接已结束，原弹幕记录保留')
+                current = self._recording(rid, admitted_read=True)
+                summary = self._comment_summary(current)
+                # A read of a live file and a simultaneous new write are different snapshots.
+                summary['comments_count'] = result['total']
+                if result['total'] is not None:
+                    summary['comments_message'] = comment_status(summary['comments_state'], result['total'])
+                result.update(recording_id=rid, name=row['name'], **summary)
+            return result
+        finally:
+            with self.lock:
+                self.comments_io.pop(work_id, None)
 
     def _data(self, arguments):
         token, rid = arguments['session'], arguments['recording_id']
@@ -578,18 +908,26 @@ class LiveService:
                 return result
 
     def _save_data(self, host, observation, monitor, *, recording=None, sampled_at=None):
+        limited = False
         try:
             with self.data_lock:
                 append_sample(recording or self._recording(monitor['recording_id']), host, observation,
                               sampled_at=sampled_at)
             error = ''
+        except DataLimitError as exc:
+            error, limited = str(exc), True
         except Exception:
             # Never let metadata disk/parsing errors enter the video failure path.
             error = '直播数据未能保存，录像继续录制；请检查保存位置或可用空间'
         with self.lock:
             monitor['data_error'] = error
+            if limited:
+                monitor['data_limit'] = True
+                monitor['data_next'] = float('inf')
 
     def _submit_data(self, hid, monitor, token, observation=None):
+        if monitor.get('data_limit'):
+            return
         rid = monitor['recording_id']
         self.data_checks.add(rid)
         monitor['data_next'] = time.monotonic() + 300
@@ -679,15 +1017,15 @@ class LiveService:
                 if not monitor or monitor['cancel'].is_set():
                     return
                 self._status(hid, value.state, checked=True)
-                if value.state == 'live':
-                    self._begin(host, value, monitor, token)
-                else:
+                if value.state != 'live':
                     if value.state == 'access_limited':
                         monitor['limited'] += 1
                         delay = min(900, 300 * monitor['limited'])
                     else:
                         delay = 60 + random.uniform(-5, 5)
                     monitor['next'] = time.monotonic() + delay
+            if not identify_only and value.state == 'live':
+                self._begin(host, value, monitor, token)
         except Exception:
             with self.lock:
                 if (not (cancel and cancel.is_set()) and self._can_run(token)
@@ -699,15 +1037,29 @@ class LiveService:
                 self.checks.pop(hid, None)
 
     def _begin(self, host, observation, monitor, token):
-        if not self.ffmpeg:
-            self.ffmpeg = bundled_ffmpeg()
-        root = directory(self.output_dir(), create=True)
-        if self.disk_free(root) < 2 * 1024**3:
-            self._pause(host['id'], 'disk_full')
-            return
+        with self.lock:
+            if (not self._can_run(token) or self.monitors.get(host['id']) is not monitor
+                    or monitor['cancel'].is_set() or monitor.get('thread')):
+                return
+            output = self.output_dir()
+            output_revision = self.output_revision
         rid, jid = uid('recording'), uid('live')
-        folder = root / rid
-        folder.mkdir(mode=0o700)
+        result = self._read_preparation('begin', output, token, output_revision,
+                                        monitor['cancel'], recording_id=rid)
+        with self.lock:
+            if (not self._can_run(token) or self.monitors.get(host['id']) is not monitor
+                    or monitor['cancel'].is_set() or monitor.get('thread')
+                    or output_revision != self.output_revision or output != self.output_dir()):
+                return
+            if result['free'] < 2 * 1024**3:
+                self._pause(host['id'], 'disk_full')
+                return
+            # The worker only prepared a private folder. It cannot start a
+            # producer or publish state after pause/close/path replacement.
+            self.ffmpeg = result['ffmpeg']
+            self._commit_begin(host, observation, monitor, token, rid, jid, result['recording_folder'])
+
+    def _commit_begin(self, host, observation, monitor, token, rid, jid, folder):
         policy = {'host_id': host['id'], 'recording_id': rid, 'directory': str(folder),
                   'segment_seconds': 1800, 'source': host['source']}
         import hashlib
@@ -725,9 +1077,13 @@ class LiveService:
                 worker_instance_id='core-live:' + jid, operation_receipt=None, changed_at=utc())
             self.index.write('INSERT INTO recordings(id,host_id,name,job_id,directory,started) VALUES(?,?,?,?,?,?)',
                              (rid, host['id'], host['name'], jid, str(folder), time.time()))
+            comments_enabled = self.index.setting('comments_enabled', '1') == '1'
+            self.index.write('UPDATE recordings SET comments_enabled=?,comments_state=? WHERE id=?',
+                             (int(comments_enabled), 'connecting' if comments_enabled else 'disabled', rid))
             monitor.update(job_id=jid, directory=str(folder), recording_id=rid, started=time.time(),
                            last_data_at=time.monotonic(), recording_state='connecting', clock_duration=0,
-                           clock_base=0)
+                           clock_base=0, comments_origin=time.monotonic())
+            monitor.pop('data_limit', None)
             monitor.pop('producer', None)
             thread = threading.Thread(target=self._record, args=(host, observation, monitor, token, lease),
                                       name='lulu-live-recording', daemon=True)
@@ -746,10 +1102,11 @@ class LiveService:
 
     def _owned(self, monitor, process, *, finalize=False):
         with self.lock:
-            if not finalize and (monitor['cancel'].is_set() or not self._can_run(monitor['session'])):
-                process.stop()
-                raise LiveError('操作已停止，原文件保留')
             monitor['owned'] = process
+            if not finalize and (monitor['cancel'].is_set() or not self._can_run(monitor['session'])):
+                monitor['cancel'].set()
+                threading.Thread(target=process.stop, name='lulu-live-stop', daemon=True).start()
+                raise LiveError('操作已停止，原文件保留')
             monitor['validating'] = finalize
             if not finalize:
                 monitor.pop('stop_worker', None)
@@ -782,7 +1139,8 @@ class LiveService:
         level = min(max(0, (failures - 4) // 2), len(bitrates) - 1)
         choices = [s for s in streams if s.bitrate == bitrates[level]]
         protocol = 'hls' if failures >= 2 else 'flv'
-        return next((s for s in choices if s.protocol == protocol), choices[0])
+        choices = [s for s in choices if s.protocol == protocol] or choices
+        return choices[failures % len(choices)]
 
     def _record(self, host, value, monitor, token, lease):
         jid, rid = monitor['job_id'], monitor['recording_id']
@@ -790,6 +1148,7 @@ class LiveService:
         reason, failures, retry_count, gap = 'recording_error', 0, 0, None
         gaps = []
         try:
+            self._start_comments(value, monitor, token)
             while not monitor['cancel'].is_set() and self._can_run(token):
                 self.control.verify_worker_lease(jid, lease_token=lease, mutation_kind='result')
                 if time.monotonic() - monitor['last_data_at'] >= RECONNECT_TIMEOUT:
@@ -812,9 +1171,12 @@ class LiveService:
                         if monitor['cancel'].is_set() or not self._can_run(token):
                             break
                         self.control.verify_worker_lease(jid, lease_token=lease, mutation_kind='file')
-                        producer = self.producer_factory(self.ffmpeg, self._choice(value, failures),
-                            monitor['directory'], start_number=max(numbers, default=-1) + 1)
-                        self._owned(monitor, producer.process)
+                    producer = self.producer_factory(self.ffmpeg, self._choice(value, failures),
+                        monitor['directory'], start_number=max(numbers, default=-1) + 1)
+                    self._owned(monitor, producer.process)
+                    with self.lock:
+                        if monitor['cancel'].is_set() or not self._can_run(token):
+                            break
                         monitor['producer'] = producer
                         monitor['recording_state'] = 'connecting'
                         saved = self.index.one('SELECT COALESCE(SUM(duration),0) AS duration FROM segments '
@@ -874,20 +1236,30 @@ class LiveService:
         except Exception:
             reason = 'recording_error'
         finally:
+            self._stop_comments(rid)
             monitor['recording_state'] = 'stopping'
             if producer:
                 producer.stop()
+            try:
+                remaining_files = [(str(path), path.stat().st_size)
+                                   for path in Path(monitor['directory']).glob('part-*.ts')
+                                   if path.is_file() and not path.is_symlink()]
+                inventory_error = False
+            except OSError:
+                remaining_files, inventory_error = [], True
             with self.lock:
                 reason = monitor.get('reason', reason)
                 if gap is not None and reason != 'offline':
                     gaps.append([gap, time.time()])
                 try:
+                    if inventory_error:
+                        raise OSError('recording inventory unavailable')
                     # Unlisted files have no proven start time. Zero means unknown,
                     # including after recovery validates their actual media duration.
-                    for path in Path(monitor['directory']).glob('part-*.ts'):
-                        if not self.index.one('SELECT id FROM segments WHERE path=?', (str(path),)) and path.is_file() and not path.is_symlink():
+                    for path, size in remaining_files:
+                        if not self.index.one('SELECT id FROM segments WHERE path=?', (path,)):
                             self.index.write('INSERT INTO segments VALUES(?,?,?,?,?,?,?,?,?)',
-                                (uid('segment'), rid, str(path), 0, 0, path.stat().st_size, 0, 0, ''))
+                                (uid('segment'), rid, path, 0, 0, size, 0, 0, ''))
                     if reason == 'offline' and not self.index.one('SELECT id FROM segments WHERE recording_id=? AND valid=1 LIMIT 1', (rid,)):
                         reason = 'recording_error'
                     self.index.write('UPDATE recordings SET ended=?,reason=?,gaps=? WHERE id=?',
@@ -1045,7 +1417,11 @@ class LiveService:
                  'live' if running else
                  'connecting' if monitor and monitor.get('recording_state') == 'connecting'
                                  and (not producer or producer.process.process.poll() is None) else 'reconnecting')
-        return {**info, 'clock_running': running, 'recording_state': state}
+        return {**info, 'clock_running': running, 'recording_state': state, **self._comment_summary(recording)}
+
+    def _login_state(self):
+        from ..collect.douyin_login import login_state
+        return login_state(self.root, self.index)
 
     def snapshot(self, tab, query, filter, page):
         values = []
@@ -1106,7 +1482,8 @@ class LiveService:
                     recording_count += self._progress(row, host['status'] if host else '')['clock_running']
         return {'rows': rows, 'total': total, 'page': page, 'pages': max(1, (total + 19) // 20),
             'hosts': count_hosts, 'recordings': count_records, 'directory': self.output_dir(),
-            'credential': bool(self.index.setting('credential')), 'active': self.busy(),
+            'credential': bool(self.index.setting('credential')), 'login': self._login_state(), 'active': self.busy(),
+            'comments_enabled': self.index.setting('comments_enabled', '1') == '1',
             'monitoring': sum(not m['cancel'].is_set() for m in self.monitors.values()),
             'recording': recording_count,
             'free_bytes': self.free, 'disk_warning': self.disk_warning,
@@ -1117,6 +1494,8 @@ class LiveService:
             self._stop_session()
         limit = time.monotonic() + 20
         while self.busy() and time.monotonic() < limit:
+            with self.lock:
+                self._collect_comments()
             time.sleep(.05)
         if self.busy():
             raise LiveError('直播任务仍在收尾，未关闭索引')

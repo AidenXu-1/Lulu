@@ -224,8 +224,10 @@ class Service:
         self.store.preference('model-settings-cloud-configs', cloud)
         return dict(credentialId='custom_openai', cloudConfigs=cloud)
 
-    def key_url(self, args):
+    def key_url(self, args, *, kind='keys'):
         """Return only a packaged account/key page, never an arbitrary UI URL."""
+        if kind not in {'keys', 'billing'}:
+            raise ValueError('服务页面类型无效')
         if type(args) is not dict or set(args) - {'purpose', 'provider', 'mode', 'region'}:
             raise ValueError('密钥页面参数无效')
         region = args.get('region', 0)
@@ -236,7 +238,7 @@ class Service:
             provider = next((p for p in public['asrProviders'] if p['id'] == args.get('provider')), None)
             if provider is None or region or args.get('mode', 'api') != 'api':
                 raise ValueError('转录服务无效')
-            value = provider.get('keys', '')
+            value = provider.get(kind, '')
         elif args.get('purpose') == 'assistant':
             provider = next((p for p in public['providers'] if p['id'] == args.get('provider')), None)
             authoritative = next((p for p in workspace.catalog()['providers'] if p['id'] == args.get('provider')), None)
@@ -247,7 +249,7 @@ class Service:
             if actual is None or region >= max(1, len(actual.get('regions', []))):
                 raise ValueError('服务类型或地区无效')
             mode = next((m for m in provider['modes'] if m['id'] == mode_id), {})
-            value = mode.get('keys', '')
+            value = mode.get(kind, '')
         else:
             raise ValueError('模型用途无效')
         if isinstance(value, list):

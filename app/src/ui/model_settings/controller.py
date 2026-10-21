@@ -15,7 +15,7 @@ from ..worker import TTSRuntimeInstallWorker, QwenFeatureWorker, ModelRemoveWork
 from .workers import ReadWorker, DownloadWorker
 
 ROOT = Path(__file__).resolve().parent
-MODEL_IDS = dict(whisper='local_whisper_mlx', sensevoice='local_sensevoice', qwen_asr='local_qwen3',
+MODEL_IDS = dict(whisper='local_whisper_mlx', sensevoice='local_sensevoice_q8', whisper4='local_whisper_mlx_4bit', moss='local_moss_q5',
                  indextts2='local_indextts2_0', indextts25='local_indextts2', voxcpm2='local_voxcpm2', qwen_tts='local_qwen3_tts')
 FEATURE_IDS = dict(clone='Base', preset='CustomVoice', design='VoiceDesign')
 
@@ -46,12 +46,21 @@ class ModelController(QObject):
 
     def _read_state(self):
         public = json.loads((ROOT/'public.json').read_text())
+        information = json.loads((ROOT/'information.json').read_text())
         allowed = {m.id for m in available_local_models()}
         local = public['localModels']
-        local['extract'] = [m for m in local['extract'] if MODEL_IDS[m['id']] in allowed]
+        local['extract'] = [dict(
+            id=next(key for key, value in MODEL_IDS.items() if value == model.id),
+            name=model.display_name, version='', mark='M' if model.diarization else 'W' if model.runtime == 'mlx' else 'S',
+            logo='openai.png' if model.runtime == 'mlx' else 'qwenaudio.png' if model.id == 'local_sensevoice_q8' else '',
+            subtitle=model.speed_note, description=model.best_for, languages=model.languages,
+            runtime='本机 · 离线', size=f'约 {model.approx_size_mb} MB',
+            features=[model.features, model.min_spec], source=model.source)
+            for model in available_local_models() if model.id in MODEL_IDS.values()]
         for kind, rows in local.items():
             for row in rows:
                 mid = MODEL_IDS[row['id']]
+                row['presentation'] = information['local'][row['id']]
                 if kind == 'extract':
                     installed = mm.is_downloaded(mid)
                     repair = mm.needs_repair(mid)
@@ -74,6 +83,7 @@ class ModelController(QObject):
         feature_jobs = {}
         for f in public['voiceFeatures']:
             name = FEATURE_IDS[f['id']]
+            f['presentation'] = information['qwen'][f['id']]
             installed = qw.is_installed(dp.root(), name)
             phase=deployment['features'].get(name,{}).get('state','')
             f.update(installed=installed, ready=runtime and installed, phase=phase)

@@ -102,6 +102,7 @@ def transcribe_source(
     cover_workflow: SingleLinkCoverWorkflow | None = None,
     execution_policy: TaskExecutionPolicy | None = None,
     stage_changed: Callable[[str], None] | None = None,
+    required_format: str | None = None,
 ) -> Transcript:
     """端到端把一个输入转成 Transcript。
 
@@ -144,6 +145,11 @@ def transcribe_source(
             media_dir = execution_policy.media_directory
         if execution_policy.prefer_subtitles is not None:
             prefer_subtitles = execution_policy.prefer_subtitles
+        if execution_policy.local_only:
+            from .engines.local_models import LOCAL_MODELS
+            from .engines.providers import DEFAULT_ENGINE
+            if (engine_name or DEFAULT_ENGINE) not in LOCAL_MODELS:
+                raise ValueError('此任务仅支持本地转录，请选择 Q8、Whisper 或 MOSS 后重试；原录像保留。')
     if cover_snapshot is None:
         cover_snapshot = CollectCoverPreferenceSnapshot(False)
     if not isinstance(cover_snapshot, CollectCoverPreferenceSnapshot):
@@ -305,6 +311,12 @@ def transcribe_source(
 
             # 3) 引擎转录
             stage_changed("transcription")
+            if required_format == 'srt':
+                from .engines.local_models import LOCAL_MODELS
+                from .engines.providers import DEFAULT_ENGINE
+                selected = LOCAL_MODELS.get(engine_name or DEFAULT_ENGINE)
+                if selected is not None and not selected.timestamps:
+                    raise ValueError('没有可用平台字幕；所选模型不提供时间点，请选择 Whisper 或 MOSS 后重试。')
             engine = get_engine(engine_name)
             progress(f"使用引擎:{engine.display_name}", 0.32)
             transcribe_parameters = inspect.signature(engine.transcribe).parameters
@@ -328,7 +340,8 @@ def transcribe_source(
             transcript.source = source
             transcript.saved_media = saved_media
             transcript.title = link_meta.get("title")
-            transcript.meta = link_meta
+            transcript.meta = {**(transcript.meta or {}), **link_meta,
+                               **({"asr": transcript.meta["asr"]} if "asr" in (transcript.meta or {}) else {})}
             progress("正在整理并保存转录结果…", 0.97)
             progress("完成", 1.0)
             return transcript
@@ -479,4 +492,4 @@ class _Cancelled(InterruptedError):
 
 
 def was_cancelled(exc: BaseException) -> bool:
-    return isinstance(exc, _Cancelled)
+    return isinstance(exc, InterruptedError)

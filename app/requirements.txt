@@ -33,9 +33,10 @@ addict>=2.4.0
 requests>=2.31
 keyring>=25.0        # 跨平台:mac 钥匙串 / Windows 凭据管理器 / Linux Secret Service
 dashscope>=1.20      # 阿里云百炼 Paraformer 实时识别(本地 wav 直读)
+# 已由 dashscope 安装的现有网络组件；直播弹幕直接复用，不增加运行环境。
+websocket-client>=1.9
 
 # 本地多模型(可选,按需下载权重):
-qwen-asr==0.0.6      # 本地 Qwen3-ASR(注:会把 transformers 锁到 4.57.x,SenseVoice 实测仍正常)
 # Whisper MLX 的原生 wheel 必须固定为 macOS 15 构建，不能让 macOS 26 构建机自行选包
 #（ADR-0033）。URL 片段绑定 PyPI 官方 SHA-256；当前正式 App 仅构建 arm64。
 mlx-whisper @ https://files.pythonhosted.org/packages/22/b7/a35232812a2ccfffcb7614ba96a91338551a660a0e9815cee668bf5743f0/mlx_whisper-0.4.3-py3-none-any.whl#sha256=6b82b6597a994643a3e5496c7bc229a672e5ca308458455bfe276e76ae024489 ; sys_platform == "darwin" and platform_machine == "arm64"

@@ -52,8 +52,11 @@ class TaskExecutionPolicy:
     prefer_subtitles: bool | None = None
     engine_name: str | None = None
     requested_outputs: tuple[str, ...] | None = None
+    local_only: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.local_only) is not bool:
+            raise TypeError("本地转录限制必须是 bool")
         if self.requested_outputs is not None:
             if (not isinstance(self.requested_outputs, tuple)
                     or len(set(self.requested_outputs)) != len(self.requested_outputs)

@@ -30,17 +30,15 @@ class LiveMainWindowTests(unittest.TestCase):
         self.assertEqual(main.tasks[0].execution_policy.requested_outputs, ('text',))
         self.assertEqual(main.stack.currentIndex(), 0)
 
-    def test_live_ts_task_stays_local_when_global_preference_is_cloud(self):
+    def test_live_ts_task_requires_local_choice_when_global_preference_is_cloud(self):
         fixture = ExtractionMainWindowTests()
         fixture.setUp()
         self.addCleanup(fixture.tearDown)
         media = fixture.root / 'completed.ts'
         media.write_bytes(b'isolated handoff fixture')
         fixture.main.cfg.engine_name = 'cloud-fixture'
-        self.assertTrue(fixture.main._live_transcribe(str(media)))
-        policy = fixture.main.tasks[0].execution_policy
-        self.assertEqual(policy.engine_name, 'local_sensevoice')
-        self.assertEqual(policy.requested_outputs, ('text',))
+        self.assertFalse(fixture.main._live_transcribe(str(media)))
+        self.assertEqual(fixture.main.tasks, [])
         self.assertEqual(fixture.main.cfg.engine_name, 'cloud-fixture')
 
     def test_live_task_preparation_failure_does_not_create_a_task(self):

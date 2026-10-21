@@ -123,6 +123,7 @@ def main(
     resource_root: Path | None = None,
     local_transcription_runtime: object | None = None,
     link_transcription_service: object | None = None,
+    verified_control_entry: bool = False,
 ) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     output = stdout or sys.stdout
@@ -324,7 +325,7 @@ def main(
                 call = lambda: local_transcription_runtime.transcribe_status(engine)
             else:
                 handler = getattr(local_transcription_runtime, args[1])
-                call = lambda: handler(args[2], engine=engine or 'local_sensevoice')
+                call = lambda: handler(args[2], engine=engine or 'local_sensevoice_q8')
             result, _captured = capture_third_party_output(call)
         except Exception as exc:
             return _local_business_error(exc, command=command, stdout=output, stderr=error_output)
@@ -584,7 +585,7 @@ def main(
             stderr=error_output,
         )
     active_ids = frozenset()
-    if args[:1] in (['help'], ['status'], ['doctor']) and local_transcription_runtime is not None:
+    if args[:1] in (['help'], ['version'], ['status'], ['doctor']) and local_transcription_runtime is not None:
         from .local_transcription import LocalTranscriptionCliRuntime
         if not isinstance(local_transcription_runtime, LocalTranscriptionCliRuntime):
             raise TypeError('local_transcription_runtime is invalid')
@@ -604,7 +605,7 @@ def main(
         result: dict[str, object] = {
             **version_identity,
             "cli_protocol_version": CLI_PROTOCOL_VERSION,
-            "formal_cli_state": "unavailable",
+            "formal_cli_state": "available" if active_ids or verified_control_entry else "unavailable",
         }
         if product_identity is not None:
             result["product_identity"] = product_identity

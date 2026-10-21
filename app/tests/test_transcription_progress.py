@@ -11,8 +11,6 @@ import numpy as np
 import soundfile as sf
 
 from src.core import pipeline
-from src.core.engines.local_qwen3 import LocalQwen3Engine
-from src.core.engines.local_sensevoice import LocalSenseVoiceEngine
 from src.core.engines.local_whisper_mlx import LocalWhisperMLXEngine
 from src.core.models import Transcript
 

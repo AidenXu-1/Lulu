@@ -47,8 +47,9 @@ sys.frozen = True
 sys._MEIPASS = str(root)
 sys.executable = str(bundle / 'Contents/MacOS/Lulu')
 from src.core.updater.service import _default_public_keys
+from src.version import __channel__
 update_keys = _default_public_keys()
-if any((bundle / 'Contents/Resources' / name).exists()
+if __channel__ == 'production' or any((bundle / 'Contents/Resources' / name).exists()
        for name in ('update_public_key.pem', 'update_public_keys.json')):
     assert update_keys, 'Bundled default updater public keys cannot be loaded'
 import subprocess

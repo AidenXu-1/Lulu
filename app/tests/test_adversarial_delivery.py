@@ -103,7 +103,7 @@ class LiveRecoveryAdversarialTests(unittest.TestCase):
         from src.core.live_recording.index import LiveIndex
         index = LiveIndex(root/'live-recording')
         for number, path in enumerate(paths):
-            index.write('INSERT INTO recordings VALUES(?,?,?,?,?,?,?,?,?)',
+            index.write('INSERT INTO recordings(id,host_id,name,job_id,directory,started,ended,reason,gaps) VALUES(?,?,?,?,?,?,?,?,?)',
                 ('recording-'+str(number)*32, 'host-'+'b'*32, 'Fixture', 'job-fixture',
                  str(path), 1.0, None, '', '[]'))
         index.close()

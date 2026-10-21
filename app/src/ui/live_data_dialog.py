@@ -5,9 +5,12 @@ import time
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QButtonGroup, QDialog, QFrame, QHBoxLayout, QLabel,
-                              QPushButton, QSizePolicy, QVBoxLayout, QWidget)
+                              QPushButton, QSizePolicy, QTabWidget, QVBoxLayout, QWidget)
 
-from .control_foundation import PaperTextureFrame
+from . import theme as T
+from .control_foundation import (LuluButton, LuluIconButton, LuluSegmentedControl,
+                                 PaperTextureFrame)
+from .live_comments_panel import LiveCommentsPanel
 from ..core.live_recording.contracts import recording_message
 
 METRICS = {
@@ -65,11 +68,12 @@ class LiveDataChart(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setFont(QFont(self.font().family(), 10))
+        c = T.consumer_theme()
         values = [s[self.metric_key] for s in self.samples if s[self.metric_key] is not None]
         self.coordinates, self.path_count = [], 0
         self.plot = QRectF()
         if not values:
-            painter.setPen(QColor('#8b8174'))
+            painter.setPen(QColor(c.ink_muted))
             raw_samples = [s for s in self.samples if self.metric_key == 'cumulative_view_count'
                            and s.get('cumulative_view_count_raw')]
             raw = ''
@@ -91,15 +95,15 @@ class LiveDataChart(QWidget):
         self.plot = QRectF(label_width + 10, 12, max(1, self.width() - label_width - 46), max(1, self.height() - 51))
         start, end = self.samples[0]['at'], self.samples[-1]['at']
         span = max(300, end - start)
-        painter.setPen(QPen(QColor('#e8e0d2'), 1, Qt.PenStyle.DashLine))
+        painter.setPen(QPen(QColor(c.line), 1, Qt.PenStyle.DashLine))
         for i in range(5):
             y = self.plot.bottom() - self.plot.height() * i / 4
             painter.drawLine(QPointF(self.plot.left(), y), QPointF(self.plot.right(), y))
-            painter.setPen(QColor('#8b8174'))
+            painter.setPen(QColor(c.ink_muted))
             painter.drawText(QRectF(0, y - 10, label_width, 20), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                              f'{step * i:,}')
-            painter.setPen(QPen(QColor('#e8e0d2'), 1, Qt.PenStyle.DashLine))
-        painter.setPen(QColor('#8b8174'))
+            painter.setPen(QPen(QColor(c.line), 1, Qt.PenStyle.DashLine))
+        painter.setPen(QColor(c.ink_muted))
         ticks = 3 if self.width() < 650 else 5
         for i in range(ticks):
             x = self.plot.left() + self.plot.width() * i / (ticks - 1)
@@ -122,8 +126,11 @@ class LiveDataChart(QWidget):
             runs.append(run)
         self.path_count = len(runs)
         gradient = QLinearGradient(0, self.plot.top(), 0, self.plot.bottom())
-        gradient.setColorAt(0, QColor('#dfe9e8'))
-        gradient.setColorAt(1, QColor(223, 233, 232, 15))
+        fill = QColor(c.accent)
+        fill.setAlpha(28)
+        gradient.setColorAt(0, fill)
+        fill.setAlpha(0)
+        gradient.setColorAt(1, fill)
         for points in runs:
             line = QPainterPath(points[0])
             for point in points[1:]:
@@ -133,21 +140,21 @@ class LiveDataChart(QWidget):
             area.lineTo(points[0].x(), self.plot.bottom())
             area.closeSubpath()
             painter.fillPath(area, gradient)
-            painter.setPen(QPen(QColor('#437f96'), 2.5))
+            painter.setPen(QPen(QColor(c.accent), 2.5))
             painter.drawPath(line)
             if len(self.samples) <= 120 or len(points) == 1:
-                painter.setBrush(QColor('#fffdf7'))
+                painter.setBrush(QColor(c.surface))
                 for point in points:
                     painter.drawEllipse(point, 2.8, 2.8)
         if self.selected is not None and self.selected < len(self.samples):
             s = self.samples[self.selected]
             x = self.plot.left() + (s['at'] - start) / span * self.plot.width()
-            painter.setPen(QPen(QColor('#9ebbc4'), 1, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(T.consumer_qcolor(c.accent_hairline), 1, Qt.PenStyle.DashLine))
             painter.drawLine(QPointF(x, self.plot.top()), QPointF(x, self.plot.bottom()))
             point = self.coordinates[self.selected]
             if point:
-                painter.setPen(QPen(QColor('#437f96'), 2.5))
-                painter.setBrush(QColor('#fffdf7'))
+                painter.setPen(QPen(QColor(c.accent), 2.5))
+                painter.setBrush(QColor(c.surface))
                 painter.drawEllipse(point, 5, 5)
             number = s[self.metric_key]
             raw = s.get('cumulative_view_count_raw', '') if self.metric_key == 'cumulative_view_count' else ''
@@ -155,10 +162,10 @@ class LiveDataChart(QWidget):
             tip = datetime.fromtimestamp(s['at']).strftime('%m-%d %H:%M') + '\n' + value
             tip_width = max(160, max(painter.fontMetrics().horizontalAdvance(line) for line in tip.splitlines()) + 24)
             box = QRectF(min(max(6, x + 14), self.width() - tip_width - 6), self.plot.top() + 10, tip_width, 66)
-            painter.setPen(QColor('#e5dccc'))
-            painter.setBrush(QColor('#fffdf7'))
+            painter.setPen(QColor(c.line))
+            painter.setBrush(QColor(c.surface))
             painter.drawRoundedRect(box, 12, 12)
-            painter.setPen(QColor('#35312b'))
+            painter.setPen(QColor(c.ink))
             painter.drawText(box.adjusted(12, 8, -12, -8), Qt.AlignmentFlag.AlignVCenter, tip)
 
     def mouseMoveEvent(self, event):
@@ -195,62 +202,157 @@ class LiveDataChart(QWidget):
         super().keyPressEvent(event)
 
 class LiveDataDialog(QDialog):
-    def __init__(self, data, parent=None):
+    def __init__(self, data, parent=None, *, controller=None):
         super().__init__(parent)
         self.recording_id = data['id']
         self.metric_key = 'viewer_count'
         self.data, self.anchor = {}, time.monotonic()
         self.stale = False
         self.setObjectName('liveDataDialog')
-        self.setWindowTitle((data['name'] or '主播') + ' · 直播数据')
+        self.setWindowTitle((data['name'] or '主播') + ' · 直播记录')
         self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setMinimumSize(560, 480)
         available = self.screen().availableGeometry()
-        self.resize(min(960, available.width() - 40), min(680, available.height() - 60))
-        self.setStyleSheet('''
-            QDialog#liveDataDialog{background:#fcf8ef;color:#35312b;font-size:14px;}
-            QDialog#liveDataDialog QLabel{background:transparent;border:0;color:#35312b;}
-            QDialog#liveDataDialog QLabel[secondary="true"]{color:#877d70;font-size:12px;}
-            QDialog#liveDataDialog QFrame#chartCard{background:#fffdf7;border:1px solid #e7decf;border-radius:16px;}
-            QDialog#liveDataDialog QFrame#metricSwitch{background:#eee9de;border:0;border-radius:11px;}
-            QDialog#liveDataDialog QPushButton{background:#fffdf7;border:1px solid #e6ddcf;border-radius:10px;
-                padding:8px 13px;color:#35312b;}
-            QDialog#liveDataDialog QPushButton:hover{border-color:#8aafba;background:#f4f2e9;}
-            QDialog#liveDataDialog QPushButton:focus{border-color:#437f96;}
-            QDialog#liveDataDialog QPushButton:disabled{color:#aaa196;}
-            QDialog#liveDataDialog QFrame#metricSwitch QPushButton{background:transparent;border:1px solid transparent;
-                padding:7px 10px;color:#877d70;}
-            QDialog#liveDataDialog QFrame#metricSwitch QPushButton:checked{background:#fffdf7;color:#437f96;font-weight:600;}
+        self.resize(min(960, available.width() - 40), min(720, available.height() - 60))
+        c = T.consumer_theme()
+        scroll_ink = QColor(c.ink_muted)
+        scroll_handle = f'rgba({scroll_ink.red()},{scroll_ink.green()},{scroll_ink.blue()},0.24)'
+        # An opaque paper tint prevents the native header's gray showing through.
+        header_fill = QColor(c.surface).darker(102).name()
+        self.setStyleSheet(f'''
+            QDialog#liveDataDialog {{background:{c.canvas};color:{c.ink};font-family:"{c.font_body}";font-size:13px;}}
+            QDialog#liveDataDialog QLabel {{background:transparent;border:0;color:{c.ink};font-family:"{c.font_body}";}}
+            QDialog#liveDataDialog QLabel[secondary="true"] {{color:{c.ink_muted};font-size:12px;}}
+            QDialog#liveDataDialog QLabel#recordEyebrow {{color:{c.accent};font-size:11px;font-weight:600;}}
+            QDialog#liveDataDialog QLabel#recordHeading {{font-family:"{c.font_display}";font-size:26px;font-weight:600;}}
+            QDialog#liveDataDialog QLabel#recordState {{background:{c.secondary};color:{c.ink_soft};border-radius:5px;padding:4px 9px;font-size:11px;}}
+            QDialog#liveDataDialog QLabel#recordState[hasGap="true"] {{color:{c.task_group_warning};}}
+            QDialog#liveDataDialog QFrame#chartCard,
+            QDialog#liveDataDialog QFrame#commentOverview,
+            QDialog#liveDataDialog QFrame#commentReadingCard {{background:{c.surface};border:1px solid {c.line};border-radius:{c.radius_surface}px;}}
+            QDialog#liveDataDialog QLabel#commentOverviewTitle {{font-size:13px;font-weight:600;}}
+            QDialog#liveDataDialog QLabel#commentTimelineNote {{font-size:11px;color:{c.ink_muted};}}
+            QDialog#liveDataDialog QLabel#commentVideoState {{font-size:12px;color:{c.ink_soft};}}
+            QDialog#liveDataDialog QLabel#commentVideoState[hasGap="true"] {{color:{c.task_group_warning};}}
+            QDialog#liveDataDialog QTabWidget::pane {{border:0;background:transparent;}}
+            QDialog#liveDataDialog QStackedWidget {{background:transparent;border:0;}}
+            QDialog#liveDataDialog QFrame[luluControl="segment"],
+            QDialog#liveDataDialog QFrame#metricSwitch {{background:{c.secondary};border:0;border-radius:8px;}}
+            QDialog#liveDataDialog QPushButton[luluControl="segmentItem"],
+            QDialog#liveDataDialog QFrame#metricSwitch QPushButton {{background:transparent;border:1px solid transparent;
+                border-radius:6px;padding:0 14px;color:{c.ink_muted};font-size:13px;font-weight:500;}}
+            QDialog#liveDataDialog QPushButton[luluControl="segmentItem"]:checked,
+            QDialog#liveDataDialog QFrame#metricSwitch QPushButton:checked {{background:{c.surface};border-color:{c.line};color:{c.accent};font-weight:600;}}
+            QDialog#liveDataDialog QPushButton[luluControl="segmentItem"]:enabled:hover,
+            QDialog#liveDataDialog QFrame#metricSwitch QPushButton:enabled:hover {{background:{c.secondary_hover};border-color:{c.line};color:{c.accent};}}
+            QDialog#liveDataDialog QPushButton[luluControl="segmentItem"]:enabled:pressed,
+            QDialog#liveDataDialog QFrame#metricSwitch QPushButton:enabled:pressed {{background:{c.accent_wash};border-color:{c.accent};}}
+            QDialog#liveDataDialog QPushButton[luluControl="button"] {{background:{c.secondary};color:{c.ink_soft};
+                border:1px solid transparent;border-radius:8px;padding:0 12px;font-size:12px;font-weight:500;}}
+            QDialog#liveDataDialog QPushButton[luluControl="button"]:enabled:hover {{background:{c.secondary_hover};color:{c.ink};}}
+            QDialog#liveDataDialog QPushButton[luluControl="button"]:enabled:pressed {{background:{c.accent_wash};border-color:{c.line};}}
+            QDialog#liveDataDialog QPushButton[luluControl="button"][role="primary"] {{background:{c.accent};color:white;font-weight:600;}}
+            QDialog#liveDataDialog QPushButton[luluControl="button"][role="primary"]:enabled:hover {{background:{c.accent_hover};color:white;}}
+            QDialog#liveDataDialog QPushButton[luluControl="button"][role="primary"]:enabled:pressed {{background:{c.accent};color:white;border-color:{c.ink};}}
+            QDialog#liveDataDialog QPushButton[luluControl="button"][role="primary"]:disabled {{background:{c.secondary};color:{c.ink_muted};border-color:transparent;}}
+            QDialog#liveDataDialog QPushButton[luluControl="button"][role="icon"],
+            QDialog#liveDataDialog QPushButton[luluControl="button"][role="tertiary"] {{background:transparent;}}
+            QDialog#liveDataDialog QPushButton[luluControl="button"][role="icon"]:enabled:hover,
+            QDialog#liveDataDialog QPushButton[luluControl="button"][role="tertiary"]:enabled:hover {{background:{c.secondary_hover};}}
+            QDialog#liveDataDialog QPushButton[luluControl="button"][role="icon"]:enabled:pressed,
+            QDialog#liveDataDialog QPushButton[luluControl="button"][role="tertiary"]:enabled:pressed {{background:{c.accent_wash};border-color:{c.line};}}
+            QDialog#liveDataDialog QPushButton:focus {{border:1px solid {c.ink_muted};}}
+            QDialog#liveDataDialog QPushButton:disabled {{background:transparent;color:{c.ink_muted};}}
+            QDialog#liveDataDialog QPushButton::menu-indicator {{width:0;}}
+            QDialog#liveDataDialog QLineEdit[luluControl="textField"] {{background:{c.surface};color:{c.ink};
+                border:1px solid {c.line};border-radius:8px;padding:0 10px;font-family:"{c.font_body}";font-size:13px;
+                selection-background-color:{c.accent_wash};}}
+            QDialog#liveDataDialog QLineEdit[luluControl="textField"]:focus {{border-color:{c.accent};}}
+            QDialog#liveDataDialog QTableWidget#commentReadingList {{background:transparent;border:0;outline:0;
+                selection-background-color:transparent;selection-color:{c.ink};}}
+            QDialog#liveDataDialog QTableWidget#commentReadingList::item:selected {{background:transparent;color:{c.ink};}}
+            QDialog#liveDataDialog QTableWidget#commentReadingList QHeaderView::section {{background:{header_fill};color:{c.ink_muted};
+                border:0;border-bottom:1px solid {c.line};padding-left:12px;padding-right:12px;font-family:"{c.font_body}";font-size:12px;font-weight:500;}}
+            QDialog#liveDataDialog QTableWidget#commentReadingList QHeaderView::section:first {{border-top-left-radius:6px;}}
+            QDialog#liveDataDialog QTableWidget#commentReadingList QHeaderView::section:last {{border-top-right-radius:6px;}}
+            QDialog#liveDataDialog QTableWidget#commentReadingList QTableCornerButton::section {{background:transparent;border:0;}}
+            QDialog#liveDataDialog QLabel#commentSummary {{font-size:14px;font-weight:600;}}
+            QDialog#liveDataDialog QLabel#commentState {{font-size:11px;background:{c.secondary};color:{c.ink_muted};padding:3px 8px;border-radius:4px;}}
+            QDialog#liveDataDialog QLabel#commentState[kind="active"] {{color:{c.accent};background:{c.accent_wash};}}
+            QDialog#liveDataDialog QLabel#commentState[kind="warning"] {{color:{c.task_group_warning};background:{T.AMBER_WASH};}}
+            QDialog#liveDataDialog QLabel#commentState[kind="error"] {{color:{c.danger};}}
+            QDialog#liveDataDialog QLabel#commentTimeNote,
+            QDialog#liveDataDialog QLabel#commentPageLabel {{font-size:11px;color:{c.ink_muted};}}
+            QDialog#liveDataDialog QLabel#commentConnectionNote {{font-size:11px;color:{c.ink_muted};background:{c.secondary};padding:8px 12px;border-radius:6px;}}
+            QDialog#liveDataDialog QLabel#commentNotice {{font-size:12px;color:{c.accent};}}
+            QDialog#liveDataDialog QLabel#commentEmptyGlyph {{background:{c.accent_wash};border-radius:12px;}}
+            QDialog#liveDataDialog QLabel#commentEmptyTitle {{font-family:"{c.font_display}";font-size:18px;font-weight:600;}}
+            QDialog#liveDataDialog QLabel#commentEmptyDetail {{font-size:12px;color:{c.ink_muted};}}
+            QDialog#liveDataDialog QTableWidget#commentReadingList QScrollBar:vertical {{background:transparent;width:8px;margin:38px 0 6px 0;}}
+            QDialog#liveDataDialog QTableWidget#commentReadingList QScrollBar::handle:vertical {{background:{scroll_handle};border:0;
+                border-radius:3px;min-height:32px;margin:0 1px;}}
+            QDialog#liveDataDialog QTableWidget#commentReadingList QScrollBar::handle:vertical:hover {{background:{c.accent_hairline};}}
+            QDialog#liveDataDialog QTableWidget#commentReadingList QScrollBar::add-line:vertical,
+            QDialog#liveDataDialog QTableWidget#commentReadingList QScrollBar::sub-line:vertical {{height:0;border:0;background:transparent;}}
+            QDialog#liveDataDialog QTableWidget#commentReadingList QScrollBar::add-page:vertical,
+            QDialog#liveDataDialog QTableWidget#commentReadingList QScrollBar::sub-page:vertical {{background:transparent;}}
         ''')
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        paper = PaperTextureFrame(strength=.055, base_color='#fcf8ef')
+        # A reading dialog keeps the shell's paper character with a quieter grain.
+        paper = PaperTextureFrame(strength=c.paper_texture_opacity * .08, base_color=c.canvas)
         outer.addWidget(paper)
         layout = QVBoxLayout(paper)
-        layout.setContentsMargins(22, 20, 22, 18)
-        layout.setSpacing(12)
+        self.paper_layout = layout
+        layout.setContentsMargins(28, 20, 28, 20)
+        layout.setSpacing(16)
         header = QWidget()
         header_layout = QVBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(4)
+        header_layout.setSpacing(6)
         heading = QHBoxLayout()
         self.title = ElidedLabel()
-        self.title.setStyleSheet('font-size:22px;font-weight:600;')
+        self.title.setObjectName('recordHeading')
+        self.title.setMinimumHeight(34)
         heading.addWidget(self.title, 1)
-        close = QPushButton('×')
+        heading.addStretch()
+        self.record_state = QLabel()
+        self.record_state.setObjectName('recordState')
+        heading.addWidget(self.record_state)
+        close = LuluIconButton('x', accessible_name='关闭直播记录', tooltip='关闭直播记录')
         close.setAutoDefault(False)
-        close.setAccessibleName('关闭直播数据')
-        close.setFixedSize(34, 34)
         close.clicked.connect(self.reject)
         heading.addWidget(close)
         header_layout.addLayout(heading)
+        context = QHBoxLayout()
+        context.setSpacing(12)
         self.subtitle = ElidedLabel()
         self.subtitle.setProperty('secondary', True)
-        header_layout.addWidget(self.subtitle)
         self.session_label = ElidedLabel()
         self.session_label.setProperty('secondary', True)
-        header_layout.addWidget(self.session_label)
+        self.session_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+        context.addWidget(self.session_label)
+        context.addWidget(self.subtitle, 1)
+        header_layout.addLayout(context)
         layout.addWidget(header)
+        self.navigation = LuluSegmentedControl([('data', '数据走势'), ('comments', '弹幕记录')],
+                                               accessible_name='直播记录内容')
+        self.navigation.setFixedWidth(236)
+        for button in self.navigation.buttons():
+            button.setFixedHeight(32)
+        layout.addWidget(self.navigation)
+        self.tabs = QTabWidget()
+        data_page = QWidget()
+        self.tabs.addTab(data_page, '数据走势')
+        self.comments_panel = LiveCommentsPanel(data, controller)
+        self.tabs.addTab(self.comments_panel, '弹幕记录')
+        self.tabs.tabBar().hide()
+        self.navigation.selectionChanged.connect(lambda value: self.tabs.setCurrentIndex(0 if value == 'data' else 1))
+        self.tabs.currentChanged.connect(lambda index: self.navigation.set_value('data' if index == 0 else 'comments'))
+        self.tabs.currentChanged.connect(lambda index: self.record_state.setVisible(index == 0))
+        layout.addWidget(self.tabs, 1)
+        layout = QVBoxLayout(data_page)
+        layout.setContentsMargins(0, 8, 0, 0)
         metrics = QHBoxLayout()
         metrics.setSpacing(16)
         self.stat_values = []
@@ -313,7 +415,7 @@ class LiveDataDialog(QDialog):
         self.file_label = QLabel()
         self.file_label.setProperty('secondary', True)
         footer.addWidget(self.file_label, 1)
-        self.folder_button = QPushButton('打开数据文件夹')
+        self.folder_button = LuluButton('打开数据文件夹', role='secondary', icon='folder')
         self.folder_button.setAutoDefault(False)
         self.folder_button.clicked.connect(self.open_folder)
         footer.addWidget(self.folder_button)
@@ -331,11 +433,16 @@ class LiveDataDialog(QDialog):
             return
         self.data, self.anchor = data, time.monotonic()
         self.stale = False
-        self.title.setText((data['name'] or '主播') + ' · 直播数据')
+        self.comments_panel.update_recording(data)
+        self.title.setText(data['name'] or '主播')
         self.subtitle.setText(data.get('title') or '平台暂未返回直播标题')
         start = datetime.fromtimestamp(data['started']).strftime('%m-%d %H:%M')
         end = datetime.fromtimestamp(data['ended']).strftime('%H:%M') if data['ended'] is not None else recording_message(data)
-        self.session_label.setText(f'{start} 至 {end}    ·    ' + recording_message(data))
+        self.session_label.setText(f'{start} 至 {end}')
+        self.record_state.setText(recording_message(data))
+        self.record_state.setProperty('hasGap', data.get('gaps', '[]') != '[]')
+        self.record_state.style().unpolish(self.record_state)
+        self.record_state.style().polish(self.record_state)
         peak, recent = data.get('peak_viewers'), data.get('last_viewers')
         self.stat_values[1].setText(f'{peak:,}' if peak is not None else '—')
         self.stat_values[2].setText(f'{recent:,}' if recent is not None else data.get('last_viewers_raw') or '—')
@@ -377,6 +484,14 @@ class LiveDataDialog(QDialog):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'stat_values'):
+            compact = self.height() < 620
+            small = self.height() < 520
+            margin_y = 8 if small else 12 if compact else 20
+            self.paper_layout.setContentsMargins(20 if compact else 28, margin_y,
+                                                 20 if compact else 28, margin_y)
+            self.paper_layout.setSpacing(8 if small else 12 if compact else 16)
+            self.comments_panel.layout().setSpacing(6 if small else 8 if compact else 12)
+            self.comments_panel.timeline.setFixedHeight(84 if compact else 104)
             size = 20 if self.width() < 640 else 24 if self.width() < 800 else 28
             for label in self.stat_values:
                 label.setStyleSheet(f'font-size:{size}px;font-weight:600;')

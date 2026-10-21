@@ -18,7 +18,8 @@ if TYPE_CHECKING:
 
 
 ACTIVATED_CAPABILITY_IDS = frozenset(
-    {"TR-01", "TR-02", "TR-03", "TR-11", "TR-12", "JOB-01", "JOB-02", "JOB-03", "JOB-06"}
+    {"SYS-01", "SYS-02", "SYS-03", "SYS-04",
+     "TR-01", "TR-02", "TR-03", "TR-11", "TR-12", "JOB-01", "JOB-02", "JOB-03", "JOB-06"}
 )
 
 
@@ -105,10 +106,10 @@ class LocalTranscriptionCliRuntime:
             raise LocalTranscriptionJobError("CAPABILITY_UNAVAILABLE", "FORMAL_CLI_NOT_IMPLEMENTED")
         return self._local_synthesis_service
 
-    def prepare(self, source_path: str, engine: str = 'local_sensevoice') -> dict[str, object]:
+    def prepare(self, source_path: str, engine: str = 'local_sensevoice_q8') -> dict[str, object]:
         return self._application.prepare(source_path, engine)
 
-    def run(self, source_path: str, engine: str = 'local_sensevoice') -> dict[str, object]:
+    def run(self, source_path: str, engine: str = 'local_sensevoice_q8') -> dict[str, object]:
         return self._application.run(source_path, engine)
 
     def transcribe_status(self, engine=None):

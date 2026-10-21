@@ -36,7 +36,7 @@ DOUYIN_MODE_LOW_RISK = "low_risk"
 _XHS_LATE_READINESS_SECONDS = 30.0
 XHS_RELEASE_DISABLED_MESSAGE = (
     "小红书主页采集本版暂缓开放，不会启动浏览器。"
-    "单条作品仍可到“文案提取”使用。"
+    "单条作品仍可到“内容提取”使用。"
 )
 
 

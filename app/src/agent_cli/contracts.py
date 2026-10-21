@@ -41,6 +41,7 @@ _ERROR_CONTRACTS = {
     "INTEGRITY_ERROR": (60, "可信边界完整性校验失败"),
     "UNSAFE_PATH": (60, "本地路径不安全"),
     "PARTIAL_SUCCESS": (70, "任务部分成功"),
+    "INCOMPLETE_RESULT": (71, "转录结果不完整，未保存为正常文稿；请查看 Lulu 中的恢复提示"),
     "INTERNAL_ERROR": (1, "内部错误"),
 }
 _DETAIL_FIELDS = frozenset(

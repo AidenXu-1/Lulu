@@ -58,6 +58,12 @@ class LiveIndex:
         for name, default in (('live_state', 'unknown'), ('live_error', '')):
             if name not in columns:
                 self.db.execute(f"ALTER TABLE hosts ADD COLUMN {name} TEXT NOT NULL DEFAULT '{default}'")
+        columns = {row['name'] for row in self.db.execute('PRAGMA table_info(recordings)')}
+        for name, definition in (('comments_enabled', 'INTEGER NOT NULL DEFAULT 0'),
+                                 ('comments_count', 'INTEGER NOT NULL DEFAULT 0'),
+                                 ('comments_state', "TEXT NOT NULL DEFAULT 'legacy'")):
+            if name not in columns:
+                self.db.execute(f'ALTER TABLE recordings ADD COLUMN {name} {definition}')
         self.db.commit()
 
     def all(self, sql, values=()):

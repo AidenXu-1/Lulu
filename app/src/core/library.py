@@ -509,13 +509,26 @@ def save(transcript: Transcript, title: str, folder_id: str | None = None, *, en
     base = now.strftime("%Y%m%d_%H%M%S_") + f"{now.microsecond // 1000:03d}"
     import hashlib
     import re
-    result_digest = hashlib.sha256(json.dumps([transcript.source, transcript.text, transcript.engine], ensure_ascii=False).encode()).hexdigest()
+    from .transcription_contracts import segment_record, validate_asr
+    segments = [segment_record(s) for s in transcript.segments]
+    legacy_digest = hashlib.sha256(json.dumps([transcript.source, transcript.text, transcript.engine], ensure_ascii=False).encode()).hexdigest()
+    result_digest = hashlib.sha256(json.dumps(dict(source=transcript.source, text=transcript.text,
+        engine=transcript.engine, language=transcript.language, segments=segments,
+        asr=validate_asr((transcript.meta or {}).get("asr", {}))), ensure_ascii=False,
+        sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
     if entry_id is not None:
         if not isinstance(entry_id, str) or re.fullmatch(r"[A-Za-z0-9_-]{1,160}", entry_id) is None:
             raise ValueError("无效的文稿保存凭据")
         existing = _load_raw(entry_id)
         if existing is not None:
-            if existing.get("result_digest") != result_digest or existing.get("kind") != "transcript":
+            version = existing.get("result_digest_version", 1)
+            matches = version == 2 and existing.get("result_digest") == result_digest
+            if version == 1:
+                old_segments = [dict(s, speaker_id=s.get("speaker_id")) for s in existing.get("segments", [])]
+                matches = existing.get("result_digest") == legacy_digest and old_segments == segments
+                # Old results could not contain speaker or ASR metadata.
+                matches = matches and not any(s["speaker_id"] is not None for s in segments) and not (transcript.meta or {}).get("asr")
+            if not matches or existing.get("kind") != "transcript":
                 raise ValueError("文稿保存凭据与原内容不一致")
             return entry_id
         if (_dir() / f"{entry_id}.json").exists():
@@ -532,6 +545,7 @@ def save(transcript: Transcript, title: str, folder_id: str | None = None, *, en
         "id": entry_id,
         "kind": "transcript",
         "result_digest": result_digest,
+        "result_digest_version": 2,
         "folder_id": folder_id,
         "title": title,
         "created_at": now.isoformat(timespec="seconds"),
@@ -541,12 +555,24 @@ def save(transcript: Transcript, title: str, folder_id: str | None = None, *, en
         "char_count": len(transcript.text),
         "meta": cover_meta,
         "text": transcript.text,
-        "segments": [
-            {"text": s.text, "start": s.start, "end": s.end} for s in transcript.segments
-        ],
+        "segments": segments,
     }
     _write_text_entry(data, transcript.text)
     return entry_id
+
+
+@_serialized
+def finish_transcript_document(entry_id: str, transcript: Transcript, title: str) -> None:
+    """Finish the existing save without overwriting edits or rerunning inference."""
+    from .obsidian import note_body
+    body = load_markdown(entry_id, require_exists=True)
+    if body == transcript.text:
+        canonical = note_body(transcript, title)
+        save_markdown(entry_id, canonical, preserve_timestamps=True, expected_hash=_content_hash(body))
+        if load_markdown(entry_id, require_exists=True) != canonical:
+            raise OSError("素材库成稿复读失败")
+    if load(entry_id) is None:
+        raise OSError("素材库复读失败")
 
 
 @_serialized
@@ -848,7 +874,7 @@ def load(entry_id: str) -> Transcript | None:
     except (OSError, UnicodeError, ValueError, TypeError):
         return None
     segs = [
-        Segment(text=s.get("text", ""), start=s.get("start"), end=s.get("end"))
+        Segment(text=s.get("text", ""), start=s.get("start"), end=s.get("end"), speaker_id=s.get("speaker_id"))
         for s in d.get("segments", [])
     ]
     meta = TranscriptCover.from_meta(d.get("meta") or {}).merge_meta(

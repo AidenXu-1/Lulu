@@ -16,13 +16,13 @@ OPERATIONS = frozenset({
     "markdown_path", "load_markdown", "save_markdown", "document_snapshot",
     "append_markdown_section", "create_folder", "ensure_folder", "rename_folder",
     "delete_folder", "set_entry_folder", "list_folders", "set_folder_order",
-    "save", "save_rewrite", "save_document", "save_voice", "list_entries",
+    "save", "finish_transcript_document", "save_rewrite", "save_document", "save_voice", "list_entries",
     "load_voice", "save_summary", "get_summary", "rename", "load", "delete", "query_entries",
     "list_deleted", "restore_deleted", "relink_voice",
     "list_versions", "restore_version",
 })
 MUTATIONS = frozenset({"save_markdown", "append_markdown_section", "create_folder", "ensure_folder",
-    "rename_folder", "delete_folder", "set_entry_folder", "set_folder_order", "save", "save_rewrite",
+    "rename_folder", "delete_folder", "set_entry_folder", "set_folder_order", "save", "finish_transcript_document", "save_rewrite",
     "save_document", "save_voice", "save_summary", "rename", "delete", "restore_deleted", "relink_voice",
     "restore_version"})
 _pending = {}

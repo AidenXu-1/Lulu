@@ -380,7 +380,8 @@ class MeasuredLiveTests(ServiceTests):
         class Exchange:
             def __init__(inner, facts):inner.facts=facts
             def exchange(inner, payload, **kwargs):return protocol.handle(payload,inner.facts),fixture.core_facts
-        with patch('src.core.agent_entry.product_install.build_default_product_installer',return_value=installation):
+        with patch('src.core.agent_entry.product_install.build_default_product_installer',return_value=installation), \
+             patch('src.core.updater.handover.default_updates_root',return_value=self.root/'updates'):
             gui = MeasuredCoreClient(exchange=Exchange(fixture.gui_facts),client_requirement=fixture.gui_requirement,core_requirement=fixture.core_requirement)
             reply = gui.dispatch('gui.live',{'operation':'heartbeat','arguments':{'session':self.session}})
             self.assertEqual(reply['result']['active'],False)

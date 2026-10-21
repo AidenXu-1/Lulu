@@ -17,7 +17,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from ..engines.local_sensevoice import detect_device
+from ..audio.device import detect_device
 from . import local_models
 from . import runtime_packages as rp
 from .base import SynthesisEngine, SynthesisError, SynthesisRequest, SynthesisResult, _noop

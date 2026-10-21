@@ -24,7 +24,7 @@ class ModelLifecycleUiTests(ControllerCase):
         with patch.object(m.mm,'is_ready',return_value=False), patch.object(m.dialogs,'confirm',return_value=True) as confirm, patch.object(m,'ModelRemoveWorker',FakeWorker):
             self.c.local_action('sensevoice','remove')
         self.assertIn('本地转录暂不可用',confirm.call_args.args[2])
-        self.assertEqual(self.cfg.engine_name,'local_sensevoice')
+        self.assertEqual(self.cfg.engine_name,'local_sensevoice_q8')
         self.assertIn('sensevoice',self.c.active)
 
     def test_default_model_removal_commits_ready_fallback_before_starting_worker(self):
@@ -39,7 +39,7 @@ class ModelLifecycleUiTests(ControllerCase):
         with patch.object(m.mm,'is_ready',side_effect=lambda mid:mid=='local_whisper_mlx'), patch.object(m.dialogs,'confirm',return_value=True), patch.object(m,'ModelRemoveWorker',FakeWorker):
             with self.assertRaisesRegex(RuntimeError,'保存替代模型'):
                 self.c.local_action('sensevoice','remove')
-        self.assertEqual(self.cfg.engine_name,'local_sensevoice')
+        self.assertEqual(self.cfg.engine_name,'local_sensevoice_q8')
         self.assertFalse(self.c.active)
 
     def test_in_use_and_relocation_prevent_model_changes(self):

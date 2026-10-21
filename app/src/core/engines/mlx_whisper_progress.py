@@ -2,7 +2,7 @@
 
 上游 ``mlx_whisper.transcribe`` 已按解码窗口维护真实帧进度，但只把它交给
 命令行 ``tqdm``。本模块在一次调用期间桥接这个现成状态，不复制、不切分、
-不重跑推理；内部合同不兼容时直接退回原始入口。
+不重跑推理；进度合同不兼容时保留取消边界，无法安全取消时拒绝推理。
 """
 
 from __future__ import annotations
@@ -104,6 +104,8 @@ class _ProgressController:
         self._last_percent = percent
         try:
             self._callback(fraction)
+        except InterruptedError:
+            raise
         except Exception:
             # 进度是旁路，界面回调异常不能中断模型推理。
             return
@@ -157,13 +159,19 @@ class _TqdmModuleProxy:
 
 
 class _ModelProxy:
-    def __init__(self, model: object, controller: _ProgressController) -> None:
+    def __init__(self, model: object, controller: _ProgressController | None, check_cancel) -> None:
         self._model = model
         self._controller = controller
+        self._check_cancel = check_cancel
 
     def decode(self, segment, options):
-        self._controller.before_decode(segment)
-        return self._model.decode(segment, options)
+        # Independent of progress throttling, silence, and temperature retries.
+        self._check_cancel()
+        if self._controller is not None:
+            self._controller.before_decode(segment)
+        result = self._model.decode(segment, options)
+        self._check_cancel()
+        return result
 
     def __getattr__(self, name: str):
         return getattr(self._model, name)
@@ -190,59 +198,76 @@ def transcribe_with_audio_progress(
     *,
     path_or_hf_repo: str,
     on_audio_position: AudioPositionCallback,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> dict:
     """执行原始 Whisper MLX 转录，并旁路报告已处理音频比例。
 
-    若上游内部结构变化，直接调用公开入口。桥接建立以后出现的推理异常按原样
-    抛出，不为进度功能重跑一次昂贵模型任务。
+    进度不可用时仍保留解码取消边界；取消合同也不兼容时，在推理前明确拒绝。
+    桥接建立以后出现的推理异常按原样抛出，不重跑昂贵模型任务。
     """
     import mlx_whisper
 
     module = importlib.import_module("mlx_whisper.transcribe")
     upstream = mlx_whisper.transcribe
-    if not _compatible(module):
-        return upstream(audio, path_or_hf_repo=path_or_hf_repo)
+    def check_cancel():
+        if is_cancelled is not None and is_cancelled():
+            raise InterruptedError("转录已取消")
 
+    check_cancel()
     with _BRIDGE_LOCK:
-        if not _compatible(module):
+        check_cancel()
+        holder = getattr(module, "ModelHolder", None)
+        descriptor = getattr(holder, "__dict__", {}).get("get_model")
+        if not isinstance(descriptor, classmethod):
+            if is_cancelled is not None:
+                raise RuntimeError("当前 Whisper 运行工具不支持安全取消，请修复运行环境后重试。")
             return upstream(audio, path_or_hf_repo=path_or_hf_repo)
-
-        holder = module.ModelHolder
+        progress_available = _compatible(module)
         original_descriptor = holder.__dict__["get_model"]
         original_get_model = holder.get_model
-        original_tqdm = module.tqdm
+        original_tqdm = getattr(module, "tqdm", None)
         owner_thread = threading.get_ident()
         controller = _ProgressController(
             on_audio_position,
             window_frames=module.N_FRAMES,
-        )
+        ) if progress_available else None
 
         def get_model(cls, model_path: str, dtype):
+            if threading.get_ident() == owner_thread:
+                check_cancel()
             model = original_get_model(model_path, dtype)
             if threading.get_ident() != owner_thread:
                 return model
-            return _ModelProxy(model, controller)
+            check_cancel()
+            return _ModelProxy(model, controller, check_cancel)
 
         patched_holder = False
         patched_tqdm = False
         try:
             holder.get_model = classmethod(get_model)
             patched_holder = True
-            module.tqdm = _TqdmModuleProxy(
-                original_tqdm,
-                controller,
-                owner_thread=owner_thread,
-            )
-            patched_tqdm = True
+            if controller is not None:
+                module.tqdm = _TqdmModuleProxy(
+                    original_tqdm,
+                    controller,
+                    owner_thread=owner_thread,
+                )
+                patched_tqdm = True
         except Exception:
             if patched_tqdm:
                 module.tqdm = original_tqdm
             if patched_holder:
                 holder.get_model = original_descriptor
+            if is_cancelled is not None:
+                raise RuntimeError("Whisper 取消保护未能准备，转录未开始；请修复运行环境。")
             return upstream(audio, path_or_hf_repo=path_or_hf_repo)
 
         try:
-            return upstream(audio, path_or_hf_repo=path_or_hf_repo)
+            check_cancel()
+            result = upstream(audio, path_or_hf_repo=path_or_hf_repo)
+            check_cancel()
+            return result
         finally:
-            module.tqdm = original_tqdm
+            if patched_tqdm:
+                module.tqdm = original_tqdm
             holder.get_model = original_descriptor

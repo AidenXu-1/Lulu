@@ -429,6 +429,10 @@ def incremental_hf_transport():
         constants.HF_HUB_ENABLE_HF_TRANSFER = old_transfer
 
 
+from .engines.asr_resource import model_maintenance
+
+
+@model_maintenance
 def prepare_asr(session, model_id):
     from . import models_manager as mm
     from .artifact_trust import model_revision, recover_device_receipt
@@ -445,26 +449,16 @@ def prepare_asr(session, model_id):
     if recover_legacy_asr_receipt(session, model_id):
         session.report("已有模型校验完成，可直接使用，无需重新下载。", -1)
         return
-    if model_id == "local_whisper_mlx" and (issue := mm.runtime_issue(model_id)):
+    if model_id in {"local_whisper_mlx", "local_whisper_mlx_4bit"} and (issue := mm.runtime_issue(model_id)):
         raise RuntimeError(issue)
     _, candidate = mm._private_candidate(model_id)
-    if model_id == "local_sensevoice":
-        sources = [(repo, "modelscope", candidate / sub) for sub, repo in mm._SENSEVOICE_SUBMODELS.items()]
-    elif model_id == "local_qwen3":
-        sources = [(model.repo, "modelscope", candidate), (mm._QWEN3_ALIGNER_REPO, "modelscope", candidate / "_aligner")]
-    else:
-        sources = [(model.repo, model.repo_source, candidate)]
-    for repo, source, root in sources:
-        session.check()
-        factory = modelscope_plan if source == "modelscope" else hf_plan
-        try:
-            session.add(factory(repo, model_revision(repo, source), root))
-        except Exception:
+    if model_id in mm.LOCAL_MODEL_FILES:
+        for repo, files in mm.LOCAL_MODEL_FILES[model_id].items():
             session.check()
-            if model_id != "local_qwen3" or repo != mm._QWEN3_ALIGNER_REPO:
-                raise
-            session.report("正在检查对齐模型的备用下载来源…", -1)
-            session.add(hf_plan(repo, model_revision(repo, "hf"), root))
+            session.add(hf_plan(repo, model_revision(repo, 'hf'), candidate, allow_patterns=list(files)))
+        session.prepare_space()
+        return
+    session.add(hf_plan(model.repo, model_revision(model.repo, 'hf'), candidate))
     session.prepare_space()
 
 

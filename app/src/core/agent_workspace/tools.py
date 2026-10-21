@@ -31,7 +31,7 @@ TOOLS = [
     _schema('inspect_link', '在本地识别链接类型和 Lulu 主页采集能力，不访问网页、不打开浏览器。',
             {'url': {'type': 'string'}}),
     _schema('prepare_voice', '为当前文稿或引用准备本地配音入口。当前尚需在配音页确认模型和音色，不会自动生成。', {}),
-    _schema('prepare_transcription', '准备文案提取入口；url 为空时用户可选择本地文件并明确使用 SenseVoice 后台转录，或前往工作台使用其他模型。工具本身不启动转录。',
+    _schema('prepare_transcription', '准备内容提取入口；url 为空时用户可选择本地文件并明确使用 SenseVoice 后台转录，或前往工作台使用其他模型。工具本身不启动转录。',
             {'url': {'type': 'string'}}),
     _schema('prepare_collection', '准备主页采集入口，带入链接和数量；需在工作台检查登录和配置后开始，不自动采集。',
             {'url': {'type': 'string'}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}),
@@ -174,12 +174,12 @@ def execute(call, request, *, task_reader=None):
                     action='voice', label='前往文案配音', target=target(request))
     if name == 'prepare_transcription':
         url = _url(args['url'], optional=True)
-        return dict(state='needs_input', message='请在文案提取中确认来源和转录配置后开始。' if url else '请选择本地文件并确认模型后开始，完成后会存入新文稿；也可前往文案提取工作台。',
-                    action='transcription', label='前往文案提取', url=url)
+        return dict(state='needs_input', message='请在内容提取中确认来源和转录配置后开始。' if url else '请选择本地文件并确认模型后开始，完成后会存入新文稿；也可前往内容提取工作台。',
+                    action='transcription', label='前往内容提取', url=url)
     info = inspect_link(args['url'])
     if info['kind'] != 'homepage' or not info['modes']:
         return dict(state='unavailable', code='COLLECTION_UNAVAILABLE',
-                    message='这个链接暂不能用于主页采集；单条作品可使用文案提取。', **info)
+                    message='这个链接暂不能用于主页采集；单条作品可使用内容提取。', **info)
     return dict(state='needs_input', message=f"准备采集最多 {args['limit']} 条作品，请在主页采集中确认登录和配置后开始。",
                 action='collection', label='前往主页采集', url=args['url'], limit=args['limit'], **info)
 

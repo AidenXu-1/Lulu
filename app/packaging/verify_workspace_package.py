@@ -39,7 +39,7 @@ def verify_assets(resources: Path, source_app: Path) -> dict:
     model_root = source_app / 'src/ui/model_settings/assets'
     for name in ('index.html', 'settings.js', 'settings.css', 'paper_texture.png'):
         _file(source_app, 'src/ui/model_settings/assets/' + name)
-    files += ['src/ui/model_settings/public.json']
+    files += ['src/ui/model_settings/public.json', 'src/ui/model_settings/information.json']
     files += [path.relative_to(source_app).as_posix() for path in sorted(model_root.rglob('*')) if path.is_file()]
     for name, expected in assets.items():
         if Path(name).name != name or name in {'.', '..'}:

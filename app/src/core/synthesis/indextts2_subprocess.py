@@ -39,7 +39,7 @@ def detect_device() -> str:
     # cold start and memory that cannot be released with the TTS background.
     if sys.platform == 'darwin':
         return 'mps' if platform.machine() == 'arm64' else 'cpu'
-    from ..engines.local_sensevoice import detect_device as detect_other_device
+    from ..audio.device import detect_device as detect_other_device
     return detect_other_device()
 
 

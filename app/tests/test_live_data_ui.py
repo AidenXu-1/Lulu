@@ -108,6 +108,30 @@ class NativeDataTests(unittest.TestCase):
         self.assertEqual(dialog.stat_values[0].text(), '00:01:02')
         dialog.reject()
 
+    def test_repeated_refresh_waits_quietly_for_pending_data_and_keeps_pause_free(self):
+        dialog=self.opened()
+        self.until(lambda:self.controller.data_worker is None)
+        original=self.controller.dispatcher
+        entered,release=threading.Event(),threading.Event()
+        def delayed(operation,arguments):
+            if operation=='data':
+                entered.set()
+                release.wait(4)
+            return original(operation,arguments)
+        self.controller.dispatcher=delayed
+        try:
+            self.page._refresh_data()
+            self.until(entered.is_set)
+            self.page._refresh_data()
+            self.assertEqual(self.errors,[])
+            self.controller.call('pause_all')
+            self.until(lambda:self.controller.worker is None,timeout=1)
+        finally:
+            release.set()
+            self.until(lambda:self.controller.data_worker is None)
+            self.controller.dispatcher=original
+            dialog.reject()
+
     def test_missing_refresh_reply_expires_clock_without_fabricating_duration(self):
         dialog = self.opened()
         dialog.update_data(dict(dialog.data, duration=60, clock_running=True, ended=None))

@@ -96,6 +96,10 @@ LEGACY_TTS_RUNTIME_ARTIFACTS = {
 
 
 HF_MODEL_REVISIONS: dict[str, str] = {
+    "FunAudioLLM/SenseVoiceSmall-GGUF": "90c1c61912018b70ada0fcc024ea24aca62f2e63",
+    "FunAudioLLM/fsmn-vad-GGUF": "6840bae4c5c92ee8c04faaf4db23dd0105098d7f",
+    "mlx-community/whisper-large-v3-turbo-4bit": "0f058d38170d183f9fdee07908f5b515d91793a8",
+    "handy-computer/moss-transcribe-diarize-gguf": "535085b2707309ceaa9802ae3078da03b8d2f244",
     "IndexTeam/IndexTTS-2.5": "c39ce5ba981572cb187443877ff559dfb246ce63",
     "IndexTeam/IndexTTS-2": "740dcaff396282ffb241903d150ac011cd4b1ede",
     "Qwen/Qwen3-ForcedAligner-0.6B": "c7cbfc2048c462b0d63a45797104fc9db3ad62b7",

@@ -36,7 +36,7 @@
 
 ## 会话内本地转录
 
-三个 engine：local_sensevoice、local_qwen3、local_whisper_mlx。先按 [workflows.md](workflows.md) 查询当前安装能力和模型状态。用户指定的模型必须保持一致，不能自动回退。
+四个 engine：local_sensevoice_q8、local_whisper_mlx、local_whisper_mlx_4bit、local_moss_q5。先按 [workflows.md](workflows.md) 查询当前安装能力和模型状态。用户指定的模型必须保持一致，不能自动回退。
 
 1. `tasks prepare` 参数为 conversation_id、request_id、source_path（绝对路径）、engine；返回 plan_id、plan_hash、engine。支持 2 GB 以内本地音视频。此步骤保存计划，不开始推理。
 2. `tasks start` 传 plan_id 和 expected_hash=plan_hash，返回 job_id。受理不等于完成。

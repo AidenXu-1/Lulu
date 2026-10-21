@@ -62,7 +62,7 @@ function jobCard(t){
 function groupCard(name,members,all=tasks.filter(t=>t.group===name)){
   const first=all[0],key=first.id,target='g:'+key;
   const waiting=filter==='done'?[]:all.filter(isEditable),representative=waiting[0]||first,opened=expanded.has(name),done=all.filter(t=>t.state==='done').length;
-  const resumable=filter==='done'?[]:all.filter(isRecoverable),startable=[...waiting,...resumable];
+  const resumable=filter==='done'?[]:all.filter(isRecoverable),startable=resumable.length?resumable:waiting;
   const editable=waiting.length&&!isLocal(representative),mixed=waiting.some(t=>JSON.stringify(t.outputs)!==JSON.stringify(representative.outputs)||t.folder!==representative.folder);
   return `<section class="group task-group" aria-label="${esc(name)}" data-group="${key}">
   <button class="task-remove" title="删除整组任务" aria-label="删除任务组 ${esc(name)}" onclick="removeTaskGroup(${key})">${icon('x')}</button>

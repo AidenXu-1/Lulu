@@ -3,7 +3,7 @@ from importlib.util import find_spec
 
 from .engines.local_models import LOCAL_MODELS
 
-DEFAULT_ENGINE = 'local_sensevoice'
+from .engines.providers import DEFAULT_ENGINE
 MODEL_MESSAGES = {
     'MODEL_NOT_INSTALLED': '本地转录模型未安装，请在 Lulu 的 AI 大模型设置中安装所选模型。',
     'MODEL_INSTALLATION_INCOMPLETE': '本地转录模型文件不完整或安装校验未通过，请在 Lulu 中检查或修复所选模型。',
@@ -19,9 +19,9 @@ class LocalModelUnavailable(RuntimeError):
 
 
 def normalize_engine(engine):
-    # The original GUI DTO used this short name. CLI exposes canonical IDs only.
-    if engine == 'sensevoice':
-        engine = DEFAULT_ENGINE
+    from .engines.local_models import RETIRED_MODELS
+    if type(engine) is str and engine in RETIRED_MODELS:
+        raise ValueError('此模型已退役，请重新选择本地模型；历史文稿保留。')
     if type(engine) is not str or engine not in LOCAL_MODELS:
         raise ValueError('请选择 Lulu 支持的本地转录模型')
     return engine
@@ -44,7 +44,7 @@ def model_status(engine):
         else:
             issue = mm.runtime_issue(engine)
             dependencies = {'funasr': ('torch', 'funasr'),
-                            'transformers': ('torch', 'qwen_asr'), 'mlx': ('mlx', 'mlx_whisper')}
+                            'transformers': ('torch', 'qwen_asr'), 'mlx': ('mlx', 'mlx_whisper'), 'native': ()}
             if not issue:
                 missing = [name for name in dependencies[model.runtime] if find_spec(name) is None]
                 if missing:

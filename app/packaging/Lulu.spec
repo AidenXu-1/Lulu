@@ -13,6 +13,7 @@ import os
 import json
 import hashlib
 import runpy
+from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
 BUILD_PROFILE = os.environ.get("LULU_BUILD_PROFILE_FOR_SPEC", "")
@@ -102,9 +103,9 @@ def _drop_toc_entries(items, markers):
     return kept
 
 
-# 动态导入/数据文件大户,全量收集。本地多模型运行时:qwen_asr(Qwen3)、mlx*(MLX Whisper)
+# 动态导入/数据文件大户,全量收集。本地转录运行时:mlx*(MLX Whisper)，Q8/MOSS 在组装后加入原生工具
 for pkg in ("funasr", "dashscope",
-            "qwen_asr", "qwen_omni_utils", "mlx", "mlx_whisper",
+            "mlx", "mlx_whisper",
             "nagisa", "nagisa_utils",
             "DrissionPage"):  # 路B 登录态采集:动态导入多,全量收集,否则打包后路B 崩
             # 注:voxcpm/配音模型已移出主程序(ADR-0015 独立运行时包),不再随 App 打包。
@@ -176,7 +177,8 @@ datas += [(os.path.join(APP_DIR, "src", "ui", "assets"), "src/ui/assets"),
           (os.path.join(APP_DIR, "src", "ui", "extraction", "assets"), "src/ui/extraction/assets"),
           (os.path.join(APP_DIR, "src", "ui", "extraction", "index.html"), "src/ui/extraction")]
 datas += [(os.path.join(APP_DIR, "src", "ui", "model_settings", "assets"), "src/ui/model_settings/assets"),
-          (os.path.join(APP_DIR, "src", "ui", "model_settings", "public.json"), "src/ui/model_settings")]
+          (os.path.join(APP_DIR, "src", "ui", "model_settings", "public.json"), "src/ui/model_settings"),
+          (os.path.join(APP_DIR, "src", "ui", "model_settings", "information.json"), "src/ui/model_settings")]
 datas += [(os.path.join(APP_DIR, "src", "ui", "agent_workspace", "assets"), "src/ui/agent_workspace/assets"),
           (os.path.join(APP_DIR, "src", "ui", "agent_workspace", "index.html"), "src/ui/agent_workspace"),
           (os.path.join(APP_DIR, "src", "core", "agent_workspace", "catalog.json"), "src/core/agent_workspace")]
@@ -236,16 +238,17 @@ datas += [(os.path.join(APP_DIR, "THIRD_PARTY_NOTICES_VOXCPM2.md"), ".")]
 # (F2 Apache-2.0 署名 + DrissionPage 自定义「非商业」许可——许可风险见 NOTICE/ADR-0013)
 datas += [(os.path.join(APP_DIR, "THIRD_PARTY_NOTICES_DOUYIN_COLLECT.md"), ".")]
 datas += [(os.path.join(APP_DIR, "THIRD_PARTY_NOTICES_LIVE_RECORDING.md"), "."),
-          (os.path.join(APP_DIR, "src/core/live_recording/STREAMGET_LICENSE.txt"), "src/core/live_recording")]
+          (os.path.join(APP_DIR, "src/core/live_recording/STREAMGET_LICENSE.txt"), "src/core/live_recording"),
+          (os.path.join(APP_DIR, "src/core/live_recording/BILIUP_LICENSE.txt"), "src/core/live_recording")]
 
 # 一些懒导入 / 间接依赖,显式补上以防漏
 hiddenimports += collect_submodules("torchaudio")
 hiddenimports += [
     "torch", "torchaudio", "kaldiio", "jieba", "jaconv",
     "yt_dlp", "PySide6.QtSvg", "PySide6.QtMultimedia", "requests", "soundfile", "sox",
-    "mlx", "mlx.core", "mlx_whisper", "qwen_asr",
+    "mlx", "mlx.core", "mlx_whisper",
     "src",
-    "src.core.pipeline", "src.core.engines.local_sensevoice",
+    "src.core.pipeline", "src.core.engines.local_native", "src.core.engines.local_whisper_mlx",
     "src.core.engines.online_api", "src.core.engines.registry",
     "src.core.audio.extractor", "src.core.audio.converter",
     "src.core.output.writer",
@@ -341,12 +344,19 @@ a.datas = PRIVACY_GATE["drop_cache_toc_entries"](a.datas)
 a.binaries = PRIVACY_GATE["drop_non_runtime_toc_entries"](a.binaries)
 a.datas = PRIVACY_GATE["drop_non_runtime_toc_entries"](a.datas)
 
+ASR_ROOT = os.path.join(APP_DIR, 'build', 'asr-runtime')
+ASR_MANIFEST = runpy.run_path(os.path.join(SPECPATH, 'build_asr_runtime.py'))['verify_runtime'](Path(ASR_ROOT))
+# These exact signed files are copied after PyInstaller so it cannot rewrite
+# install names or signatures independently of the native runtime manifest.
 PROFILE_GATE["write_analysis_receipt"](
     os.path.join(workpath, "profile-analysis.json"),
     BUILD_PROFILE,
     list(a.pure) + list(a.scripts),
-    list(a.datas) + list(a.binaries) + [("AppIcon.icns", ICON, "DATA")],
+    list(a.datas) + list(a.binaries) + [("AppIcon.icns", ICON, "DATA")]
+    + [(f"asr-runtime/{name}", os.path.join(ASR_ROOT, name), "DATA")
+       for name in sorted(set(os.listdir(ASR_ROOT)) - set(ASR_MANIFEST['audit']))],
     BUILD_PROFILE_SHA256,
+    native_asr_manifest_sha256=hashlib.sha256(open(os.path.join(ASR_ROOT, 'manifest.json'), 'rb').read()).hexdigest(),
 )
 
 pyz = PYZ(a.pure)

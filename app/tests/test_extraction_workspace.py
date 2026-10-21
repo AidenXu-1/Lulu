@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 import time
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -66,6 +67,42 @@ class ExtractionWorkspaceFixture:
         self.widget.publish(force=True);self.until(lambda:self.js('tasks.length')==len(self.main.tasks))
 
 class ExtractionWorkspaceTests(ExtractionWorkspaceFixture,unittest.TestCase):
+    def test_slow_model_checks_leave_ui_responsive_hidden_and_stale_results_safe(self):
+        # Let the ordinary initial status read settle before fault injection.
+        self.until(lambda: not getattr(self.widget, '_model_pending', None))
+        entered, release = threading.Event(), threading.Event()
+        calls = []
+        def slow(mid):
+            calls.append(mid)
+            entered.set()
+            release.wait(3)
+            return True
+        with patch('src.core.models_manager.is_ready', side_effect=slow):
+            self.widget._models_at = 0
+            started = time.monotonic()
+            self.widget.publish()
+            self.assertLess(time.monotonic() - started, .1)
+            self.until(entered.is_set)
+            for _ in range(5): self.widget.publish()
+            self.assertEqual(len(calls), 1)
+            self.widget.hide()
+            # Hidden publishes still settle undo deadlines.
+            task = self.main._add_task('/fixture.wav', 'file', 'fixture')
+            self.widget._deleting[task.id] = time.monotonic() - 1
+            self.widget.publish()
+            self.assertIsNone(self.main._task(task.id))
+            release.set()
+            self.until(lambda: not getattr(self.widget, '_model_pending', None))
+            count = len(calls)
+            self.widget._models_at = 0
+            for _ in range(5): self.widget.publish()
+            self.assertEqual(len(calls), count)
+        with patch('src.core.models_manager.is_ready', return_value=False):
+            self.widget.show()
+            self.until(lambda: not getattr(self.widget, '_model_pending', None)
+                       and self.widget._models_at > 0)
+            self.assertTrue(all(not row['ready'] for row in self.widget._models if not row['cloud']))
+
     def test_paused_queue_shows_reason_instead_of_zero_ahead(self):
         self.add()
         task = self.main.tasks[0]
@@ -151,6 +188,22 @@ class ExtractionWorkspaceTests(ExtractionWorkspaceFixture,unittest.TestCase):
         self.widget.dispatch('files',{});self.widget.dispatch('record',{})
         self.assertIn('files',self.main.calls);self.assertIn('record',self.main.calls)
         with self.assertRaises(ValueError):self.widget.dispatch('result',{'id':1,'action':'shell','path':'/tmp/a'})
+        # A handoff arriving before the web bridge is ready waits for the page.
+        text='https://example.com/?q="</script><script>window.handoffInjected=1</script>'
+        before=self.js('document.querySelector("#url").value')
+        self.widget.ready=False;self.widget.stage_link(text)
+        self.assertEqual(self.js('document.querySelector("#url").value'),before)
+        self.widget.bridge.ready()
+        self.until(lambda:self.js('document.querySelector("#url").value')==text)
+        self.assertEqual(self.js('urlText'),text)
+        self.assertFalse(self.js('Boolean(window.handoffInjected)'))
+        self.js('urlText="用户继续编辑";document.querySelector("#url").value=urlText')
+        self.widget.bridge.ready();self.tick()
+        self.assertEqual(self.js('document.querySelector("#url").value'),'用户继续编辑')
+        self.assertEqual(len(self.main.tasks),7)
+        with patch.object(self.widget,'closing',True),self.assertRaises(RuntimeError):
+            self.widget.stage_link('')
+        with self.assertRaises(ValueError):self.widget.stage_link('x'*4097)
     def test_responsive_geometry_model_menu_and_reduced_motion(self):
         self.add(6)
         destination=os.environ.get('LULU_EXTRACTION_CAPTURE')
@@ -266,7 +319,7 @@ class ExtractionOverlayTests(ExtractionWorkspaceFixture,unittest.TestCase):
     def test_model_tabs_stable_height_keyboard_and_no_selection_on_browse(self):
         with patch.object(self.main.cfg,'save') as save:
             self.js('document.querySelector("#model-switch").click()')
-            self.assertEqual(self.js('document.querySelectorAll(".model-option").length'),3)
+            self.assertEqual(self.js('document.querySelectorAll(".model-option").length'),4)
             self.assertNotIn('OpenAI',self.js('document.querySelector("#model-options").textContent'))
             height=self.js('document.querySelector("#model-menu").offsetHeight')
             self.js('document.querySelector("#model-tab-cloud").click()')

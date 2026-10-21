@@ -270,7 +270,10 @@ class MediaTasks:
                     self._same_library(plan)
                     if self.control.show(jid).state is JobState.SUCCEEDED:
                         return  # Only the notification failed; successful result stays successful.
-                    message = str(exc) if isinstance(exc, ValueError) else '转录未完成，已保存的结果与任务记录保留。'
+                    from ..transcription_application import LocalFileTranscriptionError
+                    message = (exc.failure.user_message if isinstance(exc, LocalFileTranscriptionError)
+                               else str(exc) if isinstance(exc, ValueError)
+                               else '转录未完成，已保存的结果与任务记录保留。')
                     WorkspaceStore().append(plan['conversation_id'], 'status', message,
                         {'media_job_id': jid}, message_id=jid + '-stopped')
                 except Exception:
@@ -284,16 +287,15 @@ class MediaTasks:
         raw = self.application.read_result_bytes(jid, stored['result_ref'])
         if hashlib.sha256(raw).hexdigest() != stored['content_hash']:
             raise ValueError('转录结果校验失败，未导入文稿')
-        value = json.loads(raw)['transcript']
-        if (value.get('engine') != plan['engine'] or type(value.get('text')) is not str
-                or not value['text'].strip() or type(value.get('segments')) is not list):
+        from ..transcription_contracts import decode_transcription_result
+        result = decode_transcription_result(json.loads(raw), job_id=jid, source=plan['source_path'])
+        if result.engine != plan['engine'] or not result.text.strip():
             raise ValueError('转录结果内容无效，未导入文稿')
-        from ..models import Transcript, Segment
-        result = Transcript(text=value['text'], segments=[Segment(**s) for s in value['segments']],
-            language=value['language'], engine=value['engine'], source=plan['source_path'],
-            meta={'workspace_job_id': jid, 'conversation_id': plan['conversation_id'], 'source_document_id': plan['document_id']})
+        result.meta.update(workspace_job_id=jid, conversation_id=plan['conversation_id'],
+                           source_document_id=plan['document_id'])
         eid = 'transcript_' + jid
         library.save(result, plan['title'], plan['folder_id'], entry_id=eid)
+        library.finish_transcript_document(eid, result, plan['title'])
         current = self._job(jid)
         self.control.complete_worker(jid, expected_revision=current.job_revision, lease_token=lease,
             new_state=JobState.SUCCEEDED, result_ref=stored['result_ref'], changed_at=self.now())

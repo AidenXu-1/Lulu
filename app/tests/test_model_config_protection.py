@@ -11,7 +11,7 @@ from src.core import agnes, models_manager as mm, summarize
 class ModelConfigProtectionTests(unittest.TestCase):
     def test_failed_location_save_restores_files_and_memory(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             old, new = root / "old", root / "new"
             (old / "models/asr").mkdir(parents=True)
             (old / "models/asr/weights").write_bytes(b"original")

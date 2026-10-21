@@ -110,6 +110,7 @@ def acquire_source(source, *, execution_policy, engine_name, enable_link_downloa
     if not is_link:
         if chosen != ('text',): raise ValueError('本地文件只支持提取文案')
         return pipeline.transcribe_source(source, engine_name=engine_name,
+            execution_policy=policy,
             progress=progress, is_cancelled=is_cancelled, stage_changed=stage_changed)
     if not enable_link_download: raise ValueError('链接下载功能已关闭')
     if ('video' in chosen or 'cover' in chosen) and not policy.media_directory:
@@ -150,7 +151,7 @@ def acquire_source(source, *, execution_policy, engine_name, enable_link_downloa
                         progress=report, is_cancelled=is_cancelled, stage_changed=stage_changed)
                 except Exception as exc:
                     check()
-                    failures.append(f'文案提取失败：{exc}')
+                    failures.append(f'文字提取失败：{exc}')
             if transcript is None:
                 transcript = Transcript(text='', source=source)
 

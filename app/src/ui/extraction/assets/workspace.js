@@ -20,6 +20,7 @@ function act(action,args={}){return call(action,args).catch(e=>toast(e.message))
 function targetsFor(target){const [kind,id]=target.split(':'),t=tasks.find(x=>x.id===Number(id));return !t?[]:kind==='g'?tasks.filter(x=>x.group===t.group&&isEditable(x)):isEditable(t)?[t]:[]}
 const targetRepresentative=target=>targetsFor(target)[0];
 function pickFiles(){act('files')}
+function stageLink(text){urlText=text;const input=$('#url');input.value=text;$('#urlError').hidden=true;input.focus()}
 function grab(e){e.preventDefault();if(!/https?:\/\/[^\s]+/.test(urlText)){$('#urlError').textContent='请粘贴有效的作品链接';$('#urlError').hidden=false;return}call('link',{text:urlText}).then(()=>{urlText='';$('#url').value='';$('#urlError').hidden=true}).catch(e=>toast(e.message))}
 function changeChoice(target,key,value){act('choice',{ids:targetsFor(target).map(t=>t.id),key,value})}
 function chooseFolder(kind){act('folder',{kind,ids:kind==='task'?targetsFor(folderTarget).map(t=>t.id):[]})}
@@ -27,7 +28,10 @@ function setSource(value){act('record_source',{value})}
 function toggleRecord(){act('record')}
 function cancelRecord(){act('record_cancel')}
 function start(id){act('start',{ids:[id]})}
-function startAll(group=null){act('start',{ids:tasks.filter(t=>(!group||t.group===group)&&isStartable(t)&&validOutput(t)).map(t=>t.id)})}
+function startAll(group=null){
+ const scope=tasks.filter(t=>!group||t.group===group),resume=scope.some(isRecoverable);
+ act('start',{ids:scope.filter(t=>(resume?isRecoverable(t):isStartable(t))&&validOutput(t)).map(t=>t.id)});
+}
 function cancel(id){act('cancel',{ids:[id]})}
 function deleted(ids){call('delete',{ids}).then(()=>{toast('已移除任务');const b=document.createElement('button');b.textContent='撤销';b.onclick=()=>{act('undo_delete');$('#toast').hidden=true};$('#toast').append(b);clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,6000)}).catch(e=>toast(e.message))}
 function removeTask(id){deleted([id])}
@@ -79,8 +83,8 @@ function renderModelPicker(){
   <div class="model-tabs" role="tablist" aria-label="模型运行位置">${[['local','本地','monitor'],['cloud','云端','cloud']].map(([key,label,glyph])=>`<button id="model-tab-${key}" role="tab" aria-selected="${modelTab===key}" aria-controls="model-panel" tabindex="${modelTab===key?0:-1}" onclick="switchModelTab('${key}')">${icon(glyph)}${label}</button>`).join('')}</div>
   <div class="model-location-note" id="model-location-note">${modelTab==='cloud'?'音频会上传至所选服务商':'音频在这台 Mac 上处理'}</div>
   <div id="model-panel" role="tabpanel" aria-labelledby="model-tab-${modelTab}"><div class="model-options" id="model-options" role="menu" aria-label="${modelTab==='cloud'?'云端':'本地'}转录模型" aria-describedby="model-location-note">${list.map(item=>{
-   const clean=item.name.replace(/\s*[（(]云端[）)]/g,''),parts=clean.split(' · '),name=item.cloud?parts[0]:clean,detail=item.cloud?(parts.slice(1).join(' · ')||'云端 API'):(item.ready?'已就绪，可直接使用':'准备好模型后即可使用');
-   return `<button class="model-option ${item.id===chosenModel?'selected':''}" data-model-id="${esc(item.id)}" role="menuitemradio" aria-checked="${item.id===chosenModel}" onclick="selectModel('${esc(item.id)}')"><span class="model-option-copy"><strong title="${esc(clean)}">${esc(name)}</strong><small>${esc(detail)}</small></span><span class="model-availability ${item.ready?'ready':''}" ${item.id===chosenModel?'aria-label="当前模型"':''}>${item.id===chosenModel?icon('check'):!item.cloud&&!item.ready?'需准备':''}</span></button>`;
+   const clean=item.name.replace(/\s*[（(]云端[）)]/g,''),parts=clean.split(' · '),name=item.cloud?parts[0]:clean,detail=item.cloud?(parts.slice(1).join(' · ')||'云端 API'):(item.checking?'正在检查模型…':item.issue||(item.ready?'已就绪，可直接使用':'准备好模型后即可使用'));
+   return `<button class="model-option ${item.id===chosenModel?'selected':''}" data-model-id="${esc(item.id)}" role="menuitemradio" aria-checked="${item.id===chosenModel}" onclick="selectModel('${esc(item.id)}')"><span class="model-option-copy"><strong title="${esc(clean)}">${esc(name)}</strong><small>${esc(detail)}</small></span><span class="model-availability ${item.ready?'ready':''}" ${item.id===chosenModel?'aria-label="当前模型"':''}>${item.id===chosenModel?icon('check'):!item.cloud&&!item.ready?(item.checking?'检查中':item.issue?'待检查':'需准备'):''}</span></button>`;
   }).join('')||'<p class="model-empty">暂无可选模型</p>'}</div></div>
   <div class="model-menu-footer"><span>仅对未开始的任务生效</span><button class="textbtn" onclick="closeModelMenu();act('models')">管理模型${icon('arrow')}</button></div>
  </div>`;
@@ -124,5 +128,5 @@ document.addEventListener('keydown',e=>{
 });
 new ResizeObserver(positionWorkbench).observe($('#main'));new ResizeObserver(positionWorkbench).observe($('#workbench'));
 requestAnimationFrame(()=>requestAnimationFrame(()=>$('#workspace').classList.add('motion-ready')));
-new QWebChannel(qt.webChannelTransport,channel=>{bridge=channel.objects.extraction;bridge.reply.connect((id,raw)=>{const p=pending.get(id);pending.delete(id);if(!p)return;const r=JSON.parse(raw);r.ok?p.resolve(r.value):p.reject(new Error(r.message))});bridge.snapshot.connect(raw=>receive(JSON.parse(raw)));bridge.notice.connect(toast);bridge.ready()});
+new QWebChannel(qt.webChannelTransport,channel=>{bridge=channel.objects.extraction;bridge.reply.connect((id,raw)=>{const p=pending.get(id);pending.delete(id);if(!p)return;const r=JSON.parse(raw);r.ok?p.resolve(r.value):p.reject(new Error(r.message))});bridge.snapshot.connect(raw=>receive(JSON.parse(raw)));bridge.notice.connect(toast);bridge.linkInput.connect(stageLink);bridge.ready()});
 window.extraction={receive};

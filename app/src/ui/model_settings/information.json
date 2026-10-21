@@ -1,0 +1,301 @@
+{
+  "local": {
+    "sensevoice": {
+      "id": "q8",
+      "name": "SenseVoice Q8",
+      "source": "SenseVoice · Q8 量化版",
+      "logo": "qwenaudio.png",
+      "subtitle": "快速中文出稿",
+      "position": "中文录音，优先快速出稿",
+      "reason": "这批中文样本中，转录耗时和内存占用最低。适合先拿到文字，再做整理。",
+      "time": "18.72",
+      "memory": "0.99",
+      "size": "256",
+      "sizeUnit": "MB",
+      "features": [
+        [
+          "文字转录",
+          "中 / 英 / 粤 / 日 / 韩",
+          true
+        ],
+        [
+          "字幕时间戳",
+          "当前不支持",
+          false
+        ],
+        [
+          "区分说话人",
+          "当前不支持",
+          false
+        ]
+      ],
+      "boundary": "要制作字幕，选择两个 Whisper；要区分说话人，选择 MOSS。",
+      "cer": [
+        "6.08%",
+        "31.26%"
+      ]
+    },
+    "whisper": {
+      "id": "whisper",
+      "name": "Whisper Turbo 原版",
+      "source": "OpenAI Whisper · large-v3-turbo · MLX",
+      "logo": "openai.png",
+      "subtitle": "多语言 · 字幕时间戳",
+      "position": "多语言字幕，更看重短音频转录准确率",
+      "reason": "与 Whisper Turbo 4bit 相比，本次 30 段中文短音频实测准确率更高。支持 99 种语言，转录结果带分句字幕时间戳。",
+      "time": "37.59",
+      "memory": "5.23",
+      "size": "1.61",
+      "sizeUnit": "GB",
+      "features": [
+        [
+          "文字转录",
+          "99 种语言",
+          true
+        ],
+        [
+          "字幕时间戳",
+          "分句时间戳",
+          true
+        ],
+        [
+          "区分说话人",
+          "当前不支持",
+          false
+        ]
+      ],
+      "boundary": "准确率比较限本次短音频样本；其他材料的结果见测试对比。",
+      "cer": [
+        "13.71%",
+        "41.06%"
+      ]
+    },
+    "whisper4": {
+      "id": "whisper4",
+      "name": "Whisper Turbo 4bit",
+      "source": "OpenAI Whisper · MLX 社区 4bit 版",
+      "logo": "openai.png",
+      "subtitle": "更快 · 更省资源",
+      "position": "多语言字幕，效率更高、运行成本更低",
+      "reason": "与 Whisper Turbo 原版相比，本次近 20 分钟录音转录更快，内存峰值更低，模型文件也更小。保留多语言转录与分句字幕时间戳。",
+      "time": "31.23",
+      "memory": "3.83",
+      "size": "464",
+      "sizeUnit": "MB",
+      "features": [
+        [
+          "文字转录",
+          "99 种语言",
+          true
+        ],
+        [
+          "字幕时间戳",
+          "分句时间戳",
+          true
+        ],
+        [
+          "区分说话人",
+          "当前不支持",
+          false
+        ]
+      ],
+      "boundary": "需要区分多人发言时，选择 MOSS；单纯中文出稿可选择更轻的 Q8。",
+      "cer": [
+        "14.86%",
+        "38.02%"
+      ]
+    },
+    "moss": {
+      "id": "moss",
+      "name": "MOSS Q5",
+      "source": "MOSS · GGUF Q5_K_M · Metal",
+      "mark": "M",
+      "subtitle": "会议访谈 · 匿名分人",
+      "position": "会议和访谈，看清不同人的发言",
+      "reason": "转录结果带句段时间戳和“说话人 1、2”等匿名编号。这批中文样本中文字错误较少，长录音的时间与内存成本更高。",
+      "time": "142.76",
+      "memory": "8.16",
+      "size": "700",
+      "sizeUnit": "MB",
+      "features": [
+        [
+          "文字转录",
+          "中 / 英等",
+          true
+        ],
+        [
+          "字幕时间戳",
+          "句段时间戳",
+          true
+        ],
+        [
+          "区分说话人",
+          "仅本次录音的匿名编号",
+          true
+        ]
+      ],
+      "boundary": "近 20 分钟录音实测内存峰值为 8.16 GB，长录音的资源占用高于模型文件体积。",
+      "cer": [
+        "4.83%",
+        "23.81%"
+      ]
+    },
+    "indextts2": {
+      "id": "indextts2",
+      "name": "IndexTTS 2",
+      "logo": "bilibili.ico",
+      "source": "IndexTeam · CPU 完整参数",
+      "subtitle": "中英克隆 · 延续旧项目",
+      "position": "延续已有中英文音色与项目",
+      "reason": "从参考音频克隆音色，并调节情绪。已有项目使用这一版时，可保留原来的声音方案。",
+      "first": "113.50",
+      "repeat": "77.77",
+      "memory": "6.93",
+      "date": "2026-09-16",
+      "features": [
+        [
+          "声音克隆",
+          "需要参考音频",
+          true
+        ],
+        [
+          "情绪控制",
+          "跟随原音或另行设置",
+          true
+        ],
+        [
+          "输出语言",
+          "中文 / 英文",
+          true
+        ]
+      ],
+      "boundary": "当前走 CPU，等待较长；9 月历史实测可用于估计，尚未在本轮安装版重测。",
+      "size": "约 8.7 GB"
+    },
+    "indextts25": {
+      "id": "indextts25",
+      "name": "IndexTTS 2.5",
+      "logo": "bilibili.ico",
+      "source": "IndexTeam · CPU 完整参数",
+      "subtitle": "五语克隆 · 情绪与读音",
+      "position": "需要控制情绪、读音的五语配音",
+      "reason": "支持中文、英文、日文、西班牙文和阿拉伯文。可在文案中标注读音，并使用情绪与相对语速设置。",
+      "first": "105.74",
+      "repeat": "60.23",
+      "memory": "6.67",
+      "date": "2026-09-16",
+      "features": [
+        [
+          "声音克隆",
+          "需要参考音频",
+          true
+        ],
+        [
+          "情绪与读音",
+          "文案内标注读音",
+          true
+        ],
+        [
+          "输出语言",
+          "中 / 英 / 日 / 西 / 阿",
+          true
+        ]
+      ],
+      "boundary": "当前走 CPU。历史测试中加载后再次生成更快，速度不能推算为长文固定耗时。",
+      "size": "约 11 GB"
+    },
+    "voxcpm2": {
+      "id": "voxcpm2",
+      "name": "VoxCPM2",
+      "logo": "openbmb.png",
+      "source": "OpenBMB · MPS · 48 kHz",
+      "subtitle": "声音克隆 · 48 kHz 输出",
+      "position": "克隆参考声音，输出 48 kHz 音频",
+      "reason": "用参考录音和对应文字生成新内容。这份 40 字样本比两版 Index 等待短，但模型进程的内存峰值较高。",
+      "first": "42.35",
+      "repeat": "29.39",
+      "memory": "14.13",
+      "date": "2026-09-16",
+      "features": [
+        [
+          "声音克隆",
+          "参考音频与准确文字",
+          true
+        ],
+        [
+          "48 kHz 输出",
+          "采样率不等于音质排名",
+          true
+        ],
+        [
+          "生成后释放",
+          "本次接入会退出模型后台",
+          true
+        ]
+      ],
+      "boundary": "这份短文测试观察到 14.13 GiB 峰值；其他输入和配置可能不同。",
+      "size": "约 5.7 GB"
+    },
+    "qwen_tts": {
+      "id": "qwen",
+      "name": "Qwen3-TTS 1.7B",
+      "logo": "qwen.png",
+      "source": "阿里 · MPS BF16 · 三项能力独立安装",
+      "subtitle": "克隆 / 官方音色 / 设计",
+      "position": "从参考声音开始，也能直接选择或设计",
+      "reason": "只准备需要的能力。声音克隆使用参考录音，官方音色无需参考录音，声音设计由文字描述生成新音色。",
+      "first": "39.98",
+      "repeat": "14.74",
+      "memory": "7.45",
+      "date": "2026-09-17",
+      "features": [
+        [
+          "声音克隆",
+          "参考录音与对应文字",
+          true
+        ],
+        [
+          "24 kHz 输出",
+          "生成完整音频后播放",
+          true
+        ],
+        [
+          "模型可复用",
+          "同一参考下再次生成",
+          true
+        ]
+      ],
+      "boundary": "40 字对比峰值 7.45 GiB；整轮多样本测试达到 8.65 GiB。三项能力的资源消耗不同。",
+      "size": "声音克隆约 3.86 GB"
+    }
+  },
+  "qwen": {
+    "clone": {
+      "name": "声音克隆",
+      "position": "复现熟悉的声音，换一段新内容",
+      "reason": "使用参考录音与对应文字生成新内容。适合已经有参考音色的配音。",
+      "first": "39.98",
+      "repeat": "14.74",
+      "memory": "7.45",
+      "size": "约 3.86 GB"
+    },
+    "preset": {
+      "name": "官方音色",
+      "position": "无需参考录音，从 9 种官方音色开始",
+      "reason": "选择音色，输入文案即可配音。表达指令的效果会随音色和文本变化，需要试听确认。",
+      "first": "19.32",
+      "repeat": "10.58–25.38",
+      "memory": "8.15",
+      "size": "约 3.83 GB"
+    },
+    "design": {
+      "name": "声音设计",
+      "position": "描述声音特点，生成新的音色候选",
+      "reason": "用文字描述想要的声音。试听候选后，可保存并继续用于声音克隆。",
+      "first": null,
+      "repeat": null,
+      "memory": "6.16",
+      "size": "约 3.83 GB"
+    }
+  }
+}

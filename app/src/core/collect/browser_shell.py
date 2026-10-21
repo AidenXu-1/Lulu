@@ -60,6 +60,10 @@ def _port_is_available(port: int) -> bool:
     """只检查本机 loopback 绑定，不连接任何外部地址。"""
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
+        # Chrome has already exited when its accepted CDP sockets enter
+        # TIME_WAIT. Ignore those closed connections, while an active listener
+        # still rejects the bind. Never enable SO_REUSEPORT here.
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind(("127.0.0.1", port))
     except OSError:
         return False
@@ -88,8 +92,11 @@ def _default_page_factory(options: Any) -> Any:
             "需要浏览器驱动组件(DrissionPage)未就绪。",
         ) from exc
     if sys.platform == "darwin":
-        from .macos_browser import create_page
-        return create_page(options, ChromiumPage)
+        from .macos_browser import create_page, ChromeLaunchError
+        try:
+            return create_page(options, ChromiumPage)
+        except ChromeLaunchError as exc:
+            raise BrowserShellError(exc.code, str(exc)) from None
     return ChromiumPage(options)
 
 

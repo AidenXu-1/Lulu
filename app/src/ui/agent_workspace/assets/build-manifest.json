@@ -465,8 +465,8 @@
       "sha256": "6db421a49730a13ed73e66b35b932ea272eff83b991927f58d58aaa56ed0d10c"
     },
     "workspace.js": {
-      "bytes": 580109,
-      "sha256": "2fa0f47b1e8e35d69621ce74ffdff8185ba576de72ebaef11d0b1333271dfe41"
+      "bytes": 580173,
+      "sha256": "2c08073becb40b513e8fb3b6e788724f38e2ba15e6d1f7ba74d1a84437e55851"
     }
   },
   "inputs": [
@@ -1997,10 +1997,10 @@
           "bytesInOutput": 7120
         },
         "workspace.js": {
-          "bytesInOutput": 107880
+          "bytesInOutput": 107944
         }
       },
-      "bytes": 580109
+      "bytes": 580173
     },
     "assets/workspace.css": {
       "imports": [],

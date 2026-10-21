@@ -42,7 +42,7 @@ class ProviderConfigSnapshot:
     model_name: str
 
 
-DEFAULT_ENGINE = "local_sensevoice"
+DEFAULT_ENGINE = "local_sensevoice_q8"
 
 _KEY = Field("api_key", "API Key", placeholder="粘贴你的 API Key")
 
@@ -103,7 +103,7 @@ _LOCAL_PRESETS = {
     m.id: Provider(
         id=m.id, display_name=f"本地 · {m.display_name}",
         kind="local", requires_network=False,
-        price_hint="完全离线、不上传、免费;在「AI 大模型配置」→「文案提取」下载/管理",
+        price_hint="完全离线、不上传、免费;在「AI 大模型配置」→「内容提取」下载/管理",
     )
     for m in _alm()
 }

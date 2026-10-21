@@ -204,9 +204,13 @@ def capability_discovery(
         # The immutable historical matrix predates the closed JSON adapters.
         # Discovery must describe executable syntax, including required flags.
         current_templates = {
+            'SYS-01': 'lulu version --output json',
+            'SYS-02': 'lulu capabilities --output json',
+            'SYS-03': 'lulu status --output json',
+            'SYS-04': 'lulu doctor --output json',
             'TR-01': 'lulu transcribe prepare <file> [--engine <engine>] --output json',
             'TR-02': 'lulu transcribe run <file> [--engine <engine>] --output json',
-            'TR-03': 'lulu transcribe run <file> --engine {local_qwen3|local_whisper_mlx} --output json',
+            'TR-03': 'lulu transcribe run <file> --engine {local_sensevoice_q8|local_whisper_mlx|local_whisper_mlx_4bit|local_moss_q5} --output json',
             'TR-05': 'lulu transcribe {prepare|run} <url> --output json',
             'TR-06': 'lulu transcribe {prepare|run} <url> --prefer-subtitles --output json',
             'TR-07': 'lulu transcribe {prepare|run} <url> --save-media --media-directory <directory> --output json',

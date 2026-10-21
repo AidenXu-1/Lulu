@@ -50,13 +50,13 @@ class MediaTests(unittest.TestCase):
 
     def pipeline(self, source, *, engine_name, progress, is_cancelled):
         self.calls.append(Path(source).read_bytes())
-        self.assertEqual(engine_name, 'local_sensevoice')
+        self.assertEqual(engine_name, 'local_sensevoice_q8')
         self.assertNotEqual(Path(source), self.source)
         progress('识别中', .6)
         return Transcript('转录结果。', [Segment('转录结果。', 0, 1)], 'zh', engine_name, source, meta={})
 
     def plan(self, request='fixture'):
-        return self.service.prepare_media(self.chat['id'], request, str(self.source), 'local_sensevoice')
+        return self.service.prepare_media(self.chat['id'], request, str(self.source), 'local_sensevoice_q8')
 
     def start(self, plan=None):
         plan = plan or self.plan()

@@ -369,7 +369,7 @@ def _fetch_managed_media(item, download_mode, destination, is_cancelled):
             raise InterruptedError("素材下载已取消")
 
     # 主页的「音视频文件」始终代表完整视频。保留入参仅为与
-    # ManagedMediaFetcher 协议兼容，不让文案提取页的「仅音频」偏好泄漏到主页。
+    # ManagedMediaFetcher 协议兼容，不让内容提取页的「仅音频」偏好泄漏到主页。
     _ = download_mode
     root = Path(destination)
     sources = reliable_media_sources(item)
@@ -975,10 +975,14 @@ class CollectionPage(QWidget):
         cover_preference_service=None,
         cover_workflow=None,
         collection_task_states=None,
+        douyin_login_open=None, douyin_login_state=None, douyin_login_busy=None,
     ):
         super().__init__()
         self.cfg = cfg
         self._on_transcribe = on_transcribe
+        self._douyin_login_open = douyin_login_open
+        self._douyin_login_state = douyin_login_state
+        self._douyin_login_busy = douyin_login_busy or (lambda: False)
         self._service = collection_service or CollectionApplicationService()
         self._items: list = []
         self._view: list = []
@@ -1678,7 +1682,7 @@ class CollectionPage(QWidget):
     def _settle_material_preference(self, receipt) -> bool:
         if receipt.success:
             self._sync_material_preferences(receipt.current_snapshot)
-            self.status.setText("已同步到文案提取和主页采集")
+            self.status.setText("已同步到内容提取和主页采集")
             return True
         self._sync_material_preferences(receipt.previous_snapshot)
         dialogs.alert(
@@ -1916,7 +1920,8 @@ class CollectionPage(QWidget):
             self.grab_btn.setAccessibleName(text)
             self.grab_btn.setEnabled(not self._stopping_collection)
         else:
-            logged = is_logged_in()
+            shared = self._douyin_login_state
+            logged = shared()[0] in {'已登录', '已保存浏览器登录'} if shared else is_logged_in()
             text = (
                 "正在停止…"
                 if self._stopping_collection
@@ -2095,7 +2100,9 @@ class CollectionPage(QWidget):
         if self._active_collection_mode == "full":
             self._on_full_grab()
             return
-        if not is_logged_in():
+        shared = self._douyin_login_state
+        logged = shared()[0] in {'已登录', '已保存浏览器登录'} if shared else is_logged_in()
+        if not logged:
             self._on_login()
             return
         self._on_full_grab()
@@ -3101,6 +3108,9 @@ class CollectionPage(QWidget):
             else:
                 self.status.setText("正在停止…（已采集的会保留）")
             return
+        if self._douyin_login_busy():
+            self.status.setText('请先完成或取消抖音登录，再开始采集。')
+            return
         url = self.input.text().strip()
         if not url:
             self.status.setText("请先粘贴作者主页链接。")
@@ -3158,6 +3168,9 @@ class CollectionPage(QWidget):
             self._render_collection_mode_state()
             self.status.setText("正在停止全量采集…（已采集的会保留）")
             return
+        if self._douyin_login_busy():
+            self.status.setText('请先完成或取消抖音登录，再开始采集。')
+            return
         if self._collect_running():
             self.status.setText("已有采集任务在运行，请先停止。")
             return
@@ -3165,8 +3178,10 @@ class CollectionPage(QWidget):
         if not url:
             self.status.setText("请先粘贴作者主页链接。")
             return
+        shared = self._douyin_login_state
+        logged = shared()[0] in {'已登录', '已保存浏览器登录'} if shared else is_logged_in()
         lead = ("将在浏览器里用你的登录态，采集该作者的全部作品。建议用小号登录。"
-                if is_logged_in() else
+                if logged else
                 "会先弹出浏览器让你登录抖音（建议用小号），再采集该作者的全部作品。")
         mode_line = (
             "将使用快速全量采集；如出现真实可见验证，"
@@ -3524,18 +3539,22 @@ class CollectionPage(QWidget):
 
     # ---------------- 登录 ----------------
     def _refresh_login_status(self) -> None:
-        logged = is_logged_in()
+        label, saved = self._douyin_login_state() if self._douyin_login_state else ('已登录' if is_logged_in() else '未登录', is_logged_in())
+        logged = label in {'已登录', '已保存浏览器登录'}
         # 状态小圆点：已登录绿 / 未登录灰
         self.login_dot.setStyleSheet(
             f"background:{T.GREEN if logged else self._consumer.ink_muted};border-radius:4px;")
-        self.login_status.setText("已登录" if logged else "未登录")
-        self.login_btn.setText("重新登录" if logged else "登录账号")
+        self.login_status.setText(label)
+        self.login_btn.setText("重新登录" if label != "未登录" else "登录账号")
         # 只在有登录档案时才让「清除登录」可点
-        self.clear_login_btn.setEnabled(logged)
+        self.clear_login_btn.setEnabled(saved and not self._douyin_login_busy())
         if hasattr(self, "full_btn"):
             self._render_collection_mode_state()
 
     def _on_clear_login(self) -> None:
+        if self._douyin_login_open:
+            self._douyin_login_open('clear')
+            return
         if self._collect_running():
             self.status.setText("正在采集中，请先停止采集再清除登录。")
             return
@@ -3557,6 +3576,9 @@ class CollectionPage(QWidget):
                             if removed else "没有可清除的登录档案（当前未登录）。")
 
     def _on_login(self) -> None:
+        if self._douyin_login_open:
+            self._douyin_login_open('login')
+            return
         if self._collect_running() or (self._xhs_login_worker and self._xhs_login_worker.isRunning()):
             self.status.setText("已有采集或登录任务在运行，请先完成或停止。")
             return

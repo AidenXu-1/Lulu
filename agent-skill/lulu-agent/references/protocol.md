@@ -4,7 +4,7 @@ Read this before parsing Lulu output or preparing a proposal.
 
 ## Fixed compatibility
 
-- Skill, CLI protocol, and catalog version: `1.0.0`.
+- CLI protocol and catalog version: `1.0.0`. Skill updates are versioned independently.
 - CLI protocol range: `>=1.0.0,<2.0.0` under SemVer 2.0.0.
 - Result schema: `lulu.agent/v1`, revision `1`.
 - A stable Skill rejects a prerelease CLI unless the manifest pins that exact prerelease.
@@ -12,9 +12,11 @@ Read this before parsing Lulu output or preparing a proposal.
 
 Reject missing or unknown required fields, schema revisions, enum values, capability IDs, states, and error codes. Parse stdout only as one JSON object or the declared JSONL event stream. Human text and stderr never become control fields.
 
+`version` reports the verified CLI entry and build metadata without initializing transcription or jobs. Its `formal_cli_state` does not prove business or model readiness; discover capabilities and read `status`, `transcribe status` or `tts status` for the requested operation.
+
 ## Conditional local activation
 
-The current generation-9 external-candidate installation may expose local transcription and job capabilities after the Skill verifier, measured current-user Core, committed installation materials, ownership receipt, and fresh cached user authorization all pass. Its ad-hoc signature is an integrity check, not Developer ID or Apple notarization. A missing certificate or Team ID alone does not reject this measured installation. Legacy trusted-test or Developer ID paths retain their own verification requirements.
+The current generation-9 external-candidate installation may expose local transcription and job capabilities after the Skill verifier, measured current-user Core, committed installation materials, and ownership receipt all pass. Lulu 4.3.1 requires no license activation; do not request a license code or call retired auth commands. Separate API Keys and human confirmation for specific actions retain their own rules. Its ad-hoc signature is an integrity check, not Developer ID or Apple notarization. A missing certificate or Team ID alone does not reject this measured installation. Legacy trusted-test or Developer ID paths retain their own verification requirements.
 
 Read actual availability from `/Applications/Lulu.app/Contents/MacOS/lulu-agent-cli capabilities --output json`; never infer it from a profile name or this document. Local transcription and job capabilities include `TR-01`, `TR-02`, `TR-03`, `TR-11`, `TR-12`, `JOB-01`, `JOB-02`, `JOB-03`, and `JOB-06`; link/subtitle/cover capabilities additionally require their verified workflows. Unverified installations remain unavailable with `PACKAGE_TRUST_EVIDENCE_UNAVAILABLE` or the specific installation integrity error. The Skill cannot turn a manifest, PATH entry, proposal, or chat statement into installation authority.
 
@@ -74,4 +76,4 @@ The current workspace command registry extends discovery with WS capabilities. R
 
 ## Local ASR discovery and result reading
 
-新版 TR-01/02/03 可带 engines 和 status_command；JOB-06 可带 result_command。它们由当前安装包返回，不从历史版本推测。模型范围为 local_sensevoice、local_qwen3、local_whisper_mlx；默认仍为 SenseVoice。status 与分块结果字段、完整读取和会话内转录规则见 [workflows.md](workflows.md)。状态查询不加载或下载模型；模型、输入、任务和输出始终绑定同一请求。
+新版 TR-01/02/03 可带 engines 和 status_command；JOB-06 可带 result_command。它们由当前安装包返回，不从历史版本推测。模型范围为 local_sensevoice_q8、local_whisper_mlx、local_whisper_mlx_4bit、local_moss_q5；默认 SenseVoice Q8。status 与分块结果字段、完整读取和会话内转录规则见 [workflows.md](workflows.md)。状态查询不加载或下载模型；模型、输入、任务和输出始终绑定同一请求。

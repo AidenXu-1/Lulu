@@ -15,13 +15,15 @@ from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QLabel
 
 
-# 文案提取样板的图标语义。只在显式调用 consumer_* helper 时生效，
+# 内容提取样板的图标语义。只在显式调用 consumer_* helper 时生效，
 # 不改变既有页面传入的任意尺寸与描边。
 CONSUMER_ICON_SIZES = {"feature": 20, "control": 16, "compact": 13}
 CONSUMER_ICON_STROKE = 1.8
 
 # 每个图标是 viewBox=0 0 24 24 的描边路径（stroke=currentColor 占位，渲染时替换）
 _PATHS = {
+    "browser": '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 9h20M6 6.5h.1M9 6.5h.1"/>',
+    "shield": '<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/>',
     "workspace_grid": '<path d="M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"/>',
     "workspace_doc": '<path d="M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6"/>',
     "trash": '<path d="M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7"/>',
@@ -58,7 +60,7 @@ _PATHS = {
     # 面板折叠图标（IDE 风格：边框 + 一条竖线分出侧栏）
     "panel_left": '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/>',
     "panel_right": '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/>',
-    # 头戴式耳机（文案提取）
+    # 头戴式耳机（内容提取）
     "headphones": '<path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>',
     # 单人（主页采集）
     "user": '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',

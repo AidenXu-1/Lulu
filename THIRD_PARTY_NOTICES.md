@@ -5,7 +5,8 @@ Lulu 的 MIT 许可仅适用于本项目第一方代码和有权授予许可的�
 | 范围 | 许可与来源 |
 | --- | --- |
 | 桌面界面 PySide6 / Qt | LGPL-3.0、GPL-3.0 或商业许可，按实际模块适用；官方说明：https://doc.qt.io/qtforpython-6/licenses.html。动态库及原许可随发行保留，使用者可依法替换相应库。 |
-| 本地转录与模型 | FunASR、SenseVoice、Whisper MLX、Qwen-ASR、PyTorch、ModelScope 等按各自代码及模型许可使用；依赖见 `app/requirements.txt`。模型权重未纳入源码仓库。 |
+| 本地转录与模型 | FunASR、SenseVoice Q8、Whisper MLX / 4bit、MOSS、PyTorch、ModelScope 等按各自代码及模型许可使用；依赖见 `app/requirements.txt`。模型权重未纳入源码仓库。 |
+| 原生 ASR 运行工具 | SenseVoice、llama.cpp、transcribe.cpp 的公开来源和固定提交见 `app/packaging/build_asr_runtime.py`；构建保留原 LICENSE 与第三方声明，不附带模型权重。 |
 | 主页采集 | 原来源及修改说明见 `app/THIRD_PARTY_NOTICES_DOUYIN_COLLECT.md`。 |
 | 直播录制 | StreamGet 来源、版本和修改说明见 `app/THIRD_PARTY_NOTICES_LIVE_RECORDING.md`；MIT 原文保留在 `app/src/core/live_recording/STREAMGET_LICENSE.txt`。 |
 | 音视频处理 | imageio-ffmpeg 及实际 FFmpeg 二进制按各自构建许可使用；FFmpeg 官方许可与对应源码：https://ffmpeg.org/legal.html。 |

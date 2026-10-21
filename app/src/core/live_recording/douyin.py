@@ -101,17 +101,21 @@ def parse_room(payload, web_rid=''):
         pull = core.get('pull_data') or core.get('pullData') or {}
         raw = _object(pull.get('stream_data') or pull.get('streamData') or {})
         for quality, entry in raw.get('data', {}).items():
-            main = entry.get('main') or {}
-            sdk = _object(main.get('sdk_params') or {})
-            bitrate = max(0, int(sdk.get('vbitrate') or 0))
-            # Origin ranks above unavailable bitrate metadata; equal bitrate prefers H264.
-            if quality.lower() == 'origin' and not bitrate:
-                bitrate = 100000000
-            codec = str(sdk.get('VCodec') or '').lower()
-            for protocol in ('flv', 'hls'):
-                url = main.get(protocol)
-                if safe_stream_url(url):
-                    choices.append(Stream(url, protocol, bitrate, codec))
+            for line in ('main', 'backup'):
+                stream = entry.get(line) or {}
+                try:
+                    sdk = _object(stream.get('sdk_params') or {})
+                    bitrate = max(0, int(sdk.get('vbitrate') or 0))
+                    # Origin ranks above unavailable bitrate metadata; equal bitrate prefers H264.
+                    if quality.lower() == 'origin' and not bitrate:
+                        bitrate = 100000000
+                    codec = str(sdk.get('VCodec') or '').lower()
+                except (TypeError, ValueError, AttributeError):
+                    continue  # One bad route must not hide its usable alternative.
+                for protocol in ('flv', 'hls'):
+                    url = stream.get(protocol)
+                    if safe_stream_url(url):
+                        choices.append(Stream(url, protocol, bitrate, codec))
     except (TypeError, ValueError, AttributeError):
         return Observation('parse_error', sec_uid, rid, name, metrics=metrics)
     if not choices:
@@ -125,7 +129,10 @@ def parse_room(payload, web_rid=''):
                     if safe_stream_url(url):
                         choices.append(Stream(url, protocol, quality_rank.get(quality, 0)))
     choices.sort(key=lambda s: (-s.bitrate, s.codec not in {'h264', 'avc'}, s.protocol != 'flv'))
-    return Observation('live' if choices else 'parse_error', sec_uid, rid, name, tuple(choices), metrics=metrics)
+    internal = str(room.get('id_str') or room.get('id') or '')
+    internal = internal if re.fullmatch(r'[0-9]{1,20}', internal) else ''
+    return Observation('live' if choices else 'parse_error', sec_uid, rid, name, tuple(choices),
+                       metrics=metrics, room_id=internal)
 
 class DouyinProvider:
     def __init__(self, session_factory=requests.Session):

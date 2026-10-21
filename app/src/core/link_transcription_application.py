@@ -25,7 +25,7 @@ from .job_ledger.store import JobLedgerStore
 _FORMATS = frozenset({"txt", "md", "srt"})
 _MEDIA_MODES = frozenset({"audio", "video"})
 _SUBTITLE_FALLBACKS = frozenset({"local_transcription", "fail"})
-_ENGINE = "local_sensevoice"
+from .local_transcription_models import DEFAULT_ENGINE as _ENGINE, normalize_engine
 _DEFAULT_OUTPUT = "shared_lulu_transcript_default"
 _APPROVAL_LIFETIME_SECONDS = 120.0
 _RECEIPT_SEAL = object()
@@ -104,6 +104,7 @@ def run_link_transcription_pipeline_adapter(
     return transcribe_source(
         request.source,
         engine_name=request.engine,
+        required_format=request.format,
         enable_link_download=True,
         keep_media=request.save_media,
         media_dir=request.media_directory,
@@ -369,6 +370,9 @@ class LinkTranscriptionJobBackend:
             "lease_epoch": running.attempts[-1].lease_epoch,
         }
 
+    def is_cancelled(self, job_id):
+        return self._control.show(job_id).state is not JobState.RUNNING
+
     def complete_success(
         self, *, claims: _LinkApprovalClaims, result_ref: str
     ) -> dict[str, object]:
@@ -386,6 +390,12 @@ class LinkTranscriptionJobBackend:
         self, *, claims: _LinkApprovalClaims, reason_code: str
     ) -> None:
         del reason_code
+        job = self._control.show(claims.job_id)
+        if job.state is JobState.CANCEL_REQUESTED:
+            completed = self._control.settle_cancelled(claims.job_id, expected_revision=job.job_revision,
+                lease_token=self._leases[claims.job_id], changed_at=self._now())
+            self._revisions[claims.job_id] = completed.job_revision
+            return
         completed = self._control.complete_worker(
             claims.job_id,
             expected_revision=self._revisions[claims.job_id],
@@ -657,9 +667,11 @@ class LinkTranscriptionApplicationService:
             transcript = self._pipeline_runner(
                 request=request,
                 progress=lambda _message, _fraction: None,
-                is_cancelled=lambda: False,
+                is_cancelled=lambda: self._job_backend.is_cancelled(claims.job_id),
                 cover_workflow=self._cover_workflow,
             )
+            if self._job_backend.is_cancelled(claims.job_id):
+                raise InterruptedError('转录已取消')
             if callable(self._result_writer):
                 stored = self._result_writer(claims.job_id, transcript)
             else:
@@ -730,7 +742,8 @@ class LinkTranscriptionApplicationService:
         save_cover: bool,
         output_destination: str,
     ) -> LinkTranscriptionRequestV1:
-        if engine != _ENGINE:
+        from .engines.local_models import LOCAL_MODELS
+        if engine not in LOCAL_MODELS:
             raise LinkTranscriptionError("INVALID_ARGUMENT", "ENGINE_UNSUPPORTED")
         if format not in _FORMATS:
             raise LinkTranscriptionError("INVALID_ARGUMENT", "FORMAT_UNSUPPORTED")

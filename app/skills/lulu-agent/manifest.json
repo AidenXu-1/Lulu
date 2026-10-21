@@ -2,7 +2,7 @@
   "schema_id": "lulu.agent-skill-manifest/v1",
   "schema_revision": 1,
   "name": "lulu-agent",
-  "skill_version": "1.1.0",
+  "skill_version": "1.1.2",
   "candidate_generation": 9,
   "product_identity": {
     "product_version": "0.3.2",

@@ -34,7 +34,7 @@ class DashScopeEngine(TranscriptionEngine):
             raise InterruptedError("转录已取消")
         if not self._api_key:
             raise RuntimeError(
-                f"{self.display_name} 还没配置 API Key。请在「AI 大模型配置」→「文案提取」→ 云端 API 里填入,或切回本地引擎。"
+                f"{self.display_name} 还没配置 API Key。请在「AI 大模型配置」→「内容提取」→ 云端 API 里填入,或切回本地引擎。"
             )
         progress(f"上传音频到 {self.display_name}…", -1.0)
         import dashscope
