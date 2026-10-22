@@ -165,11 +165,15 @@ class ModelController(QObject):
     def storage_is_busy(self):
         return any(w.isRunning() and (mid or key=='storage') for key, (w, mid) in self.active.items())
 
-    def _gate(self, mid=None, *, destructive=False):
-        if self.closing or self.storage_busy() or self.relocation_busy():
+    def _gate(self, mid=None, *, destructive=False, relocating=False):
+        if self.closing or self.storage_busy():
             raise RuntimeError('本地资料正在迁移或关闭，请稍后再试。')
         if self.storage_is_busy() or any(k.startswith('cloud-save:') and w.isRunning() for k,(w,_) in self.active.items()):
             raise RuntimeError('有模型操作正在进行，请等它结束或暂停后再试。')
+        # Moving the shared root needs every task idle. Individual model actions
+        # only conflict with that model; the relocation probe also sees our own job.
+        if relocating and self.relocation_busy():
+            raise RuntimeError('有任务正在进行或模型仍在内存中，请先结束任务并释放模型，再移动保存位置。')
         if mid and (destructive or self.model_in_use(mid)):
             reason = self.model_in_use(mid)
             if reason:
@@ -331,7 +335,7 @@ class ModelController(QObject):
         name, key, mid = FEATURE_IDS[id], 'feature:'+id, 'local_qwen3_tts'
         active = self.active.get('qwen')
         if action in {'pause','cancel'} and active:
-            if self.storage_busy() or self.relocation_busy() or self.closing:
+            if self.storage_busy() or self.closing:
                 raise RuntimeError('模型位置正在变化，请稍后再试。')
             phase=dp.read_state()['features'].get(name,{}).get('state')
             if phase not in {'queued','installing','paused'}:
@@ -349,7 +353,7 @@ class ModelController(QObject):
             self.publish()
             return
         if active and action in {'install','resume'}:
-            if self.storage_busy() or self.relocation_busy() or self.closing:
+            if self.storage_busy() or self.closing:
                 raise RuntimeError('模型位置正在变化，请稍后再试。')
             dp.request([name])
             self.jobs[key]=dict(status='running',paused=False,progress=-1,message='等待安装…')
@@ -402,7 +406,7 @@ class ModelController(QObject):
     def storage_change(self,purpose):
         if purpose not in {'extract','voice'}:
             raise ValueError('请选择模型用途')
-        self._gate()
+        self._gate(relocating=True)
         for mid in MODEL_IDS.values():
             if self.model_in_use(mid):
                 raise RuntimeError('请先结束模型任务并释放已加载的模型，再移动保存位置。')
@@ -411,7 +415,7 @@ class ModelController(QObject):
             return
         if not dialogs.confirm(self.host,'移动已有模型',f'将转录和配音模型一起移动到：\n{directory}\n移动期间请保持 Lulu 打开。',ok='移动'):
             return
-        self._gate()
+        self._gate(relocating=True)
         for mid in MODEL_IDS.values():
             if self.model_in_use(mid):
                 raise RuntimeError('模型已开始运行，移动已取消。请结束任务后重试。')

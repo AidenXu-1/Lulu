@@ -110,6 +110,25 @@ for provider in fixture['providers']:
   if len(provider['modes'])>1:click('#service');click('#menu-items button[data-index="'+str(i)+'"]')
   if mode.get('available') is False:assert js('document.querySelector("#api-key")===null && document.querySelector("#save-connection")===null')
  if len(provider.get('modes',[]))>1:click('#service');click('#menu-items button[data-index="0"]')
+# Each explicit new-key action starts a fresh form, even after a prior check.
+click('[data-provider="deepseek"]')
+click('#saved-connection');click('#menu-items button:last-child')
+input_value('#api-key','new-key-form-fixture');click('#test-connection')
+until(lambda:js('document.querySelector("#api-key").value')=='')
+click('#saved-connection');click('#menu-items button[data-index="0"]')
+click('#saved-connection');click('#menu-items button:last-child')
+assert js('document.querySelector("#api-key").placeholder')=='输入 API 密钥'
+assert js('document.querySelector("#test-connection").disabled')
+# A reply from the abandoned new-key form cannot fill the replacement form.
+bridge.hold=True;input_value('#api-key','abandoned-key-fixture');click('#test-connection')
+until(lambda:bool(bridge.held))
+click('#saved-connection');click('#menu-items button[data-index="0"]')
+click('#saved-connection');click('#menu-items button:last-child')
+bridge.reply.emit(bridge.held.pop(),json.dumps({'ok':True,'value':{'credentialId':'workspace-key-abandoned','status':'success','message':'ABANDONED'}}));tick()
+assert js('document.querySelector("#api-key").placeholder')=='输入 API 密钥'
+assert 'ABANDONED' not in js('document.querySelector("#connection-feedback").textContent')
+bridge.hold=False
+credential_checks={'repeated_new_key':True,'abandoned_reply':True}
 # Region and service drafts never share an entered key.
 click('[data-provider="minimax"]');click('#service');click('#menu-items button[data-index="0"]');input_value('#api-key','china-fixture')
 click('#region');click('#menu-items button[data-index="1"]');assert js('document.querySelector("#api-key").value')=='';input_value('#api-key','international-fixture')
@@ -203,5 +222,5 @@ assert js('document.querySelector("#test-connection").getBoundingClientRect().ri
 from tests.model_settings_pointer_cases import run_pointer_cases
 pointer_checks=run_pointer_cases(view,js,tick,bridge,fixture)
 assert not page.errors,page.errors
-print(json.dumps({'checks':'passed','requests':len(bridge.calls),'errors':page.errors,'model_list_height':180,'pointer_checks':pointer_checks},ensure_ascii=False))
+print(json.dumps({'checks':'passed','requests':len(bridge.calls),'errors':page.errors,'model_list_height':180,'pointer_checks':pointer_checks,'credential_checks':credential_checks},ensure_ascii=False))
 view.close();page.deleteLater();tick();profile.deleteLater();tick()

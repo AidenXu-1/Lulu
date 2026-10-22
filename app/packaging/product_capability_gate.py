@@ -969,6 +969,22 @@ CAPABILITY_TESTS = (
     "test_default_model_removal_confirms_offline_gap_without_an_available_fallback",
     "tests.test_model_lifecycle_management.ModelLifecycleUiTests."
     "test_in_use_and_relocation_prevent_model_changes",
+    "tests.test_model_lifecycle_management.ModelLifecycleUiTests."
+    "test_unrelated_extraction_does_not_block_tts_install",
+    "tests.test_model_lifecycle_management.ModelLifecycleUiTests."
+    "test_another_install_still_blocks_model_storage_changes",
+    "tests.test_model_lifecycle_management.ModelLifecycleUiTests."
+    "test_qwen_active_install_can_pause_cancel_and_queue_another_feature",
+    "tests.test_model_lifecycle_management.ModelLifecycleUiTests."
+    "test_loaded_index_version_only_blocks_its_own_install",
+    "tests.test_model_lifecycle_management.ModelLifecycleUiTests."
+    "test_actual_relocation_still_blocks_active_qwen_controls",
+    "tests.test_model_lifecycle_management.ModelLifecycleUiTests."
+    "test_active_task_blocks_relocation_before_folder_picker",
+    "tests.test_model_lifecycle_management.ModelLifecycleUiTests."
+    "test_task_starting_during_relocation_confirmation_prevents_move",
+    "tests.test_model_lifecycle_management.ModelLifecycleUiTests."
+    "test_idle_relocation_still_moves_only_after_confirmation",
     "tests.test_voice_page_model_shell.VoicePageModelShellTests."
     "test_set_text_strips_transcript_document_metadata_and_aligns_source_snapshot",
     "tests.test_indextts2_worker_p1ab.IndexTTS2WorkerP1abTests."
@@ -1002,6 +1018,30 @@ CAPABILITY_TESTS = (
     "tests.test_auto_update.AutoUpdateTests."
     "test_success_cleanup_removes_update_artifacts_but_never_follows_links",
     'tests.test_models_page_tts_size_worker.ModelsPageOwnedWorkerTests.test_existing_tts_with_missing_environment_offers_repair',
+    "tests.test_model_settings_stability.ConnectionStabilityTests."
+    "test_failed_new_connection_removes_only_its_newly_written_key",
+    "tests.test_model_settings_stability.ConnectionStabilityTests."
+    "test_failed_existing_connection_never_removes_its_saved_key",
+    "tests.test_model_settings_stability.ConnectionStabilityTests."
+    "test_transaction_failure_preserves_old_models_and_cleans_new_key",
+    "tests.test_model_settings_stability.ConnectionStabilityTests."
+    "test_error_after_transaction_commit_keeps_referenced_key",
+    "tests.test_model_settings_stability.ConnectionStabilityTests."
+    "test_refresh_failure_after_commit_keeps_new_connection_key",
+    "tests.test_model_settings_stability.ConnectionStabilityTests."
+    "test_cleanup_failure_is_explicit_and_does_not_touch_old_key",
+    "tests.test_model_settings_stability.ConnectionStabilityTests."
+    "test_asr_save_failure_restores_key_selection_and_public_state",
+    "tests.test_model_settings_stability.ConnectionStabilityTests."
+    "test_directory_failures_do_not_save_keys_or_disclose_response",
+    "tests.test_model_settings_stability.ConnectionStabilityTests."
+    "test_directory_timeout_preserves_existing_connection",
+    "tests.test_model_settings_stability.ConnectionStabilityTests."
+    "test_provider_modes_and_regions_keep_their_registered_endpoint",
+    "tests.test_models_page_secret_toggle.ModelsPageFrontendTests."
+    "test_repeated_new_key_starts_empty_and_discards_abandoned_reply",
+    "tests.test_basic_stability.BasicStabilityTests."
+    "test_repeated_navigation_close_and_reopen_preserve_tasks_and_manuscript",
 )
 
 _OBJECT_RE = re.compile(r"^[0-9a-f]{40}$")

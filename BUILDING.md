@@ -1,6 +1,6 @@
 # 从源码构建 Lulu
 
-本版为 **4.3.1 / 20261021.7**，提供实际产品的完整第一方源码、资源、CLI、后台、Skill 与构建入口。第一方 MIT，第三方保留原许可。无需激活码、维护者私钥或维护者的个人资料。
+本版为 **4.3.1 / 20261022.1**，提供实际产品的完整第一方源码、资源、CLI、后台、Skill 与构建入口。第一方 MIT，第三方保留原许可。无需激活码、维护者私钥或维护者的个人资料。
 
 ## 环境与依赖
 
@@ -39,8 +39,8 @@ tar -xzf app/build/asr-sources/moss-source.tar.gz --strip-components=1 -C app/bu
 ```sh
 .venv/bin/python -B app/packaging/product_capability_gate.py   --repo "$PWD" --output /private/tmp/lulu-product-checks.json
 
-export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261021.7"
-export LULU_DIST_ROOT="$PWD/app/dist/phase10-production-20261021.7"
+export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261022.1"
+export LULU_DIST_ROOT="$PWD/app/dist/phase10-production-20261022.1"
 export LULU_PRODUCTION_RELEASE_AUTHORIZED=1
 export LULU_UPDATE_RELEASE=0
 export LULU_UPDATE_PUBLIC_KEY_PATH="$PWD/app/packaging/update-verification-key.pem"
@@ -63,6 +63,6 @@ Git 克隆使用公开祖先版本，源码 ZIP 通过 SOURCE_MANIFEST.json 校�
 
 ## 官方发行包的源码定位
 
-4.3.1 / 20261021.7 官方 App 的构建提交为 `a1f9e457d24fa2cc9e5f5e2a42de5a99ce8e2863`。发布标签另包含说明文档与源码清单更新，产品实现和正式测试与该构建提交一致。私有开发仓库不作为源码下载入口。
+4.3.1 / 20261022.1 官方 App 的构建提交为 `a1f9e457d24fa2cc9e5f5e2a42de5a99ce8e2863`。发布标签另包含说明文档与源码清单更新，产品实现和正式测试与该构建提交一致。私有开发仓库不作为源码下载入口。
 
 `v4.3.1` 标签保留发布时的源码快照；`main` 可以继续修订说明文档。核对官方 App 的原始构建身份时，以以上构建提交为准。

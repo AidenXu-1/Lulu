@@ -1,9 +1,9 @@
 {
   "schema": 2,
   "version": "4.3.1",
-  "build": "20261021.7",
+  "build": "20261022.1",
   "product_release": "v4.3.1",
-  "base_public_revision": "6a52b3a6bc8521012d3c01d2e49e05c3f99394f9",
+  "base_public_revision": "c7a2920926d7cf29eae7d5f49f8bfc75406cbbe6",
   "files": [
     {
       "path": ".gitignore",
@@ -14,7 +14,7 @@
     {
       "path": "BUILDING.md",
       "size": 4615,
-      "sha256": "1c1832e255cce842cf4342a9060df3e101b9b4fcb72b68f81480b9cb4f2db24f",
+      "sha256": "1a48a7a8284e1be7b9e7104d3ae49dbbe2974c2e11129b4711e04b67f33b5f91",
       "mode": "100644"
     },
     {
@@ -25,8 +25,8 @@
     },
     {
       "path": "README.md",
-      "size": 4887,
-      "sha256": "bf3d131dca49f65eb27da4e0eca13b5bd960283d64501fc886f9d614ad058c04",
+      "size": 5187,
+      "sha256": "e79cbcd057a905b7dfc0c0b998190ab32ee7bf5b3da1f3a90d2e5eb39e3b8fee",
       "mode": "100644"
     },
     {
@@ -350,13 +350,13 @@
     {
       "path": "app/packaging/product_baseline_gate.py",
       "size": 4103,
-      "sha256": "689b2afe41785104f13476ff4cd6b88e1debdb505c0b4fa67075b6b09ef14882",
+      "sha256": "a81a3058c8913024a96b2454143a3bddb353cafa90023104c996c7b6aff694ed",
       "mode": "100755"
     },
     {
       "path": "app/packaging/product_capability_gate.py",
-      "size": 116838,
-      "sha256": "e9cb209af34ce2e3fc37fa58edf481746a961ed29ea989a63528aec9e6118534",
+      "size": 119520,
+      "sha256": "7e92b0f7c4c79a73d652137036c467269eff7f0f75e6af3104201bf066fa0a78",
       "mode": "100755"
     },
     {
@@ -1867,8 +1867,8 @@
     },
     {
       "path": "app/src/core/model_connections.py",
-      "size": 31862,
-      "sha256": "8a356ddde01e489daf8ce1fd7497ac9846540510d90ecccbb8acdfb76a9b8795",
+      "size": 32992,
+      "sha256": "f7b188c6cca621dd567e468433a5897b74a2c6688df24c9739afd1e75653c152",
       "mode": "100644"
     },
     {
@@ -3259,14 +3259,14 @@
     },
     {
       "path": "app/src/ui/model_settings/assets/settings.js",
-      "size": 52625,
-      "sha256": "68b2eefb68d0dd6c5fa446594c9223a8b151f56e6a44928fcd9fde7700a52278",
+      "size": 52995,
+      "sha256": "79b8639254276d97159d5f03c5a3bfd517e44086c2a0cd3dc6dc3db21b1f9d16",
       "mode": "100644"
     },
     {
       "path": "app/src/ui/model_settings/controller.py",
-      "size": 23427,
-      "sha256": "81bb2fc9e0449b6fc220115193da150d0a9befc3fa58614477ebd98fffc10727",
+      "size": 23756,
+      "sha256": "e57644d05bb49acecde5f54748549d536419f6fe9efbc2ae0fa897a594d2101e",
       "mode": "100644"
     },
     {
@@ -3283,8 +3283,8 @@
     },
     {
       "path": "app/src/ui/model_settings/widget.py",
-      "size": 8445,
-      "sha256": "e6ab6005f7baf9fccb7944eb61e70a52322d82a218aa6c786b941e392d9849d9",
+      "size": 8574,
+      "sha256": "3796f2611d68d116d1db03f38b7988b70c2e97c7b02c169356a87f43704691e3",
       "mode": "100644"
     },
     {
@@ -3428,7 +3428,7 @@
     {
       "path": "app/src/version.py",
       "size": 2862,
-      "sha256": "ad55289f554a45a8aa4da3bfc30394e09d3ee7d4ccaa647b4582042d4f832052",
+      "sha256": "33c9493b3a7c00dd905c4d4af56a69165157431716eace4aa835d391a0bc0c37",
       "mode": "100644"
     },
     {
@@ -3457,8 +3457,8 @@
     },
     {
       "path": "app/tests/model_settings_frontend_child.py",
-      "size": 20039,
-      "sha256": "85129aed6a3dd75994eac9645647e797ed8a1ba9cf039432d3870869e739c5ba",
+      "size": 21431,
+      "sha256": "b2206f4c6990f02f8f9cfb244a56feb2eee7b9d5d92e021eaf0e3a2ece584e90",
       "mode": "100644"
     },
     {
@@ -3469,8 +3469,8 @@
     },
     {
       "path": "app/tests/model_settings_native_child.py",
-      "size": 6262,
-      "sha256": "2c1b75b1f98b418aff07f0f163d9fa3a3f560517176b68255b68e2f3bc747fcc",
+      "size": 7862,
+      "sha256": "78b73f96882f7c3c78b7787974be2ebf4ab01e8ff0c46390d938313c84ad781e",
       "mode": "100644"
     },
     {
@@ -3609,6 +3609,12 @@
       "path": "app/tests/test_auto_update_ui.py",
       "size": 14236,
       "sha256": "12373a74321646a3f629a468fb821392d6f9c3a89ee17e1feaf03fbe840716bb",
+      "mode": "100644"
+    },
+    {
+      "path": "app/tests/test_basic_stability.py",
+      "size": 2915,
+      "sha256": "322825249c411782382451d3397c9bd8048476d254a149c80797ee9da2f6d9f8",
       "mode": "100644"
     },
     {
@@ -4147,8 +4153,14 @@
     },
     {
       "path": "app/tests/test_model_lifecycle_management.py",
-      "size": 2641,
-      "sha256": "c1196389f0152f0cd7bc713ed7ffdc93de79b94090bb9ddbcd6ff2b5a83343d6",
+      "size": 9174,
+      "sha256": "9031183c25469dd3a5535673bd0bbe95d3cbdd436ac72d7a314f1f56aa6cb541",
+      "mode": "100644"
+    },
+    {
+      "path": "app/tests/test_model_settings_stability.py",
+      "size": 8892,
+      "sha256": "e3fc21635b7aa8ce91c41d7649046c4f668eb3039270ded6dd9450739a3decbe",
       "mode": "100644"
     },
     {
@@ -4183,8 +4195,8 @@
     },
     {
       "path": "app/tests/test_models_page_secret_toggle.py",
-      "size": 450,
-      "sha256": "d4fb45e73ba31f6d3f5e01ca5af8a9efefc32fafe4b6f5dbfd102da695d24402",
+      "size": 638,
+      "sha256": "05a2b56534acfb2a49dd4fa41282e2e5c1b4ea0e5af6d976bb35b2c3a9184a30",
       "mode": "100644"
     },
     {

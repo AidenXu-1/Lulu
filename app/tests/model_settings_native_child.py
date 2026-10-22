@@ -7,7 +7,7 @@ with tempfile.TemporaryDirectory(prefix='lulu-model-native-') as directory,patch
  from src.config import AppConfig
  from src.core import secrets
  from src.ui.model_settings.widget import ModelsPage,Page
- from PySide6.QtCore import QEventLoop,QTimer,QCoreApplication,QEvent
+ from PySide6.QtCore import QEventLoop,QTimer,QCoreApplication,QEvent,qInstallMessageHandler
  from PySide6.QtWidgets import QApplication
  errors=[]
  with patch.object(secrets,'get_key',side_effect=AssertionError('passive secret access')),patch.object(secrets,'get_config',side_effect=AssertionError('passive secret access')),patch.object(Page,'javaScriptConsoleMessage',lambda self,level,msg,line,source: errors.append((str(level),msg))):
@@ -31,6 +31,27 @@ with tempfile.TemporaryDirectory(prefix='lulu-model-native-') as directory,patch
   assert [row['id'] for row in page.controller.state['localModels']['extract']]==['sensevoice','whisper','whisper4','moss']
   page.show_purpose(1);until(lambda:js('document.querySelector("#tab-voice").getAttribute("aria-selected")==="true"'))
   assert js('[...document.querySelectorAll("[data-local]")].map(x=>x.dataset.local).join(",")')=='indextts2,indextts25,voxcpm2,qwen_tts'
+  # A live extraction task prevents moving the shared root, while the actual
+  # download button must still reach the independent TTS installer.
+  from types import SimpleNamespace
+  from src.ui.main_window import MainWindow
+  from src.ui.model_settings import controller as controller_module
+  from tests.model_settings_fixtures import FakeWorker
+  window=SimpleNamespace(models_page=page,has_active_work=lambda:True)
+  page.show_model('local_indextts2_0')
+  until(lambda:js('Boolean(document.querySelector("[data-local-action=install]"))'))
+  worker=FakeWorker()
+  with patch.object(page.controller,'relocation_busy',lambda:MainWindow.storage_relocation_busy(window)),patch.object(controller_module,'TTSRuntimeInstallWorker',return_value=worker) as install,patch.object(page.controller,'refresh'):
+   assert page.controller.relocation_busy()
+   js('document.querySelector("[data-local-action=install]").click()')
+   until(lambda:'indextts2' in page.controller.active)
+   install.assert_called_once_with('local_indextts2_0',local_archive=None)
+   until(lambda:js('Boolean(document.querySelector("[data-local-action=pause]"))'))
+   js('document.querySelector("[data-local-action=pause]").click()')
+   until(lambda:worker.cancel_requested)
+   worker.was_cancelled=True
+   worker.finish()
+   until(lambda:js('Boolean(document.querySelector("[data-local-action=resume]"))'))
   page.show_purpose(2);until(lambda:js('Boolean(document.querySelector("#model-list"))'))
   assert js('document.querySelector("#model-list").clientHeight')==180
   assert js('document.querySelectorAll("button[data-provider]").length')==10
@@ -84,5 +105,10 @@ with tempfile.TemporaryDirectory(prefix='lulu-model-native-') as directory,patch
    for idx,name in ((0,'extract'),(1,'voice'),(2,'assistant')):
     page.show_purpose(idx);tick(180);page.view.grab().save(str(out/(name+'.png')))
   assert page.shutdown_workers(3000)
-  page.close();page.page.deleteLater();QCoreApplication.sendPostedEvents(None,QEvent.DeferredDelete);page.deleteLater();QCoreApplication.sendPostedEvents(None,QEvent.DeferredDelete)
+  teardown_messages=[]
+  previous_handler=qInstallMessageHandler(lambda kind,context,message:teardown_messages.append(message))
+  try:
+   page.close();page.deleteLater();QCoreApplication.sendPostedEvents(None,QEvent.DeferredDelete)
+  finally:qInstallMessageHandler(previous_handler)
+  assert not [m for m in teardown_messages if 'WebEnginePage still not deleted' in m],teardown_messages
   print(json.dumps(dict(status='passed',defaultSelectionMilliseconds=selection_ms,purposes=3,modelListHeight=180,passiveSecretReads=0,unknownOperationBlocked=True,credentialRemoval=True)))

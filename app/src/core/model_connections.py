@@ -463,36 +463,53 @@ class Service:
         if any(type(specs.get(mid, {}).get('window')) is not int or not 8192 <= specs[mid]['window'] <= 10_000_000 for mid in selected):
             raise ValueError('部分模型的上下文容量尚未确认，请先获取模型；无法确认的型号暂不能保存')
         cid = self._persist_assistant_key(config, key, cid, new)
-        values = []
-        for mid in selected:
-            spec = specs[mid]
-            values.append(dict(provider=config['provider'], mode=config['mode'], base=config['base'], protocol=config['protocol'],
-                               model=mid, window=spec['window'], max_output=min(spec.get('max_output') or 4096, spec['window'] // 2, 32768),
-                               threshold=.8, credential_id=cid, label=spec.get('label') or mid))
-        outputs = [workspace.validated_connection(v, self.store) for v in values]
-        group = sha256(encode([config[k] for k in ('provider', 'mode', 'base', 'protocol')]).encode()).hexdigest()
-        with self.store.connect() as db:
-            db.execute('BEGIN IMMEDIATE')
-            def preference(key, fallback):
-                row = db.execute('SELECT value FROM preferences WHERE key=?', (key,)).fetchone()
-                return json.loads(row[0]) if row else fallback
-            all_connections = preference('connections', [])
-            groups = preference('model-connection-groups', {})
-            managed = set(preference('model-managed-connections', []))
-            chosen = []
-            for value, output in zip(values, outputs):
-                match = next((c for c in all_connections if all(c.get(k) == value[k] for k in value)), None)
-                if match is None:
-                    all_connections.append(output)
-                    match = output
-                chosen.append(match)
-            # First V2 save also adopts matching pre-V2 choices into this group.
-            managed.update(c['id'] for c in all_connections if all(c.get(k) == config[k] for k in ('provider', 'mode', 'base', 'protocol')))
-            groups[group] = [c['id'] for c in chosen]
-            default_id = next(c['id'] for c in chosen if c['model'] == default)
-            for field, value in [('connections', all_connections), ('model-connection-groups', groups),
-                                 ('model-managed-connections', sorted(managed)), ('default-connection', default_id)]:
-                db.execute('INSERT INTO preferences(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (field, encode(value)))
+        try:
+            values = []
+            for mid in selected:
+                spec = specs[mid]
+                values.append(dict(provider=config['provider'], mode=config['mode'], base=config['base'], protocol=config['protocol'],
+                                   model=mid, window=spec['window'], max_output=min(spec.get('max_output') or 4096, spec['window'] // 2, 32768),
+                                   threshold=.8, credential_id=cid, label=spec.get('label') or mid))
+            outputs = [workspace.validated_connection(v, self.store) for v in values]
+            group = sha256(encode([config[k] for k in ('provider', 'mode', 'base', 'protocol')]).encode()).hexdigest()
+            with self.store.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                def preference(key, fallback):
+                    row = db.execute('SELECT value FROM preferences WHERE key=?', (key,)).fetchone()
+                    return json.loads(row[0]) if row else fallback
+                all_connections = preference('connections', [])
+                groups = preference('model-connection-groups', {})
+                managed = set(preference('model-managed-connections', []))
+                chosen = []
+                for value, output in zip(values, outputs):
+                    match = next((c for c in all_connections if all(c.get(k) == value[k] for k in value)), None)
+                    if match is None:
+                        all_connections.append(output)
+                        match = output
+                    chosen.append(match)
+                # First V2 save also adopts matching pre-V2 choices into this group.
+                managed.update(c['id'] for c in all_connections if all(c.get(k) == config[k] for k in ('provider', 'mode', 'base', 'protocol')))
+                groups[group] = [c['id'] for c in chosen]
+                default_id = next(c['id'] for c in chosen if c['model'] == default)
+                for field, value in [('connections', all_connections), ('model-connection-groups', groups),
+                                     ('model-managed-connections', sorted(managed)), ('default-connection', default_id)]:
+                    db.execute('INSERT INTO preferences(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (field, encode(value)))
+        except Exception:
+            if new:
+                # A backup/refresh error can occur after SQLite has committed.
+                # Only remove the new secret when no saved connection uses it.
+                try:
+                    referenced = any(c.get('credential_id') == cid for c in workspace.connections(self.store))
+                except Exception:
+                    raise RuntimeError('连接保存状态未能确认，新密钥暂时保留，请重新打开模型配置检查') from None
+                if referenced:
+                    raise RuntimeError('连接已保存，但后续整理未完成，请重新打开模型配置检查') from None
+                try:
+                    secrets.set_key_verified(cid, '')
+                except Exception:
+                    raise RuntimeError('连接未能保存，新密钥的清理也未能确认，请检查系统安全存储后重试') from None
+                self._credentials.pop(cid, None)
+            raise
         public = self.snapshot()
         return dict(credentialId=cid, connections=public['connections'], storedConnections=public['storedConnections'], defaultConnectionId=default_id)
 

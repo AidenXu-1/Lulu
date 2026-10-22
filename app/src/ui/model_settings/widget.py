@@ -116,6 +116,8 @@ class ModelsPage(QWidget):
         self.resources=Resources(self)
         self.profile.setUrlRequestInterceptor(self.resources)
         self.page=Page(self.profile,self)
+        # Match the manuscript workspace: release the page adapter before its profile.
+        self.profile.setParent(self.page)
         # The shared native canvas owns the same paper background as the workbench.
         self.page.setBackgroundColor(QColor(Qt.GlobalColor.transparent))
         settings=self.page.settings()

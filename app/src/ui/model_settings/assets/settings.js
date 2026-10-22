@@ -70,6 +70,15 @@ function hydrate(p) {
   drafts.set(scope,d);return d;
 }
 function currentDraft(){return hydrate(currentProvider());}
+function discardDraft(scope){
+  const previous=drafts.get(scope);
+  if(previous){previous.revision++;previous.operationToken=null;}
+  drafts.delete(scope);
+}
+function startNewCredential(p){
+  const s=serviceFor(p);s.credentialId='new';s.connectionId=null;
+  discardDraft(scopeFor(p));updateView();
+}
 function isCustom(p){return p.id.startsWith('custom');}
 function baseFor(p,d){return isCustom(p)?d.base:(d.base || officialBase(p));}
 function available(p){return modeFor(p).available!==false;}
@@ -219,6 +228,7 @@ function removeCredential(){
         for(const field of ['connections','storedConnections','cloudConfigs','defaultConnectionId'])if(value?.[field]!==undefined)snapshot[field]=value[field];
         for(const [scope,draft] of drafts)if(draft.credentialId===args.credentialId||draft.removalArgs?.credentialId===args.credentialId){draft.key='';draft.revision++;draft.operationToken=null;drafts.delete(scope);}
         s.credentialId='new';s.connectionId=null;
+        discardDraft(JSON.stringify([args.purpose,p.id,s.mode,s.region,s.credentialId,s.connectionId]));
         if(confirm.isConnected)closeModal();updateView();notify('本机密钥已删除，文稿与会话记录保留。');
       }catch(e){d.status='error';d.feedback=e.message;if(error.isConnected)error.textContent=e.message;}
       finally{d.busy=null;if(currentProvider()===p&&scopeFor(p)===d.scope)syncCloudButtons(p,d);if(confirm.isConnected){confirm.disabled=false;confirm.textContent='重试删除';cancel.disabled=false;}}
@@ -294,7 +304,7 @@ function bindPage(){
   const p=currentProvider();if(!p)return;const d=hydrate(p),s=serviceFor(p),m=modeFor(p);
   if($('service'))$('service').onclick=e=>menu(e.currentTarget,p.modes.map(x=>({label:x.label || x.name,description:x.detail,checked:x.id===s.mode,action:()=>{s.mode=x.id;s.region=0;s.credentialId=null;s.connectionId=null;updateView('service');}})));
   if($('region'))$('region').onclick=e=>menu(e.currentTarget,(m.regions || p.regions || []).map((r,i)=>({label:typeof r==='string'?r:r.name || r.label,checked:i===s.region,action:()=>{s.region=i;s.credentialId=null;s.connectionId=null;updateView('region');}})));
-  if($('saved-connection'))$('saved-connection').onclick=e=>{const groups=savedGroups(p);menu(e.currentTarget,[...groups.map(c=>({label:savedKeyLabel(c,groups),description:c.base,checked:c.credential_id===d.credentialId&&c.base===d.base&&c.protocol===d.protocol,action:()=>{s.credentialId=c.credential_id;s.connectionId=c.id;updateView();}})),{label:'添加新密钥',action:()=>{s.credentialId='new';s.connectionId=null;updateView();}}]);};
+  if($('saved-connection'))$('saved-connection').onclick=e=>{const groups=savedGroups(p);menu(e.currentTarget,[...groups.map(c=>({label:savedKeyLabel(c,groups),description:c.base,checked:c.credential_id===d.credentialId&&c.base===d.base&&c.protocol===d.protocol,action:()=>{s.credentialId=c.credential_id;s.connectionId=c.id;updateView();}})),{label:'添加新密钥',action:()=>startNewCredential(p)}]);};
   if($('load-saved-configuration'))$('load-saved-configuration').onclick=loadSavedConfiguration;
   if($('remove-key'))$('remove-key').onclick=removeCredential;
   if(!available(p))return;
