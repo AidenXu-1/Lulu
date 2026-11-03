@@ -93,6 +93,7 @@ class LiveHoverTests(unittest.TestCase):
             with self.subTest(control=control.text()):
                 self.assert_feedback(control)
 
+
     def test_rows_paging_and_segment_actions_have_feedback(self):
         self.seed(hosts=21, recordings=0)
         self.controller.timer.stop()

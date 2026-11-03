@@ -69,7 +69,10 @@ def fetch_feed(url: str, *, timeout: int = 20, limit: int = 300) -> Feed | None:
     """抓取并解析 RSS;不是播客 RSS 则返回 None(让上层回退到普通链接处理)。"""
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
-        raw = urllib.request.urlopen(req, timeout=timeout).read()
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            raw = response.read(8 * 1024 * 1024 + 1)
+        if len(raw) > 8 * 1024 * 1024:
+            return None
     except Exception:  # noqa: BLE001
         return None
     try:

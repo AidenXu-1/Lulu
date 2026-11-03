@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QD
 from . import icons
 from .control_foundation import PaperTextureFrame
 from .live_data_dialog import LiveDataDialog
-from .live_workspace_controls import CommentsSwitch, WorkspaceDialog, WorkspaceTab, note
+from .live_workspace_controls import CommentsSwitch, WorkspaceDialog, WorkspaceTab, WorkspaceTabBar, note
 from ..core.live_recording.contracts import LIVE_MESSAGES, recording_message
 
 BLUE = '#437f96'
@@ -41,6 +41,7 @@ class LiveRowDelegate(QStyledItemDelegate):
 
 class LiveSegmentsDialog(QDialog):
     export_requested = Signal(object)
+    full_export_requested = Signal(object)
     transcribe_requested = Signal(object)
 
     def __init__(self, data, parent=None):
@@ -135,6 +136,8 @@ class LiveSegmentsDialog(QDialog):
         folder.setIcon(QIcon(icons.pixmap('folder', '#877d70', 16)))
         row.addWidget(folder)
         row.addStretch()
+        self.full_export_button = button('导出整场 MP4', lambda: self.full_export_requested.emit(self._data))
+        row.addWidget(self.full_export_button)
         self.export_button = button('导出', lambda: self._selected(self.export_requested))
         self.extract_button = button('提取文案', lambda: self._selected(self.transcribe_requested), primary=True)
         self.export_button.setEnabled(False)
@@ -268,6 +271,10 @@ class LiveSegmentsDialog(QDialog):
         ready = bool(not self.busy and item and item.flags() & Qt.ItemFlag.ItemIsSelectable)
         self.export_button.setEnabled(ready)
         self.extract_button.setEnabled(ready)
+        data = self._data or {}
+        segments = data.get('segments', [])
+        self.full_export_button.setEnabled(bool(not self.busy and data.get('ended') is not None
+            and segments and all(s['valid'] and s['closed'] for s in segments)))
 
     def set_busy(self, busy):
         self.busy = busy
@@ -461,11 +468,6 @@ class LiveRecordingPage(QWidget):
         tabs = QHBoxLayout(nav)
         tabs.setContentsMargins(20, 0, 16, 0)
         tabs.setSpacing(8)
-        self.tab_bar = QFrame()
-        self.tab_bar.setObjectName('liveTabs')
-        segment = QHBoxLayout(self.tab_bar)
-        segment.setContentsMargins(0, 0, 0, 0)
-        segment.setSpacing(16)
         self.tab_group = QButtonGroup(self)
         self.tab_group.setExclusive(True)
         self.host_tab = WorkspaceTab('主播监控  0')
@@ -474,7 +476,8 @@ class LiveRecordingPage(QWidget):
         self.record_tab.clicked.connect(lambda: self._tab('recordings'))
         for tab_button in (self.host_tab, self.record_tab):
             self.tab_group.addButton(tab_button)
-            segment.addWidget(tab_button)
+        self.tab_bar = WorkspaceTabBar((self.host_tab, self.record_tab))
+        self.tab_bar.setObjectName('liveTabs')
         self.host_tab.setChecked(True)
         tabs.addWidget(self.tab_bar)
         tabs.addStretch()
@@ -604,6 +607,15 @@ class LiveRecordingPage(QWidget):
         self.message.setMaximumHeight(44)
         layout.addWidget(self.message)
         self.message.hide()
+        self.export_progress = QLabel()
+        self.export_progress.setWordWrap(True)
+        self.cancel_exports_button = button('取消导出', self._cancel_exports)
+        exports_row = QHBoxLayout()
+        exports_row.addWidget(self.export_progress, 1)
+        exports_row.addWidget(self.cancel_exports_button)
+        layout.addLayout(exports_row)
+        self.cancel_exports_button.hide()
+        self.export_progress.hide()
         self.search_timer = QTimer(self)
         self.search_timer.setSingleShot(True)
         self.search_timer.setInterval(250)
@@ -1382,6 +1394,7 @@ class LiveRecordingPage(QWidget):
         dialog = LiveSegmentsDialog(data, self)
         self.detail_dialog = dialog
         dialog.export_requested.connect(lambda segment: self._export_segment(dialog, segment, data['name']))
+        dialog.full_export_requested.connect(lambda recording: self._export_full(dialog, recording))
         dialog.transcribe_requested.connect(lambda segment: self._transcribe_segment(dialog, segment))
         dialog.finished.connect(lambda _: self.detail_timer.stop() if self.detail_dialog is dialog else None)
         dialog.show()
@@ -1461,8 +1474,27 @@ class LiveRecordingPage(QWidget):
         self.controller.call('export', segment_id=segment['id'], format=format, path=str(target),
             callback=lambda reply: self._export_started(reply, format, dialog))
 
+    def _export_full(self, dialog, recording):
+        name = (recording['name'] or '直播录像').replace('/', '_').replace(':', '_')[:80]
+        suggested = str(Path(recording['directory']) / (name + '-整场.mp4'))
+        dialog.set_busy(True)
+        path, _ = QFileDialog.getSaveFileName(dialog, '导出整场已录内容', suggested, 'MP4 视频 (*.mp4)')
+        if not path:
+            dialog.set_busy(False)
+            return
+        self.controller.call('export_recording', recording_id=recording['id'], path=str(Path(path).with_suffix('.mp4')),
+            callback=lambda reply: self._export_started(reply, 'mp4', dialog),
+            failure=lambda message: (dialog.set_busy(False), self._message(message)))
+
+    def _cancel_exports(self):
+        for eid in list(self.exporting):
+            self.controller.call('export_cancel', export_id=eid, callback=lambda _: None)
+        self.export_progress.setText('正在停止导出，原录像保留…')
+
     def _export_started(self, reply, format, dialog):
         self.exporting[reply['export_id']] = format
+        self.cancel_exports_button.show()
+        self.export_progress.show()
         self._message('正在导出 ' + format.upper() + '，原录像保留…')
         dialog.accept()
 
@@ -1473,10 +1505,18 @@ class LiveRecordingPage(QWidget):
             self.controller.call('export_status', export_id=eid, callback=lambda reply, id=eid: self._export_done(id, reply))
 
     def _export_done(self, eid, reply):
-        if reply['state'] == 'running' or eid not in self.exporting:
+        if eid not in self.exporting:
+            return
+        if reply['state'] == 'running':
+            phases = {'checking': '检查全部分段', 'merging': '合并整场', 'verifying': '核验完整视频'}
+            phase = phases.get(reply.get('phase'), '导出录像')
+            self.export_progress.setText(phase + ' · ' + str(reply.get('progress', '')) + '%')
             return
         format = self.exporting.pop(eid)
+        if not self.exporting:
+            self.cancel_exports_button.hide()
+            self.export_progress.hide()
         if reply['state'] == 'succeeded':
-            self._message(format.upper() + ' 已导出，原录像保留')
+            self._message(format.upper() + ' 已导出，原录像保留。' + reply.get('message', ''))
         else:
             self._message(reply['message'])

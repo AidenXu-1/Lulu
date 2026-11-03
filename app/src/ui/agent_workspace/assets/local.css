@@ -224,7 +224,7 @@ select.lulu-select-source{display:none!important}
   .manuscript-batch .batch-tools{grid-area:tools;justify-self:end}
 }
 
-/* Recently Deleted: calm recovery controls with a useful preview even when data cannot be read. */
+/* Archive base controls; the current visual system is refined in archive.css. */
 .trash-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:22px 0 14px}
 .trash-search{display:flex;align-items:center;gap:9px;width:min(480px,100%);min-height:40px;box-sizing:border-box;padding:0 11px;border:1px solid var(--line);border-radius:9px;background:var(--paper);color:var(--muted)}
 .trash-search>span,.trash-search svg{width:15px;height:15px;flex:none}
@@ -344,3 +344,21 @@ select.lulu-select-source{display:none!important}
 .send-spinner{display:block;width:18px;height:18px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:send-spin .8s linear infinite}
 @keyframes send-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.send-spinner{animation:none}}
+
+/* Quiet toolbar hierarchy: tinted export, unframed menus, stable hit targets. */
+#app :is(#list-menu,#doc-more,#export,#batch-export,#batch-more,#audio-export){display:inline-flex;align-items:center;justify-content:center;flex:none;gap:6px;width:auto;min-width:66px;height:34px;min-height:34px;padding:0 11px;border:0;border-radius:9px;background:transparent;box-shadow:none;color:#5d564d;font-size:13px;font-weight:500;line-height:20px;white-space:nowrap;transition:background-color 120ms ease,color 120ms ease,box-shadow 120ms ease,transform 100ms cubic-bezier(.22,1,.36,1)}
+#app :is(#export,#batch-export,#audio-export){color:#386c7d;background:#e5eeeb;font-weight:550}
+#app :is(#list-menu,#doc-more,#batch-more) svg{width:16px;height:16px;stroke-width:3.3}
+#app :is(#export,#batch-export,#audio-export) svg{width:16px;height:16px;stroke-width:1.8}
+#app :is(#list-menu,#doc-more,#batch-more)[aria-expanded=true]{background:#e5eeeb;color:#386c7d}
+#app :is(#list-menu,#doc-more,#export,#batch-export,#batch-more,#audio-export):focus-visible{outline:2px solid #648b98;outline-offset:3px}
+#app :is(#list-menu,#doc-more,#export,#batch-export,#batch-more,#audio-export):active:not(:disabled){transform:scale(.97);background:#d8e5e2;box-shadow:inset 0 0 0 1px #507b9415}
+#app :is(#list-menu,#doc-more,#export,#batch-export,#batch-more,#audio-export):disabled{opacity:1;color:#81796f;background:#eee9e0;box-shadow:none;cursor:default}
+@media(hover:hover) and (pointer:fine){
+  #app :is(#list-menu,#doc-more,#batch-more):hover:not(:disabled){background:#fffdf8;box-shadow:0 1px 3px #493e2a0b;color:var(--ink)}
+  #app :is(#export,#batch-export,#audio-export):hover:not(:disabled){background:#d9e7e3;color:#2d5d6b}
+}
+@media(prefers-reduced-motion:reduce){
+  #app :is(#list-menu,#doc-more,#export,#batch-export,#batch-more,#audio-export){transition:none}
+  #app :is(#list-menu,#doc-more,#export,#batch-export,#batch-more,#audio-export):active:not(:disabled){transform:none}
+}

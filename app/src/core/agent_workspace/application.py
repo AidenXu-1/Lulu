@@ -362,7 +362,7 @@ class ConversationApplication:
                 explanations.extend(op['markdown'] for op in operations)
             except FileNotFoundError:
                 conflict = True
-                explanations.append('目标文稿已移入最近删除或暂时不可用。以下建议已保留，恢复文稿后请重新核对：')
+                explanations.append('目标文稿已归档或暂时不可用。以下建议已保留，恢复文稿后请重新核对：')
                 explanations.extend(op['markdown'] for op in operations)
         reply = '\n\n'.join([result['text'].strip(), *explanations]).strip() or ('已整理好修改方案。' if proposals else '本轮处理结束，结果见上方记录。')
         return proposals, reply, conflict

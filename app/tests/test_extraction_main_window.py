@@ -213,6 +213,7 @@ class ExtractionMainWindowTests(fixture.ExtractionWorkspaceTests):
         second=self.main._add_task('https://example.com/2','link','第二项')
         self.main.task_groups=[TaskGroup(id=1,name='批量',members=[TaskGroupMember(stable_key='',title=t.title,
             source=t.source,kind=t.kind,task_id=t.id) for t in (first,second)],expanded=True)]
+        self.js("setTaskFilter('batch')")
         with patch('src.ui.worker.TranscribeWorker',_FakeWorker):
             self.main._start_all()
             self.main._cancel_task(first.id)
@@ -255,6 +256,7 @@ class ExtractionMainWindowTests(fixture.ExtractionWorkspaceTests):
         done.state=TaskState.DONE
         self.main.task_groups=[TaskGroup(id=1,name='批量',members=[TaskGroupMember(stable_key='',title=t.title,
             source=t.source,kind=t.kind,task_id=t.id) for t in members],expanded=True)]
+        self.js("setTaskFilter('batch')")
         with patch('src.ui.worker.TranscribeWorker',_FakeWorker):
             self.main._start_task(first.id);self.main._start_task(second.id)
             self.main._cancel_task(first.id);_FakeWorker.instances[0].finish_thread()
@@ -375,6 +377,7 @@ class ExtractionMainWindowTests(fixture.ExtractionWorkspaceTests):
         first,second,other,single=tasks
         self.main.task_groups=[TaskGroup(id=gid,name=f'批次 {gid}',members=[TaskGroupMember(stable_key='',title=t.title,
             source=t.source,kind=t.kind,task_id=t.id) for t in members]) for gid,members in ((1,(first,second)),(2,(other,)))]
+        self.js("setTaskFilter('batch')")
         with patch('src.ui.worker.TranscribeWorker',_FakeWorker):
             self.main._start_all()
             self.main._cancel_task(first.id);_FakeWorker.instances[-1].finish_thread()

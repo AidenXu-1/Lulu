@@ -24,6 +24,7 @@ class ModelController(QObject):
     changed = Signal(dict)
     notice = Signal(str)
     reply = Signal(str, object)
+    operation_settled = Signal(str, str, bool)
 
     def __init__(self, cfg, parent=None, *, on_changed=None, storage_busy=None, model_in_use=None,
                  relocation_busy=None, storage_activity_changed=None):
@@ -254,10 +255,11 @@ class ModelController(QObject):
                 self.on_changed()
                 self.refresh()
                 self.publish()
+            self.operation_settled.emit(key, str(error or ''), bool(paused))
         self._start(worker,key=key,mid=mid,finished=done)
         self.publish()
 
-    def local_action(self, id, action):
+    def local_action(self, id, action, *, confirmed=False, local_archive=None):
         if id not in MODEL_IDS or action not in {'install','pause','resume','cancel','remove','default'}:
             raise ValueError('模型操作无效')
         mid = MODEL_IDS[id]
@@ -290,7 +292,7 @@ class ModelController(QObject):
                 message+=(f'将先切换到 {fallback.display_name}。' if fallback else '移除后本地转录暂不可用，重新准备模型即可恢复。')
             elif mid==original[1]:
                 message+='移除后请选用其他已就绪的配音模型。'
-            if not dialogs.confirm(self.host,'移除模型',message,ok='移除'):
+            if not confirmed and not dialogs.confirm(self.host,'移除模型',message,ok='移除'):
                 return
             self._gate(mid,destructive=True)
             if original!=(self.cfg.engine_name,getattr(self.cfg,'default_tts_model','')):
@@ -318,17 +320,20 @@ class ModelController(QObject):
         else:
             if rp.current_platform() is None:
                 raise RuntimeError('当前电脑不支持此配音模型。')
-            archive = None
+            archive = Path(local_archive) if local_archive else None
             if not rp.TTS_RUNTIMES[mid].runtime_download_available and not rp.is_runtime_installed(mid):
-                name,_ = QFileDialog.getOpenFileName(self.host,'选择已有的 Lulu 模型运行包','','运行包 (*.tar.gz *.tgz)')
-                if not name:
-                    return
-                archive = Path(name)
+                if archive is None:
+                    if confirmed:
+                        raise ValueError('此模型需要已有运行包，请提供 local_archive；未下载替代来源')
+                    name,_ = QFileDialog.getOpenFileName(self.host,'选择已有的 Lulu 模型运行包','','运行包 (*.tar.gz *.tgz)')
+                    if not name:
+                        return
+                    archive = Path(name)
             worker=TTSRuntimeInstallWorker(mid,local_archive=archive)
         self._gate(mid)
         self._operation(worker,id,mid)
 
-    def feature_action(self, id, action):
+    def feature_action(self, id, action, *, confirmed=False, local_archive=None):
         from ...core.synthesis import qwen3_deployment as dp
         if id not in FEATURE_IDS or action not in {'install','resume','pause','cancel','remove'}:
             raise ValueError('声音能力操作无效')
@@ -341,7 +346,7 @@ class ModelController(QObject):
             if phase not in {'queued','installing','paused'}:
                 raise ValueError('此功能当前没有可暂停或取消的安装')
             if action=='cancel':
-                if not dialogs.confirm(self.host,'取消这项安装','清理这项未完成的安装，共用文件按其他功能的使用情况保留。',ok='取消安装'):
+                if not confirmed and not dialogs.confirm(self.host,'取消这项安装','清理这项未完成的安装，共用文件按其他功能的使用情况保留。',ok='取消安装'):
                     return
                 dp.request([name],'cancelling')
                 self.jobs.pop(key,None)
@@ -371,19 +376,20 @@ class ModelController(QObject):
                 return
             if worker.error:
                 self.notice.emit(worker.error)
+                self.operation_settled.emit('qwen', worker.error, False)
                 return
             value=worker.result
             if operation=='plan':
                 text=f"本次需下载约 {mm_format(value['download'])}，新增占用约 {mm_format(value['disk'])}。\n已有完整文件会复用，共用组件只保留一份。"
-                if not dialogs.confirm(self.host,'安装声音能力',text,ok='开始安装'):
+                if not confirmed and not dialogs.confirm(self.host,'安装声音能力',text,ok='开始安装'):
                     return
                 self._gate(mid)
                 dp.request(value['names'])
-                task=QwenFeatureWorker(operation='install')
+                task=QwenFeatureWorker(operation='install', local_archive=local_archive)
             else:
                 text='移除此项声音能力；个人音色、参考录音和生成结果保留。'
                 text+='\n共用组件仍被其他能力使用，会继续保留。' if value['consumers'] else '\n共用组件保留，方便以后继续安装。'
-                if not dialogs.confirm(self.host,'移除声音能力',text,ok='移除'):
+                if not confirmed and not dialogs.confirm(self.host,'移除声音能力',text,ok='移除'):
                     return
                 self._gate(mid,destructive=True)
                 task=QwenFeatureWorker(name,operation='uninstall',retain_common=True)
@@ -393,6 +399,7 @@ class ModelController(QObject):
                 apply_quote()
             except (ValueError,RuntimeError,OSError) as exc:
                 self.notice.emit(str(exc))
+                self.operation_settled.emit('qwen', str(exc), False)
         self._start(worker,key='qwen-plan',mid=mid,finished=quoted)
 
     def storage_open(self,purpose):
@@ -415,6 +422,9 @@ class ModelController(QObject):
             return
         if not dialogs.confirm(self.host,'移动已有模型',f'将转录和配音模型一起移动到：\n{directory}\n移动期间请保持 Lulu 打开。',ok='移动'):
             return
+        self.storage_change_to(directory)
+
+    def storage_change_to(self, directory):
         self._gate(relocating=True)
         for mid in MODEL_IDS.values():
             if self.model_in_use(mid):

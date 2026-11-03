@@ -57,6 +57,19 @@ _DETAIL_FIELDS = frozenset(
     }
 )
 _SAFE_VALUE = re.compile(r"^[A-Za-z0-9_.:/-]{1,160}$")
+_WORKSPACE_REQUEST_ERRORS = {
+    'LULU_WINDOW_REQUIRED': '请先打开 Lulu 主窗口，等待连接后重试；关闭窗口后不后台执行设置或更新',
+    'LULU_LIVE_SESSION_REQUIRED': '请先打开 Lulu 的直播录制页，建立正常会话后重试；退出 Lulu 会停止监控',
+    'BATCH_NETWORK_CONSENT_REQUIRED': '本批需要联网下载或访问主页，请明确设置 network_consent=true 后再开始',
+    'CLOUD_AUDIO_UPLOAD_CONSENT_REQUIRED': '音频会上传至所选云端服务并按账户计费；按服务额度调度，结果未确认不自动重发。确认后设置 cloud_upload_consent=true',
+    'MODEL_ACTION_CONFIRMATION_REQUIRED': '请明确确认本次下载、移除或搬移模型的操作 confirmed=true',
+    'UPDATE_INSTALL_CONFIRMATION_REQUIRED': '安装会退出并重开 Lulu，请明确设置 confirmed=true',
+    'SUBTITLE_TIMESTAMPS_UNAVAILABLE': '当前正文缺少完整且有效的时间信息，请导出 TXT 或 Markdown',
+    'WORKSPACE_REQUEST_DUPLICATE_FIELD': '请求文件包含重复字段，请为每个字段保留唯一值',
+    'WORKSPACE_REQUEST_TOO_DEEP': '请求文件的 JSON 嵌套过深，请简化请求内容',
+    'WORKSPACE_REQUEST_UNSAFE': '请求文件不能是符号链接，请使用普通 JSON 文件',
+    'WORKSPACE_REQUEST_INVALID': '工作区请求文件格式或参数无效，请检查请求内容',
+}
 
 
 def write_json_object(payload: dict[str, object], stream: TextIO) -> None:
@@ -127,6 +140,8 @@ def write_cli_error(
     from ..core.link_assets import ERROR_MESSAGES as EXTRACTION_MESSAGES
     if reason in EXTRACTION_MESSAGES:
         message = EXTRACTION_MESSAGES[reason]
+    if reason in _WORKSPACE_REQUEST_ERRORS:
+        message = _WORKSPACE_REQUEST_ERRORS[reason]
     write_json_object(
         {
             "schema_id": SCHEMA_ID,
@@ -138,6 +153,8 @@ def write_cli_error(
                 "message": message,
                 "retryable": False,
                 "human_action": (
+                    "检查绝对路径所指的普通 JSON 请求文件，修正参数后再调用"
+                    if reason in _WORKSPACE_REQUEST_ERRORS else
                     "核对链接提取参数、当前安装能力和原任务状态，不要重复下载"
                     if reason in EXTRACTION_MESSAGES else
                     "运行 transcribe status 查看所选模型状态；在 Lulu 中完成安装或修复后再调用"

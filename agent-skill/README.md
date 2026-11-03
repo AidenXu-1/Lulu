@@ -4,7 +4,7 @@
 
 [下载完整 Skill 包（ZIP）](https://github.com/AidenXu-1/lulu-agent/archive/refs/heads/main.zip) · [安装方法](#安装) · [Lulu 产品主页与 App 下载](https://github.com/AidenXu-1/Lulu)
 
-本次源码适配 Lulu 4.3.1：SenseVoice Q8、Whisper Turbo（MLX）、Whisper Turbo 4bit、MOSS Q5 与新版完整转录结果。对应正式版本及下载见 [Lulu 4.3.1](https://github.com/AidenXu-1/Lulu/releases/tag/v4.3.1)。CLI 已包含在 Lulu App 内；此仓库提供 AI 助手调用它所需的说明与校验脚本，无需另外下载 CLI。
+本次源码适配 Lulu 4.3.2：支持逐作品提取任务、本地与云端批量转录，以及当前开放的采集、导出、素材与直播管理入口。对应正式版本及下载见 [Lulu 4.3.2](https://github.com/AidenXu-1/Lulu/releases/tag/v4.3.2)。CLI 已包含在 Lulu App 内；此仓库提供 AI 助手调用它所需的说明与校验脚本，无需另外下载 CLI。
 
 ## 可以做什么
 
@@ -15,6 +15,8 @@
 | 本地转录 | 音频和视频转文字，查询模型与完整结果 |
 | 本地配音 | 使用已安装模型和保存的音色生成音频 |
 | 链接素材 | 下载视频、音频、封面与公开作品资料 |
+| 批量任务 | 每条作品独立选择提取内容，查询、暂停、继续与补充缺失结果 |
+| 主页采集与直播 | 查询当前开放的主页采集、监控、录像与整场导出能力 |
 | 任务与技能 | 查询任务进度和回执，管理 Lulu 内部技能 |
 
 **可用范围以本机 Lulu 返回的功能清单为准。** Skill 可以比 App 更新；旧版 Lulu 未接通的功能不能通过下载 Skill 获得。模型需要在 Lulu 中准备，Skill 不附带模型。

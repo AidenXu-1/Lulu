@@ -52,6 +52,48 @@ COMMANDS.update({
     'skills.update': ('WS-48', 'skill_update', 'local_write'),
 })
 
+COMMANDS.update({
+    'folders.list': ('WS-49', 'folders', 'read'),
+    'folders.create': ('WS-50', 'create_folder', 'local_write'),
+    'folders.rename': ('WS-51', 'rename_folder', 'local_write'),
+    'folders.order': ('WS-52', 'order_folders', 'local_write'),
+    'folders.delete': ('WS-53', 'delete_folder', 'local_write'),
+    'documents.move': ('WS-54', 'move', 'local_write'),
+    'documents.delete': ('WS-55', 'delete', 'local_write'),
+    'trash.list': ('WS-56', 'trash', 'read'),
+    'trash.restore': ('WS-57', 'restore_deleted', 'local_write'),
+    'documents.export': ('WS-58', 'export_document', 'local_write'),
+    'documents.obsidian': ('WS-59', 'save_obsidian', 'local_write'),
+    'voices.list': ('WS-60', 'voice_list', 'read'),
+    'voices.create': ('WS-61', 'voice_create', 'local_write'),
+    'voices.update': ('WS-62', 'voice_update', 'local_write'),
+    'voices.delete': ('WS-63', 'voice_delete', 'local_write'),
+    'live.control': ('WS-64', 'live', 'network_download'),
+    'batches.prepare': ('WS-65', 'batch_prepare', 'local_write'),
+    'batches.start': ('WS-66', 'batch_start', 'network_or_local_or_cloud_inference'),
+    'batches.show': ('WS-67', 'batch_show', 'read'),
+    'batches.list': ('WS-68', 'batch_list', 'read'),
+    'batches.cancel': ('WS-69', 'batch_cancel', 'local_write'),
+    'rss.fetch': ('WS-70', 'rss_fetch', 'network_download'),
+    'rss.list': ('WS-71', 'rss_feeds', 'read'),
+    'rss.select': ('WS-72', 'rss_select', 'local_write'),
+    'collect.prepare': ('WS-73', 'collect_prepare', 'local_write'),
+    'collect.history': ('WS-74', 'collect_history', 'read'),
+    'collect.select': ('WS-75', 'collect_select', 'local_write'),
+    'collect.export': ('WS-76', 'collect_export', 'local_write'),
+    'controls.show': ('WS-77', 'control_show', 'read'),
+    'settings.show': ('WS-78', 'settings_show', 'read'),
+    'settings.apply': ('WS-79', 'settings_apply', 'local_write'),
+    'models.list': ('WS-80', 'models_list', 'read'),
+    'models.action': ('WS-81', 'models_action', 'network_and_local_write'),
+    'updates.control': ('WS-82', 'updates', 'network_and_local_write'),
+    'batches.download': ('WS-83', 'batch_download', 'local_write'),
+    'batches.stage': ('WS-84', 'batch_stage', 'local_write'),
+    'batches.configure': ('WS-85', 'batch_configure', 'local_write'),
+    'batches.control': ('WS-86', 'batch_control', 'network_or_local_or_cloud_inference'),
+    'documents.trash-system': ('WS-87', 'system_delete', 'local_write'),
+})
+
 CAPABILITIES=frozenset(item[0] for item in COMMANDS.values())
 
 

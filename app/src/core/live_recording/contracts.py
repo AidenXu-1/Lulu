@@ -1,6 +1,7 @@
 """Closed request and media contracts for the measured GUI channel."""
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit, urlunsplit
+import json
 import math
 import re
 
@@ -67,7 +68,14 @@ def recording_message(recording):
         return '中断录像已检查'
     if reason in {'recording_error', 'write_error', 'reconnect_timeout'}:
         return '录制中断'
-    return '录制有缺口' if recording.get('gaps', '[]') != '[]' else '已保存'
+    try:
+        gaps = recording.get('gaps', '[]')
+        gaps = json.loads(gaps) if isinstance(gaps, str) else gaps
+        if not isinstance(gaps, list):
+            raise ValueError()
+    except (ValueError, TypeError):
+        return '录制状态待检查'
+    return '录制有缺口' if gaps else '已保存'
 
 def public_link(value):
     if type(value) is not str or len(value) > 4096:
@@ -122,6 +130,8 @@ FIELDS = {
     'comments_export': {'session', 'recording_id', 'format', 'path'},
     'delete_recording': {'session', 'recording_id'},
     'export': {'session', 'segment_id', 'format', 'path'}, 'export_status': {'session', 'export_id'},
+    'export_recording': {'session', 'recording_id', 'path'},
+    'export_cancel': {'session', 'export_id'},
     'transcribe': {'session', 'segment_id'},
 }
 ORDERED_CONTROLS = {'start', 'pause', 'pause_all', 'remove', 'directory'}

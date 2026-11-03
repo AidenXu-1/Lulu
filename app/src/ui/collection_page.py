@@ -17,6 +17,7 @@ import threading
 import time as monotonic_time
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta
+from fractions import Fraction
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -94,6 +95,7 @@ _TRANSCRIBED_COL = 9
 _MEDIA_COL = 10
 _COVER_COL = 11
 _ROW_SELECTED_ROLE = int(Qt.ItemDataRole.UserRole) + 41
+_PARTIAL_COLLECTION_SUMMARY = "匿名优先；受限时可选择登录，仅采最新一页（约 15～20 条）。"
 # 可点击排序的列 → CollectedItem 属性；以及该列默认降序（数值/日期默认降序，作者升序）
 _SORT_ATTR = {
     1: "author_name", 3: "create_time", 4: "duration_ms",
@@ -104,6 +106,7 @@ _SORT_DESC_DEFAULT = {
 }
 # 排序下拉（显示名 → 列号），与点表头排序共用同一状态
 _SORT_FIELDS = [
+    ("主页顺序", 0),
     ("发布日期", 3), ("点赞", 5), ("收藏", 6), ("评论", 7),
     ("分享", 8), ("时长", 4), ("作者", 1),
 ]
@@ -355,98 +358,14 @@ class _CoverRetryWorker(QThread):
             self.failed.emit()
 
 
+def _media_fetch_error(exc):
+    from ..core.collect.media_fetcher import media_fetch_error
+    return media_fetch_error(exc)
+
+
 def _fetch_managed_media(item, download_mode, destination, is_cancelled):
-    """生产网络取材边界；只由用户显式素材动作的 QThread 调用。"""
-    from ..core.audio.extractor import (
-        download_douyin_video_cdn,
-        is_douyin_video_cdn,
-        resolve_source,
-    )
-    from ..core.collect.douyin_fetch import fetch_item
-
-    def progress(_message, _fraction):
-        if is_cancelled():
-            raise InterruptedError("素材下载已取消")
-
-    # 主页的「音视频文件」始终代表完整视频。保留入参仅为与
-    # ManagedMediaFetcher 协议兼容，不让内容提取页的「仅音频」偏好泄漏到主页。
-    _ = download_mode
-    root = Path(destination)
-    sources = reliable_media_sources(item)
-    if not sources:
-        raise RuntimeError("没有可用的音视频来源")
-
-    video_extensions = frozenset({".m4v", ".mkv", ".mov", ".mp4", ".webm"})
-    for index, source in enumerate(sources, start=1):
-        if is_cancelled():
-            raise InterruptedError("素材下载已取消")
-        attempt = root / f"attempt-{index}"
-        attempt.mkdir(mode=0o700, parents=True, exist_ok=False)
-        try:
-            is_douyin_direct = (
-                getattr(item, "platform", "") == "douyin"
-                and source == str(getattr(item, "play_url", "") or "").strip()
-            )
-            if is_douyin_direct:
-                if not is_douyin_video_cdn(source):
-                    continue
-                fetched = Path(
-                    download_douyin_video_cdn(
-                        source,
-                        attempt,
-                        progress,
-                        work_id=str(getattr(item, "work_id", "") or ""),
-                    )
-                )
-            elif (
-                getattr(item, "platform", "") == "douyin"
-                and source
-                == str(getattr(item, "work_url", "") or "").strip()
-            ):
-                refreshed = fetch_item(str(getattr(item, "work_id", "") or ""))
-                refreshed_url = str(refreshed.play_url or "").strip()
-                if not is_douyin_video_cdn(refreshed_url):
-                    continue
-                fetched = Path(download_douyin_video_cdn(
-                    refreshed_url,
-                    attempt,
-                    progress,
-                    work_id=str(getattr(item, "work_id", "") or ""),
-                ))
-            else:
-                fetched = Path(resolve_source(
-                    source,
-                    attempt,
-                    True,
-                    progress,
-                    {},
-                    link_media_mode="video",
-                ))
-            if not fetched.is_absolute() or fetched.is_symlink():
-                continue
-            try:
-                fetched.resolve(strict=True).relative_to(attempt.resolve(strict=True))
-            except (FileNotFoundError, OSError, ValueError):
-                continue
-            try:
-                valid = (
-                    fetched.is_file()
-                    and fetched.stat().st_size > 0
-                    and fetched.suffix.casefold() in video_extensions
-                )
-            except OSError:
-                valid = False
-            if valid:
-                return fetched
-        except InterruptedError:
-            raise
-        except Exception:
-            # 播放直链可能过期；下一候选按同一作品 ID 匿名刷新一次。
-            continue
-    raise ManagedMediaFetchError(
-        "media_source_refresh_failed",
-        "播放地址已过期或不可用，作品页也未能刷新。请重新采集主页后再试。",
-    )
+    from ..core.collect.media_fetcher import fetch_managed_media
+    return fetch_managed_media(item, download_mode, destination, is_cancelled)
 
 
 def _cover_cas_values(before, after) -> tuple[dict, dict]:
@@ -499,15 +418,14 @@ def _commit_cover_state(repository, before, after):
         return current, False
 
 
-class _TranscribedRead(QObject):
-    """Disposable, read-only daemon; slow disk must not hold GUI shutdown open.
+class _TranscribedRead:
+    """Plain data reader. Its daemon owns no QObject or GUI callback.
 
-    Unlike upload QThreads it has no writes to settle and no native QThread
-    destructor that requires a blocked read to finish before process exit.
+    A Thread releases its bound target on the worker thread. Making this object
+    a QObject raced queued events and deleteLater during rapid navigation.
+    The page polls the completed data on its own GUI-owned timer instead.
     """
-    finished = Signal()
     def __init__(self, read):
-        super().__init__()
         self.read = read
         self.result = None
         self.error = False
@@ -536,10 +454,6 @@ class _TranscribedRead(QObject):
             self.error = True
         finally:
             self._stopped.set()
-            try:
-                self.finished.emit()
-            except RuntimeError:
-                pass  # The QApplication may already have been destroyed.
 
 
 class _MaterialDownloadWorker(QThread):
@@ -994,8 +908,12 @@ class CollectionPage(QWidget):
         self._active_field_filter: tuple[str, str, str, object] | None = None
         self._transcribed_read = None
         self._transcribed_read_pending = False
+        self._transcribed_poll = QTimer(self)
+        self._transcribed_poll.setInterval(20)
+        self._transcribed_poll.timeout.connect(self._finish_transcribed_read)
         self._transcribed: set = set()   # stable_key + 旧 aweme_id（用于「已转录」列 ✓/✗）
         self._sort_col = 3            # 默认按发布日期
+        self._sort_explicit = False
         self._sort_desc = True        # 新→旧
         configured_mode = str(getattr(cfg, "collection_mode", "partial") or "")
         self._selected_mode = (
@@ -1010,6 +928,7 @@ class CollectionPage(QWidget):
         self._xhs_close_worker: _XhsCloseWorker | None = None
         self._bitable_worker: _BitableWorker | None = None
         self._run_token = 0
+        self._partial_login_retry: tuple[int, CollectionCommand] | None = None
         self._history_context: dict[int, tuple[CollectionCommand, object]] = {}
         self._material_snapshots: dict[int, MaterialPreferenceSnapshot] = {}
         self._history_repo: CollectionHistoryRepository | None = history_repository
@@ -1064,12 +983,12 @@ class CollectionPage(QWidget):
     def shutdown_workers(self, timeout_ms: int = 3000) -> None:
         """Cancel and join page-owned workers before the main window closes."""
         self._shutting_down = True
+        self._clear_partial_login_retry()
         reader = getattr(self, "_transcribed_read", None)
         self._transcribed_read_pending = False
+        self._transcribed_poll.stop()
         if reader is not None and reader.isRunning():
             reader.requestInterruption()
-            if not reader.wait(100):
-                _guard_running_browser_worker(reader)
         self._transcribed_read = None
         pending_material_jobs = getattr(self, "_pending_material_jobs", None)
         if pending_material_jobs is not None:
@@ -1293,7 +1212,7 @@ class CollectionPage(QWidget):
         ctrl.addWidget(self._dim_label("排序"))
         self.sort_combo = ConsumerSelect(
             tuple((str(col_id), name) for name, col_id in _SORT_FIELDS),
-            value=str(_SORT_FIELDS[0][1]),
+            value=str(self._sort_col),
             accessible_name="采集结果排序",
             consumer_theme_scope="coreWorkspace",
             paper_popup=True,
@@ -1761,6 +1680,9 @@ class CollectionPage(QWidget):
 
     def _on_input_changed(self, text: str) -> None:
         """纯本地识别平台；不得在粘贴或页面构造时启动 adapter/browser。"""
+        retry = getattr(self, "_partial_login_retry", None)
+        if retry is not None and retry[1].raw_input.strip() != text.strip():
+            self._clear_partial_login_retry()
         pending=getattr(self,'_workspace_request',None)
         if pending and pending[0]!=text.strip():
             self._workspace_request=None
@@ -1781,7 +1703,7 @@ class CollectionPage(QWidget):
                 else "采集方式"
             )
             self.method_segment.show()
-            self.quick_summary.setText("免登录 · 零风险 · 抓该作者最新一页作品（约 15–20 条）")
+            self.quick_summary.setText(_PARTIAL_COLLECTION_SUMMARY)
             self.quick_tip.setText(
                 XHS_RELEASE_DISABLED_MESSAGE
                 if self._xhs_homepage_release_disabled
@@ -1856,6 +1778,7 @@ class CollectionPage(QWidget):
         # An explicit user mode change ends the one-off scope from the document.
         if requested=='full':
             self._workspace_request=None
+            self._clear_partial_login_retry()
         if requested == self._selected_mode:
             self._render_collection_mode_state()
             return
@@ -1900,12 +1823,12 @@ class CollectionPage(QWidget):
             control.setEnabled(not running)
         if partial:
             self.quick_summary.setText(
-                "无需登录，采集当前可获得的最新公开作品；速度较快、风险较低。"
+                _PARTIAL_COLLECTION_SUMMARY
             )
             self.quick_tip.setText(
                 XHS_RELEASE_DISABLED_MESSAGE
                 if self._xhs_homepage_release_disabled
-                else "公开方式 · 无需打开专用浏览器"
+                else "登录和验证码由你本人完成；登录后部分采集也不会全量滚动。"
             )
             text = (
                 "正在停止…"
@@ -1934,6 +1857,7 @@ class CollectionPage(QWidget):
             self.full_btn.setText(text)
             self.full_btn.setAccessibleName(text)
             self.full_btn.setEnabled(not self._stopping_collection)
+        self._sync_partial_login_retry()
 
     def _build_quick_panel(self) -> QWidget:
         # 两栏：左说明 / 右开始按钮
@@ -1945,7 +1869,7 @@ class CollectionPage(QWidget):
         left = QVBoxLayout()
         left.setSpacing(6)
         left.addStretch(1)
-        self.quick_summary = QLabel("免登录 · 零风险 · 抓该作者最新一页作品（约 15–20 条）")
+        self.quick_summary = QLabel(_PARTIAL_COLLECTION_SUMMARY)
         self.quick_summary.setObjectName("taskSrc")
         self.quick_summary.setWordWrap(True)
         self.quick_summary.setAlignment(Qt.AlignCenter)
@@ -1967,6 +1891,16 @@ class CollectionPage(QWidget):
         self.grab_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.grab_btn.setMinimumHeight(46)
         right.addWidget(self.grab_btn)
+        self.partial_login_btn = QPushButton("登录后部分采集")
+        adopt_button(
+            self.partial_login_btn,
+            role="secondary",
+            size="sm",
+            accessible_name="登录后部分采集，最多读取最新一页",
+        )
+        self.partial_login_btn.clicked.connect(self._on_partial_login_retry)
+        self.partial_login_btn.hide()
+        right.addWidget(self.partial_login_btn)
         self.xhs_login_btn = QPushButton("打开专用浏览器登录")
         adopt_button(
             self.xhs_login_btn,
@@ -2033,7 +1967,7 @@ class CollectionPage(QWidget):
         self._browser_name, self._browser_path = browsers[0]
         field = QFrame()
         field.setObjectName("browserField")
-        field.setToolTip("全量采集用的浏览器（单独一份数据，不动你平时用的浏览器）")
+        field.setToolTip("登录采集使用的浏览器（专用数据，不动你平时用的浏览器）")
         field.setCursor(Qt.PointingHandCursor)
         field.setFixedSize(150, 34)
         field.setStyleSheet(
@@ -2182,6 +2116,7 @@ class CollectionPage(QWidget):
     def _on_sort_clicked(self, col: int) -> None:
         if col not in _SORT_ATTR:
             return
+        self._sort_explicit = True
         if col == self._sort_col:
             self._sort_desc = not self._sort_desc
         else:
@@ -2197,12 +2132,16 @@ class CollectionPage(QWidget):
             col = int(col)
         except (TypeError, ValueError):
             return
+        self._sort_explicit = True
         if col != self._sort_col:
             self._sort_col = col
             self._sort_desc = _SORT_DESC_DEFAULT.get(col, True)
         self._render()
 
     def _toggle_dir(self) -> None:
+        if self._sort_col == 0:
+            return
+        self._sort_explicit = True
         self._sort_desc = not self._sort_desc
         self._render()
 
@@ -2213,6 +2152,7 @@ class CollectionPage(QWidget):
                 self.sort_combo.setCurrentIndex(i)
                 break
         self.sort_combo.blockSignals(False)
+        self.dir_btn.setEnabled(self._sort_col != 0)
         self.dir_btn.setText("↓ 降序" if self._sort_desc else "↑ 升序")
 
     def _update_headers(self) -> None:
@@ -2330,7 +2270,8 @@ class CollectionPage(QWidget):
         if field_type == "numeric":
             if field_name == "duration_sec":
                 actual = item.known_numeric("duration_ms")
-                actual = None if actual is None else actual / 1000
+                # Compare in milliseconds, retaining exact decimal thresholds.
+                expected = Fraction(str(expected)) * 1000
             else:
                 actual = item.known_numeric(field_name)
             if actual is None:
@@ -2374,7 +2315,7 @@ class CollectionPage(QWidget):
                 for it in items
                 if it.field_state("create_time") == "known"
                 and it.known_numeric("create_time") is not None
-                and lower <= float(it.known_numeric("create_time")) < upper
+                and lower <= it.known_numeric("create_time") < upper
             ]
         if self._active_field_filter is not None:
             items = [
@@ -2384,7 +2325,9 @@ class CollectionPage(QWidget):
             ]
         # 排序
         attr = _SORT_ATTR.get(self._sort_col, "create_time")
-        if attr in _TRUTHFUL_FIELDS:
+        if self._sort_col == 0:
+            self._view = list(items)
+        elif attr in _TRUTHFUL_FIELDS:
             known = [it for it in items if it.known_numeric(attr) is not None]
             unknown = [it for it in items if it.known_numeric(attr) is None]
             self._view = (
@@ -2403,7 +2346,17 @@ class CollectionPage(QWidget):
         self._update_empty_state()
 
     def _fill_table(self, *, status_only=False) -> None:
+        updates = self.table.updatesEnabled()
+        blocked = self.table.signalsBlocked()
+        self.table.setUpdatesEnabled(False)
         self.table.blockSignals(True)
+        try:
+            self._fill_table_rows(status_only=status_only)
+        finally:
+            self.table.blockSignals(blocked)
+            self.table.setUpdatesEnabled(updates)
+
+    def _fill_table_rows(self, *, status_only=False) -> None:
         if not status_only:
             self.table.setRowCount(len(self._view))
         try:
@@ -2412,13 +2365,15 @@ class CollectionPage(QWidget):
             runtime_states = {}
         for r, it in enumerate(self._view):
             if not status_only:
-                chk = QTableWidgetItem()
+                chk = self.table.item(r, 0)
+                if chk is None:
+                    chk = QTableWidgetItem()
+                    self.table.setItem(r, 0, chk)
                 chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
                 chk.setData(Qt.UserRole, it.stable_key)
                 chk.setCheckState(
                     Qt.Checked if it.stable_key in self._selected_keys else Qt.Unchecked
                 )
-                self.table.setItem(r, 0, chk)
                 cells = [
                     (it.author_name, ""),
                     (it.title, ""),
@@ -2431,14 +2386,14 @@ class CollectionPage(QWidget):
                 ]
                 columns = (1, 2, 3, 4, 5, 6, 7, 8)
                 for c, (text, tooltip) in zip(columns, cells):
-                    item = QTableWidgetItem(text)
+                    item = self.table.item(r, c)
+                    if item is None:
+                        item = QTableWidgetItem()
+                        self.table.setItem(r, c, item)
+                    item.setText(text)
                     if c >= 3:
                         item.setTextAlignment(Qt.AlignCenter)
-                    if c in (1, 2):
-                        item.setToolTip(text)
-                    elif tooltip:
-                        item.setToolTip(tooltip)
-                    self.table.setItem(r, c, item)
+                    item.setToolTip(text if c in (1, 2) else tooltip)
             runtime = runtime_states.get(it.stable_key)
             material_runtime = self._material_runtime.get(it.stable_key, {})
             transcript_runtime = str(getattr(runtime, "transcript", "") or "")
@@ -2543,7 +2498,6 @@ class CollectionPage(QWidget):
             )
         if not status_only:
             self._sync_row_selection_visuals()
-        self.table.blockSignals(False)
         visible_keys = {item.stable_key for item in self._view}
         self.select_all_btn.setText(
             "取消可见全选"
@@ -2804,7 +2758,7 @@ class CollectionPage(QWidget):
         )
         self.history_manage_button.setEnabled(bool(snapshot.active_records or snapshot.trashed_records))
         if restore_selected and snapshot.selected_record is not None:
-            self._set_items(list(snapshot.selected_record.items))
+            self._set_items(list(snapshot.selected_record.items), source_method=snapshot.selected_record.source_method)
         return snapshot
 
     def _reconcile_history_snapshot(self, snapshot: HistorySnapshot) -> HistorySnapshot:
@@ -2932,7 +2886,7 @@ class CollectionPage(QWidget):
         )
         if record is None:
             return
-        self._set_items(list(record.items))
+        self._set_items(list(record.items), source_method=record.source_method)
 
     def _open_history_manager(self) -> None:
         if self._history_repo is None or self._history_snapshot is None:
@@ -2955,6 +2909,7 @@ class CollectionPage(QWidget):
         dialog.open()
 
     def hideEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self._clear_partial_login_retry()
         if self._history_dialog is not None:
             self._history_dialog.reject()
         super().hideEvent(event)
@@ -2962,7 +2917,8 @@ class CollectionPage(QWidget):
     def _on_history_changed(self, snapshot: HistorySnapshot) -> None:
         snapshot = self._apply_history_snapshot(snapshot)
         selected = snapshot.selected_record
-        self._set_items(list(selected.items) if selected is not None else [])
+        self._set_items(list(selected.items) if selected is not None else [],
+                        source_method=selected.source_method if selected is not None else None)
 
     def _persist_history_result(self, result, token: int, *, retry_pending=True) -> tuple[str, bool]:
         items = tuple(result.items)
@@ -3080,6 +3036,7 @@ class CollectionPage(QWidget):
             raise RuntimeError('主页采集已有任务在运行，请等待或停止后再带入')
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError('采集数量无效')
+        self._clear_partial_login_retry()
         self.input.setText(url)
         self._workspace_request=(url,limit)
         self._selected_mode='partial'
@@ -3095,8 +3052,104 @@ class CollectionPage(QWidget):
         self._workspace_request=None
         return None
 
+    def _clear_partial_login_retry(self) -> None:
+        if getattr(self, "_partial_login_retry", None) is not None:
+            status = getattr(self, "status", None)
+            if status is not None:
+                status.setText(status.text().replace(
+                    "可点击“登录后部分采集”，在专用浏览器中自行登录后重试。",
+                    "请重新开始采集，受限时可再次选择登录。"))
+        self._partial_login_retry = None
+        button = getattr(self, "partial_login_btn", None)
+        if button is not None:
+            button.hide()
+            button.setEnabled(False)
+
+    def _sync_partial_login_retry(self) -> None:
+        retry = getattr(self, "_partial_login_retry", None)
+        if retry is None:
+            self._clear_partial_login_retry()
+            return
+        token, command = retry
+        if (
+            getattr(self, "_shutting_down", False)
+            or not self.isVisible()
+            or token != self._run_token
+            or command.raw_input.strip() != self.input.text().strip()
+            or self._selected_mode != "partial"
+            or self._current_platform() != "douyin"
+        ):
+            self._clear_partial_login_retry()
+            return
+        self.partial_login_btn.show()
+        self.partial_login_btn.setEnabled(
+            not self._collect_running()
+            and not self._active_collection_mode
+            and not self._douyin_login_busy()
+        )
+
+    def _offer_partial_login_retry(self, token, command, result) -> None:
+        if (
+            isinstance(command, CollectionCommand)
+            and command.mode in {"anonymous_latest", "profile_latest"}
+            and result.completion == "failed"
+            and result.reason_code in {
+                "permission_denied", "login_required", "login_expired", "captcha", "no_items_unverified"
+            }
+        ):
+            self._partial_login_retry = (token, command)
+            self._sync_partial_login_retry()
+
+    def _on_partial_login_retry(self) -> None:
+        self._sync_partial_login_retry()
+        retry = getattr(self, "_partial_login_retry", None)
+        if retry is None or not self.partial_login_btn.isEnabled():
+            return
+        _token, original = retry
+        limit = original.limit if type(original.limit) is int else 20
+        limit = max(1, min(20, limit))
+        accepted = dialogs.confirm(
+            self,
+            "登录后部分采集",
+            "将打开 Lulu 专用浏览器登录，可复用已保存登录。建议使用小号。\n\n"
+            f"只读取当前最新一页（通常约 15～20 条），本次最多 {limit} 条，不会全量滚动。\n\n"
+            "登录和验证码由你本人完成；不会读取日常浏览器的登录信息，采集数据只留本地。",
+            ok="登录后部分采集",
+            cancel="取消",
+        )
+        if not accepted:
+            self._clear_partial_login_retry()
+            return
+        # The modal dialog runs an event loop: links, scope or tasks may change
+        # while it is open. Only this exact still-current failed task may retry.
+        self._sync_partial_login_retry()
+        if (getattr(self, "_partial_login_retry", None) is not retry
+                or not self.partial_login_btn.isEnabled()):
+            return
+        self._clear_partial_login_retry()
+        command = replace(
+            original,
+            mode="profile_latest",
+            limit=limit,
+            profile_id="default",
+            browser_path=self._browser_path,
+        )
+        self.status.setText(f"正在打开专用浏览器，登录后最多采集 {limit} 条最新作品…")
+        self._start_collect(command, full=False)
+
     # ---------------- 抓取最新（路 A） ----------------
+    def _collection_just_started(self):
+        # Start and stop share one button: the second press of a double click
+        # must not cancel the task it just started (including fast completion).
+        context = getattr(self, "_collection_start_context", None)
+        if context is not None and context != (self.input.text().strip(), self._selected_mode, self._workspace_request_limit()):
+            return False
+        started = getattr(self, "_collection_started_monotonic", 0.0)
+        return bool(started and monotonic_time.monotonic() - started < QApplication.doubleClickInterval() / 1000)
+
     def _on_grab(self) -> None:
+        if self._collection_just_started():
+            return
         if self._worker and self._worker.isRunning():
             self._worker.request_cancel()
             self._stopping_collection = True
@@ -3162,6 +3215,8 @@ class CollectionPage(QWidget):
 
     # ---------------- 全量采集（路 B） ----------------
     def _on_full_grab(self) -> None:
+        if self._collection_just_started():
+            return
         if self._full_worker and self._full_worker.isRunning():
             self._full_worker.request_cancel()
             self._stopping_collection = True
@@ -3206,6 +3261,9 @@ class CollectionPage(QWidget):
         self._start_collect(command, full=True)
 
     def _start_collect(self, command: CollectionCommand, *, full: bool) -> None:
+        if self._collect_running() or self._active_collection_mode or getattr(self, "_shutting_down", False):
+            return
+        self._clear_partial_login_retry()
         material_snapshot = self._material_snapshot()
         # 主采集只结算基础信息；封面和音视频都是后续独立素材任务。
         command = replace(command, include_cover=False)
@@ -3213,12 +3271,14 @@ class CollectionPage(QWidget):
         token = self._run_token
         self._active_collection_mode = "full" if full else "partial"
         self._collection_started_monotonic = monotonic_time.monotonic()
+        self._collection_start_context = (command.raw_input.strip(), self._active_collection_mode,
+                                          self._workspace_request_limit())
         self._stopping_collection = False
         self._history_context[token] = (command, self._service.inspect(command.raw_input).identity)
         self._material_snapshots[token] = material_snapshot
         worker = _CollectionWorker(self._service, command, token)
         worker.progress.connect(
-            lambda _message, count, t=token: self._on_collect_progress(t, count)
+            lambda message, count, t=token: self._on_collect_progress(t, count, message)
         )
         worker.done.connect(self._on_collect_done)
         worker.failed.connect(self._on_collect_failed)
@@ -3242,18 +3302,36 @@ class CollectionPage(QWidget):
 
     def _on_collect_worker_finished(self, worker, full: bool) -> None:
         name = "_full_worker" if full else "_worker"
-        if getattr(self, name, None) is worker:
-            setattr(self, name, None)
+        if getattr(self, name, None) is not worker:
+            return
+        setattr(self, name, None)
         self._on_input_changed(self.input.text())
         if not self._xhs_release_disabled():
             self._sync_xhs_browser_status()
+        self._sync_partial_login_retry()
 
-    def _on_collect_progress(self, token: int, count: int) -> None:
+    def _on_collect_progress(self, token: int, count: int, message: str = "") -> None:
         if token != self._run_token:
             return
         suffix = f"，已读取 {count} 条" if count > 0 else ""
         started = getattr(self, "_collection_started_monotonic", 0.0)
         elapsed = max(0, int(monotonic_time.monotonic() - started)) if started else 0
+        context = getattr(self, "_history_context", {}).get(token)
+        if context and context[0].mode == "profile_latest":
+            instruction = (
+                "请在 Lulu 专用浏览器中手动登录，完成后继续部分采集"
+                if message.startswith("请在 Lulu 专用浏览器中手动登录")
+                else "登录可能已失效，请在专用浏览器中重新登录，完成后继续部分采集"
+                if message.startswith("登录可能已失效，请在专用浏览器中手动登录")
+                else "暂未读取到作品，请在专用浏览器中检查登录或验证状态"
+                if message.startswith("暂未读取到作品，请在专用浏览器检查登录是否有效")
+                else "请在专用浏览器中自行完成验证，完成后继续部分采集"
+                if message.startswith(("请在专用浏览器中自行完成验证", "等待你在弹出的浏览器窗口完成验证"))
+                else ""
+            )
+            if instruction:
+                self.status.setText(f"{instruction} · 已用时 {elapsed // 60:02d}:{elapsed % 60:02d}…")
+                return
         self.status.setText(
             f"正在采集{suffix} · 已用时 {elapsed // 60:02d}:{elapsed % 60:02d}…"
         )
@@ -3269,6 +3347,12 @@ class CollectionPage(QWidget):
     def _on_collect_done(self, result, token: int) -> None:
         if token != self._run_token:
             return
+        collection_mode = getattr(self, "_active_collection_mode", "")
+        context = getattr(self, "_history_context", {}).get(token)
+        source_command = context[0] if context is not None else None
+        clear_retry = getattr(self, "_clear_partial_login_retry", None)
+        if callable(clear_retry):
+            clear_retry()
         self._finish_collect()
         if isinstance(result, CollectionExecutionResult):
             execution = result
@@ -3277,6 +3361,8 @@ class CollectionPage(QWidget):
         else:
             cover_summary = CollectionCoverSummary()
         items = list(result.items)
+        if source_command is not None and not getattr(self, "_sort_explicit", False):
+            self._sort_col = 0 if source_command.mode in {"anonymous_latest", "profile_latest"} else 3
         records_warning, records_saved = self._persist_records_result(result)
         history_warning, history_saved = self._persist_history_result(
             result, token
@@ -3356,11 +3442,52 @@ class CollectionPage(QWidget):
             return
 
         if self._current_platform() == "douyin":
+            anonymous = (
+                collection_mode == "partial"
+                and getattr(source_command, "mode", "anonymous_latest") == "anonymous_latest"
+            )
+            login_choice = (
+                "可点击“登录后部分采集”，在专用浏览器中自行登录后重试。"
+                if source_command is not None and getattr(self, "isVisible", lambda: True)() else
+                "请重新开始采集，受限时可再次选择登录。"
+                if source_command is not None else
+                "可稍后重试，或选择“全量采集”在专用浏览器中自行登录。"
+            )
+            network_action = "连接抖音失败或响应超时，请检查网络后重试。"
+            service_action = "抖音服务暂时无法返回作品，请稍后重试。"
+            browser_action = "专用浏览器已关闭，请重新开始采集。"
             platform_messages = {
-                "login_required": "请先在 Lulu 专用浏览器登录抖音后再试。",
+                "login_required": (
+                    "抖音要求登录后读取作品。" + login_choice
+                    if anonymous else "请先在 Lulu 专用浏览器登录抖音后再试。"
+                ),
                 "login_expired": "抖音专用登录已失效，请重新登录后再试。",
-                "captcha": "抖音出现人工验证，已停止；请完成验证后重新开始。",
-                "rate_limited": "抖音访问受限，已停止，请稍后重试。",
+                "captcha": (
+                    "抖音要求人工验证，已停止本次匿名采集。" + login_choice
+                    if anonymous else "本次验证等待已结束。请重新开始采集，并在专用浏览器中自行完成验证。"
+                    if getattr(source_command, "mode", "") == "profile_latest"
+                    else "抖音出现人工验证，已停止；请在专用浏览器中自行完成验证后重新开始。"
+                ),
+                "rate_limited": "抖音限制了本次访问频率，已停止，请稍后重试。",
+                "permission_denied": (
+                    "抖音拒绝了本次匿名访问。" + login_choice
+                    if anonymous else "抖音拒绝了本次访问，已停止。请在专用浏览器中检查登录或验证状态后重试。"
+                ),
+                "no_items_unverified": (
+                    "抖音未返回可读取的作品列表，目前无法确认主页是否为空。"
+                    + (login_choice if anonymous and source_command is not None else
+                       "请在专用浏览器中检查登录或验证状态后重试。"
+                       if getattr(source_command, "mode", "") == "profile_latest" else "请稍后重试。")
+                ),
+                "incomplete": "本次未能确认已采全，请稍后重试。",
+                "browser_closed": browser_action,
+                "browser_unavailable": "专用浏览器暂时无法使用，请确认浏览器已安装并关闭遗留窗口后重试。",
+                "profile_busy": "专用浏览器仍被占用，请结束另一个采集或登录任务，并关闭遗留浏览器窗口后重试。",
+                "platform_changed": "抖音返回的数据暂时无法识别，请更新 Lulu；若已是最新版，请反馈此问题。",
+                "network_error": (
+                    result.next_action if result.next_action in (network_action, service_action, browser_action)
+                    else "采集过程发生异常，请重试或反馈此问题。"
+                ),
             }
         else:
             platform_messages = {
@@ -3370,7 +3497,6 @@ class CollectionPage(QWidget):
                 "rate_limited": "小红书访问频繁，已停止，请稍后重试。",
             }
         messages = {
-            **platform_messages,
             "platform_changed": "平台页面结构已变化，请更新 Lulu 后重试。",
             "network_error": "页面读取失败，已安全停止，请稍后重试。",
             "no_items_unverified": "没有读取到作品，目前无法确认主页真实为空。",
@@ -3378,6 +3504,7 @@ class CollectionPage(QWidget):
             "unsupported_link": "当前链接或采集方式暂不支持。",
             "invalid_input": "请检查主页链接后重试。",
             "ambiguous_link": "一次只粘贴一个主页链接。",
+            **platform_messages,
         }
         message = messages.get(result.reason_code, "采集未完成，请稍后重试。")
         if result.completion == "partial":
@@ -3385,6 +3512,9 @@ class CollectionPage(QWidget):
         if items and self._has_unknown_fields(items):
             message += " 部分字段未获取。"
         self.status.setText(message + suffix)
+        offer_retry = getattr(self, "_offer_partial_login_retry", None)
+        if self._current_platform() == "douyin" and callable(offer_retry):
+            offer_retry(token, source_command, result)
 
     @staticmethod
     def _cover_status_text(
@@ -3421,6 +3551,7 @@ class CollectionPage(QWidget):
     def _on_collect_failed(self, message: str, token: int) -> None:
         if token != self._run_token:
             return
+        self._clear_partial_login_retry()
         self._history_context.pop(token, None)
         self._material_snapshots.pop(token, None)
         self._finish_collect()
@@ -3570,7 +3701,11 @@ class CollectionPage(QWidget):
             ok="清除登录", cancel="取消",
         ):
             return
-        removed = clear_login()
+        try:
+            removed = clear_login()
+        except Exception:
+            self.status.setText("登录档案未能清除，请关闭专用浏览器后重试；原有资料保留。")
+            return
         self._refresh_login_status()
         self.status.setText("已清除抖音登录档案，现在是未登录状态。"
                             if removed else "没有可清除的登录档案（当前未登录）。")
@@ -3761,14 +3896,17 @@ class CollectionPage(QWidget):
         inspect_source = self._service.inspect
         reader = _TranscribedRead(lambda: CollectionPage._read_transcribed(inspect_source))
         self._transcribed_read = reader
-        reader.finished.connect(self._finish_transcribed_read)
-        reader.finished.connect(reader.deleteLater)
         reader.start()
+        self._transcribed_poll.start()
 
     def _finish_transcribed_read(self):
         reader = self._transcribed_read
         if reader is None or self._shutting_down:
+            self._transcribed_poll.stop()
             return
+        if reader.isRunning():
+            return
+        self._transcribed_poll.stop()
         self._transcribed_read = None
         if reader.error:
             if not self._collect_running():
@@ -3781,7 +3919,9 @@ class CollectionPage(QWidget):
             self._transcribed_read_pending = False
             self._request_transcribed_read()
 
-    def _set_items(self, items: list) -> None:
+    def _set_items(self, items: list, *, source_method=None) -> None:
+        if source_method is not None and not self._sort_explicit:
+            self._sort_col = 0 if source_method in {"anonymous_latest", "profile_latest"} else 3
         self._items = items
         live_keys = {str(item.stable_key or "") for item in items}
         self._material_runtime = {
@@ -4219,11 +4359,22 @@ class CollectionPage(QWidget):
                 and outcome.reason_code == "media_source_refresh_failed"
                 for outcome in getattr(media_result, "outcomes", ())
             )
-            suffix = (
-                "；音视频地址无法刷新，可重新采集主页后再试"
-                if media_refresh_failed
-                else ""
-            )
+            reasons = {outcome.reason_code for outcome in getattr(media_result, "outcomes", ())
+                       if outcome.status == "failed"}
+            notes = {
+                "media_disk_full": "磁盘空间不足，请腾出空间后重试",
+                "media_permission_denied": "素材目录无法写入，请检查权限",
+                "media_network_error": "下载连接失败，请检查网络后重试",
+                "media_rate_limited": "平台访问受限，请稍后重试",
+                "media_service_unavailable": "平台暂时无法提供素材，请稍后重试",
+                "media_download_failed": "下载发生异常，可重试，已有文件保留",
+                "media_invalid_file": "下载文件无法确认，可重试，已有文件保留",
+                "media_source_unavailable": "作品暂时没有可用的音视频来源",
+            }
+            messages = [text for code, text in notes.items() if code in reasons]
+            if media_refresh_failed:
+                messages.append("音视频地址无法刷新，可重新采集主页后再试")
+            suffix = "；" + "；".join(messages) if messages else ""
             self.status.setText(
                 f"已完成 {len(items)} 项，{failed} 项素材未完成{suffix}"
             )
@@ -4840,11 +4991,9 @@ class CollectionPage(QWidget):
             source = ""
             skipped_reason = ""
             if item.is_image:
-                skipped_reason = "图文作品无音频"
-            elif item.platform == "douyin" and item.aweme_id:
-                # 保留旧抖音分享页转录链。
-                source = f"https://www.iesdouyin.com/share/video/{item.aweme_id}/"
-            elif item.platform == "xiaohongshu" and item.work_url:
+                skipped_reason = "图文/文章不按口述视频转录"
+            elif item.platform in {"douyin", "xiaohongshu"} and item.work_url:
+                # Use the same saved work identity as the shared task service.
                 source = item.work_url
             elif item.platform not in {"douyin", "xiaohongshu"}:
                 skipped_reason = "当前平台尚未接入转录"

@@ -61,6 +61,7 @@ class Service:
             item['regions'] = [r['name'] for r in authoritative.get('regions', [])]
             choices.append(item)
         cloud = deepcopy(self.store.preference('model-settings-cloud-configs') or {})
+        cloud = {pid:value for pid,value in cloud.items() if pid in {p['id'] for p in public['asrProviders']}}
         for view in public['asrProviders']:
             pid = 'custom_openai' if view['id'] == 'custom_asr' else view['id']
             cloud.setdefault(view['id'], dict(provider=view['id'], credentialId=pid,
@@ -271,7 +272,7 @@ class Service:
         if purpose == 'extract':
             pid = 'custom_openai' if args.get('provider') == 'custom_asr' else args.get('provider')
             preset = PRESETS.get(pid)
-            if not preset or not preset.needs_key or region or args.get('mode', 'api') != 'api':
+            if not preset or preset.retired or not preset.needs_key or region or args.get('mode', 'api') != 'api':
                 raise ValueError('转录服务设置无效')
             base = args.get('base', '') if pid == 'custom_openai' else preset.base_url
             if base:

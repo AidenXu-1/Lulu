@@ -62,54 +62,30 @@ class OpenAICompatEngine(TranscriptionEngine):
                 f"{self.display_name} 还没配置 API Key。请在「AI 大模型配置」→「内容提取」→ 云端 API 里填入,或切回本地引擎。"
             )
         progress(f"上传音频到 {self.display_name}…", -1.0)
-        # 优先要 verbose_json(带分段/时间戳),厂家不支持时退回纯 json
-        data = self._request(wav_path, "verbose_json")
-        if data is None:
-            data = self._request(wav_path, "json")
-        if is_cancelled():
-            raise InterruptedError("转录已取消")
-        progress("解析云端结果…", -1.0)
-        return self._parse(data)
+        from .cloud_limits import policy_for
+        from .cloud_http import CloudFailure, safe_id
+        policy = policy_for(self.name, self._model)
+        if Path(wav_path).stat().st_size > policy.max_bytes:
+            raise ValueError(f'准备后的音频超过此服务的上传限制（{policy.max_bytes//1024**2} MB）；尚未上传')
+        # Choose a supported format before any billable upload. Never upload a
+        # second time merely to probe another response format.
+        data, headers = self._request(wav_path, policy.response_format)
+        result = self._parse(data)
+        if not result.text.strip():
+            raise CloudFailure('unknown')
+        result.meta = {'cloud_request':{'provider':self.name, 'model':self._model,
+            'request_id':safe_id(headers.get('x-request-id') or headers.get('X-Request-Id')),
+            'attempts':1}}
+        # A successful paid response must reach the caller even if cancellation
+        # arrived during the request. The batch first persists it, then settles.
+        return result
 
     # ------------------------------------------------------------------ #
-    def _request(self, wav_path: Path, response_format: str) -> dict | None:
-        import requests
-
+    def _request(self, wav_path: Path, response_format: str):
+        from .cloud_http import multipart, post_audio
         url = f"{self._base_url}/audio/transcriptions"
-        try:
-            with open(wav_path, "rb") as f:
-                resp = requests.post(
-                    url,
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                    files={"file": (Path(wav_path).name, f, "audio/wav")},
-                    data={"model": self._model, "response_format": response_format},
-                    timeout=300,
-                )
-        except requests.RequestException as exc:
-            raise RuntimeError(
-                f"连接 {self.display_name} 失败(检查网络 / 代理):{exc}"
-            ) from exc
-
-        if resp.status_code == 401:
-            raise RuntimeError(f"{self.display_name}:API Key 无效或无权限(401)。请在「AI 大模型配置」→「内容提取」→ 云端 API 核对 Key。")
-        if resp.status_code == 403:
-            raise RuntimeError(f"{self.display_name}:无权限或余额不足(403)。")
-        if resp.status_code == 429:
-            if "insufficient_quota" in resp.text or "exceeded your current quota" in resp.text:
-                raise RuntimeError(
-                    f"{self.display_name}:账号余额 / 额度不足(429)。请到该平台充值后再用,或换其它引擎。"
-                )
-            raise RuntimeError(f"{self.display_name}:触发限流(429),稍后再试,或切回本地。")
-        if resp.status_code >= 400:
-            if response_format == "verbose_json":
-                return None  # 让上层退回 json 再试一次
-            raise RuntimeError(
-                f"{self.display_name} 返回错误 {resp.status_code}:{resp.text[:300]}"
-            )
-        try:
-            return resp.json()
-        except Exception:  # noqa: BLE001
-            return {"text": resp.text}
+        body, content_type = multipart(wav_path, {'model':self._model, 'response_format':response_format})
+        return post_audio(url, {'Authorization':f'Bearer {self._api_key}', 'Content-Type':content_type}, body)
 
     def _parse(self, data: dict) -> Transcript:
         text = (data.get("text") or "").strip()

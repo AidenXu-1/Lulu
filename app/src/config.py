@@ -469,6 +469,8 @@ class AppConfig:
             _normalize_material_preferences(known)
             _normalize_collection_mode(known)
             _normalize_feishu_storage(known)
+            if known.get('engine_name') in {'openai','groq'}:
+                known['engine_name'] = DEFAULT_ENGINE
             return cls(**known)
         except Exception:
             return cls()

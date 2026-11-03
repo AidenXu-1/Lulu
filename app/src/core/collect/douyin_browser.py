@@ -9,18 +9,26 @@ ADR-0013 opt-in 例外:用户显式选择 + 自行在浏览器登录(建议小�
 from __future__ import annotations
 
 import random
+import json
+import os
+import sys
 import time
 from typing import Callable
+from urllib.parse import parse_qs, urlsplit
 
 from .browser_shell import BrowserLaunchSpec, BrowserShell, BrowserShellError
-from .models import CollectedItem, dedupe, from_aweme
-from .douyin_fetch import resolve_sec_uid, DouyinCollectError
+from .models import CollectedItem
+from .douyin_fetch import (
+    resolve_sec_uid, DouyinCollectError, parse_author_page, parse_aweme_detail,
+    _http_failure, _resolve_douyin_link, _SEC_UID_RE,
+)
 from .profiles import ProfileRegistry
 
 ProgressCb = Callable[[str, int], None]
 CancelCb = Callable[[], bool]
 
 _POST_API = "aweme/v1/web/aweme/post"
+_DETAIL_API = "aweme/v1/web/aweme/detail"
 # 登录态标记(登录成功后写,UI 据此显示「已登录」);独立 profile 让登录持久复用
 _LOGIN_MARK = ".logged_in"
 
@@ -34,6 +42,7 @@ _LONG_PAUSE_EVERY = (5, 8)      # 每隔几轮一次长停顿
 _IDLE_ROUNDS_TO_STOP = 3        # 只作无终点信号时的异常兜底，不再用来证明“采全”
 _MAX_ROUNDS = 300               # 故障安全上限；正常路径由 has_more=0 结束
 _MAX_PACKETS_PER_ROUND = 200    # 防止异常连续响应让单轮永不归还取消检查
+_FIRST_PAGE_TIMEOUT_S = 45      # 首屏慢加载独立宽限，不按三次短轮询判空
 _SESSION_CHECKS = 4             # page.get 后的短宽限，避免把 cookie 瞬时迟到当成失效
 _SESSION_CHECK_WAIT_S = 1.0
 _SESSION_COOKIES = {"sessionid", "sessionid_ss"}
@@ -96,46 +105,133 @@ def clear_login() -> bool:
     """
     import shutil
 
-    pdir = _profile_dir()
-    if not pdir.exists():
+    from ..models_manager import app_data_dir
+    registry = ProfileRegistry(app_data_dir())
+    resolution = registry.resolve("douyin")
+    if resolution.state == "missing":
         return False
-    shutil.rmtree(pdir, ignore_errors=True)
-    return not pdir.exists()
+    try:
+        with registry.acquire("douyin"):
+            if not registry._douyin_browser_absent(resolution):
+                raise DouyinCollectError("专用浏览器尚未关闭。", code="profile_busy")
+            shutil.rmtree(resolution.path)
+    except DouyinCollectError:
+        raise
+    except Exception as exc:
+        raise DouyinCollectError("登录档案未能清除，请关闭专用浏览器后重试。",
+                                 code=getattr(exc, "code", "profile_busy")) from exc
+    return True
 
 
-def _open_page(browser_path: str | None):
+def _open_page(browser_path: str | None, *, is_cancelled=None):
     """经共享壳打开抖音独立 profile；保留旧函数签名与 page 接口。"""
     from ..models_manager import app_data_dir
 
     shell = BrowserShell(ProfileRegistry(app_data_dir()))
     try:
-        return shell.open(BrowserLaunchSpec(
+        page = shell.open(BrowserLaunchSpec(
             platform_id="douyin",
             profile_id="default",
             browser_path=browser_path,
-        ))
+        ), is_cancelled=is_cancelled)
+        if page is None:
+            raise InterruptedError("采集已取消")
+        return page
     except BrowserShellError as exc:
         if exc.code == "dependency_unavailable":
             raise DouyinCollectError(
-                "需要浏览器驱动组件(DrissionPage)未就绪。请确认已安装依赖。"
+                "需要浏览器驱动组件(DrissionPage)未就绪。请确认已安装依赖。", code=exc.code
             ) from exc
-        raise DouyinCollectError(f"打不开浏览器:{exc}\n请确认本机已安装所选浏览器。") from exc
+        raise DouyinCollectError("专用浏览器暂时无法使用。", code=exc.code) from exc
 
 
 def _cookie_names(page) -> set:
     try:
-        ck = page.cookies(as_dict=True) or {}
-        return set(ck.keys())
+        return {c.get("name") for c in (page.cookies() or [])}
     except Exception:  # noqa: BLE001
+        return set()
+
+
+def _browser_alive(page):
+    try:
+        return getattr(getattr(page, "states", None), "is_alive", True) is not False
+    except Exception:
+        return False
+
+
+def _post_cursor(packet, sec_uid):
+    """Only an official target-author response may contribute data or an end."""
+    try:
+        target = urlsplit(packet.url)
+        query = parse_qs(target.query)
+        host = (target.hostname or "").lower()
+        cursor = query.get("max_cursor", [])
+        if (target.scheme == "https" and (host == "douyin.com" or host.endswith(".douyin.com"))
+                and target.port in (None, 443) and target.username is None and target.password is None
+                and target.path.rstrip("/") == "/aweme/v1/web/aweme/post"
+                and query.get("sec_user_id") == [sec_uid]):
+            if (len(cursor) != 1 or not 1 <= len(cursor[0]) <= 64
+                    or not cursor[0].isascii() or not cursor[0].isdecimal()):
+                raise DouyinCollectError("目标作品请求的分页信息无法识别。", code="DOUYIN_PLATFORM_CHANGED")
+            return str(int(cursor[0]))
+    except (ValueError, AttributeError, TypeError):
+        pass
+    return None
+
+
+def _response_payload(response):
+    if response.status != 200:
+        raise _http_failure(response.status)
+    payload = response.body
+    if isinstance(payload, (str, bytes)):
+        if not payload.strip():
+            raise DouyinCollectError("抖音没有返回作品数据。", code="DOUYIN_EMPTY_RESPONSE")
         try:
-            return {c.get("name") for c in (page.cookies() or [])}
-        except Exception:  # noqa: BLE001
-            return set()
+            payload = json.loads(payload)
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise DouyinCollectError("抖音返回的作品格式暂时无法识别。", code="DOUYIN_PLATFORM_CHANGED") from exc
+    if not isinstance(payload, dict) or type(payload.get("status_code")) is not int:
+        raise DouyinCollectError("抖音返回的作品格式暂时无法识别。", code="DOUYIN_PLATFORM_CHANGED")
+    if payload["status_code"] != 0:
+        raise DouyinCollectError("抖音未返回成功的作品结果。", code="DOUYIN_SERVICE_ERROR")
+    return payload
+
+
+def _login_wall_present(page):
+    try:
+        path = urlsplit(str(page.url)).path.lower()
+        if path.startswith(("/login", "/passport")):
+            return True
+        for selector in ('css:[data-e2e="login-modal"]', 'css:[data-e2e="login-panel"]',
+                         'css:iframe[src*="/passport/"]'):
+            if any(element.states.is_displayed for element in page.eles(selector, timeout=.1)):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _page_login_marker(page, *, clear=False):
+    paths = getattr(page, "paths", None)
+    if paths is None:
+        return
+    marker = paths.resolution.path / _LOGIN_MARK
+    try:
+        if clear:
+            marker.unlink(missing_ok=True)
+        else:
+            descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(descriptor, "wb") as output:
+                output.write(b"ok")
+    except OSError:
+        pass  # A presence cache cannot change a valid collection result.
 
 
 def _wait_for_session(page, is_cancelled: CancelCb) -> bool:
     """在有限宽限内确认真实会话；只看 cookie 名，不读值。"""
     for attempt in range(_SESSION_CHECKS):
+        if not _browser_alive(page):
+            raise DouyinCollectError("专用浏览器已关闭。", code="DOUYIN_BROWSER_CLOSED")
         if _cookie_names(page) & _SESSION_COOKIES:
             return True
         if is_cancelled():
@@ -143,14 +239,6 @@ def _wait_for_session(page, is_cancelled: CancelCb) -> bool:
         if attempt + 1 < _SESSION_CHECKS:
             time.sleep(_SESSION_CHECK_WAIT_S)
     return False
-
-
-def _clear_stale_login_mark() -> None:
-    """只清除已被真实 cookie 反证的 UI 缓存，不删 profile/cookie。"""
-    try:
-        (_profile_dir() / _LOGIN_MARK).unlink(missing_ok=True)
-    except Exception:  # noqa: BLE001 - 缓存清理失败不得覆盖真实登录结果
-        pass
 
 
 def _has_more_from_body(body: dict) -> bool | None:
@@ -178,8 +266,11 @@ def login(browser_path: str | None = None, progress: ProgressCb | None = None,
         progress("请在弹出的浏览器里用小号扫码登录…", 0)
         waited = 0
         while waited < timeout_s and not is_cancelled():
+            if not _browser_alive(page):
+                progress("专用浏览器已关闭，请重新登录。", 0)
+                return False
             names = _cookie_names(page)
-            if "sessionid" in names or "sessionid_ss" in names:
+            if ("sessionid" in names or "sessionid_ss" in names) and not _login_wall_present(page):
                 (_profile_dir() / _LOGIN_MARK).write_text("ok", encoding="utf-8")
                 progress("登录成功！后续全量采集会自动复用，无需再登。", 0)
                 return True
@@ -284,18 +375,227 @@ def _wait_captcha_cleared(page, is_cancelled, progress, count: int,
 
     全程**不自动解、不绕过**——只是轮询页面,等真人通过平台这道闸,再让采集继续。
     """
-    waited = 0
-    while waited < timeout_s and not is_cancelled():
+    deadline = time.monotonic() + max(0, timeout_s)
+    while time.monotonic() < deadline and not is_cancelled():
         try:
             cur = page.url
         except Exception:  # noqa: BLE001
             cur = ""
         if not _captcha_present(page, cur):
-            return True
+            return time.monotonic() < deadline
         progress(f"等待你在弹出的浏览器窗口完成验证…完成后自动继续（已采集 {count} 条）。", count)
-        time.sleep(2)
-        waited += 2
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(2, remaining))
     return False
+
+
+def _browser_target(profile_url, cancelled):
+    from .router import detect_link
+    identity = detect_link(profile_url)
+    if identity.kind != "homepage":
+        identity = _resolve_douyin_link(profile_url, is_cancelled=cancelled)
+    if identity.kind == "work":
+        return None, identity.extracted_id
+    return resolve_sec_uid(identity.canonical_url, is_cancelled=cancelled), None
+
+
+def _read_browser_work_author(page, work_id, progress, cancelled, *, timeout_s=45,
+                              verification_timeout_s=_CAPTCHA_WAIT_S):
+    """Use the already-authorized browser to bind this exact work to its author."""
+    url = f"https://www.douyin.com/video/{work_id}"
+    if cancelled():
+        raise InterruptedError("采集已取消")
+    page.listen.start(_DETAIL_API)
+    progress("正在确认指定作品的作者，再读取该作者主页；可随时取消。", 0)
+    if cancelled():
+        raise InterruptedError("采集已取消")
+    page.get(url)
+    deadline = time.monotonic() + timeout_s
+    verified = False
+    while time.monotonic() < deadline:
+        if cancelled():
+            raise InterruptedError("采集已取消")
+        if not _browser_alive(page):
+            raise DouyinCollectError("专用浏览器已关闭。", code="DOUYIN_BROWSER_CLOSED")
+        if _login_wall_present(page):
+            raise DouyinCollectError("请重新登录后读取这条作品。", code="DOUYIN_LOGIN_REQUIRED")
+        if _captcha_present(page, str(page.url)):
+            if verified:
+                raise DouyinCollectError("作品页再次要求人工验证。", code="DOUYIN_VERIFICATION_REQUIRED")
+            verified = True
+            _bring_to_front(page)
+            progress("请在专用浏览器中自行完成验证，完成后继续确认作品作者；可随时取消。", 0)
+            if not _wait_captcha_cleared(page, cancelled, progress, 0, timeout_s=verification_timeout_s):
+                if cancelled():
+                    raise InterruptedError("采集已取消")
+                raise DouyinCollectError("等待人工验证超时。", code="DOUYIN_VERIFICATION_REQUIRED")
+            if cancelled():
+                raise InterruptedError("采集已取消")
+            page.listen.start(_DETAIL_API)
+            page.get(url)
+            deadline = time.monotonic() + timeout_s
+            continue
+        packet = page.listen.wait(timeout=.5, raise_err=False)
+        if not packet:
+            continue
+        try:
+            target = urlsplit(packet.url)
+            host = (target.hostname or "").lower()
+            matches = (target.scheme == "https" and (host == "douyin.com" or host.endswith(".douyin.com"))
+                       and target.port in (None, 443) and target.username is None and target.password is None
+                       and target.path.rstrip("/") == "/" + _DETAIL_API
+                       and parse_qs(target.query).get("aweme_id") == [work_id])
+        except (AttributeError, TypeError, ValueError):
+            matches = False
+        if not matches:
+            continue
+        payload = _response_payload(packet.response)
+        try:
+            item = parse_aweme_detail(payload, work_id)
+        except (DouyinCollectError, TypeError, ValueError, AttributeError) as exc:
+            raise DouyinCollectError("作品信息与请求不一致，已停止。", code="DOUYIN_PLATFORM_CHANGED") from exc
+        if not _SEC_UID_RE.fullmatch(item.author_id):
+            raise DouyinCollectError("作品作者信息无法确认。", code="DOUYIN_PLATFORM_CHANGED")
+        return item.author_id
+    raise DouyinCollectError("没有读取到指定作品的作者，请提供作者主页后重试。", code="DOUYIN_EMPTY_RESPONSE")
+
+
+def collect_latest(
+    profile_url: str,
+    *,
+    limit: int = 20,
+    progress: ProgressCb | None = None,
+    is_cancelled: CancelCb | None = None,
+    browser_path: str | None = None,
+    login_timeout_s: float = 300,
+    timeout_s: float = 45,
+    verification_timeout_s: float = _CAPTCHA_WAIT_S,
+) -> tuple[list[CollectedItem], str]:
+    """Explicit login fallback: read only the author's first page, never scroll."""
+    if type(limit) is not int or not 1 <= limit <= 20:
+        raise ValueError("部分采集范围必须为 1 至 20 条。")
+    progress = progress or (lambda *_: None)
+    cancelled = is_cancelled or (lambda: False)
+    cancellation = "已取消（已采集的已保留）。"
+    if cancelled():
+        return [], cancellation
+    sec_uid, work_id = _browser_target(profile_url, cancelled)
+    page = _open_page(browser_path, is_cancelled=cancelled)
+    items = []
+    try:
+        if cancelled():
+            return [], cancellation
+        page.get("https://www.douyin.com/")
+        login_deadline = time.monotonic() + login_timeout_s
+        if not (_cookie_names(page) & _SESSION_COOKIES):
+            _bring_to_front(page)
+            progress("请在 Lulu 专用浏览器中手动登录；登录后只读取最新一页，最多 20 条，可随时取消。", 0)
+        while not (_cookie_names(page) & _SESSION_COOKIES):
+            if cancelled():
+                return [], cancellation
+            if getattr(getattr(page, "states", None), "is_alive", True) is False:
+                raise DouyinCollectError("专用浏览器已关闭，请重新开始采集。", code="DOUYIN_BROWSER_CLOSED")
+            if time.monotonic() >= login_deadline:
+                raise DouyinCollectError("未检测到登录，请在专用浏览器自行登录后重试。", code="DOUYIN_LOGIN_REQUIRED")
+            time.sleep(0.5)
+        if cancelled():
+            return [], cancellation
+
+        if work_id is not None:
+            sec_uid = _read_browser_work_author(page, work_id, progress, cancelled,
+                                               timeout_s=timeout_s, verification_timeout_s=verification_timeout_s)
+        url = f"https://www.douyin.com/user/{sec_uid}"
+        page.listen.start(_POST_API)
+        progress(f"正在读取目标作者最新一页，最多 {limit} 条…", 0)
+        if cancelled():
+            return [], cancellation
+        page.get(url)
+        deadline = time.monotonic() + timeout_s
+        hint_at = time.monotonic() + min(8.0, timeout_s / 2)
+        login_prompted = False
+        login_waited = False
+        verification_waited = False
+        while time.monotonic() < deadline:
+            if cancelled():
+                return [], cancellation
+            if getattr(getattr(page, "states", None), "is_alive", True) is False:
+                raise DouyinCollectError("专用浏览器已关闭，请重新开始采集。", code="DOUYIN_BROWSER_CLOSED")
+            if _login_wall_present(page):
+                if login_waited:
+                    raise DouyinCollectError("登录尚未生效，请重新登录。", code="DOUYIN_LOGIN_EXPIRED")
+                login_waited = True
+                _page_login_marker(page, clear=True)
+                _bring_to_front(page)
+                progress("登录可能已失效，请在专用浏览器中手动登录；完成后继续读取，可随时取消。", 0)
+                login_deadline = time.monotonic() + login_timeout_s
+                while _login_wall_present(page) or not (_cookie_names(page) & _SESSION_COOKIES):
+                    if cancelled():
+                        return [], cancellation
+                    if not _browser_alive(page):
+                        raise DouyinCollectError("专用浏览器已关闭。", code="DOUYIN_BROWSER_CLOSED")
+                    if time.monotonic() >= login_deadline:
+                        raise DouyinCollectError("等待重新登录超时。", code="DOUYIN_LOGIN_EXPIRED")
+                    time.sleep(.5)
+                page.listen.start(_POST_API)
+                page.get(url)
+                deadline = time.monotonic() + timeout_s
+                continue
+            if not login_prompted and time.monotonic() >= hint_at:
+                login_prompted = True
+                _bring_to_front(page)
+                progress("暂未读取到作品，请在专用浏览器检查登录是否有效，必要时手动登录；可随时取消。", 0)
+            if _captcha_present(page, str(page.url)):
+                if verification_waited:
+                    raise DouyinCollectError("抖音再次要求人工验证，请重新开始采集。", code="DOUYIN_VERIFICATION_REQUIRED")
+                verification_waited = True
+                _bring_to_front(page)
+                progress("请在专用浏览器中自行完成验证，完成后继续读取最新一页；可随时取消。", 0)
+                if not _wait_captcha_cleared(page, cancelled, progress, 0, timeout_s=verification_timeout_s):
+                    if cancelled():
+                        return [], cancellation
+                    raise DouyinCollectError("等待人工验证超时，请重新开始采集。", code="DOUYIN_VERIFICATION_REQUIRED")
+                if cancelled():
+                    return [], cancellation
+                if getattr(getattr(page, "states", None), "is_alive", True) is False:
+                    raise DouyinCollectError("专用浏览器已关闭，请重新开始采集。", code="DOUYIN_BROWSER_CLOSED")
+                page.listen.start(_POST_API)
+                page.get(url)
+                deadline = time.monotonic() + timeout_s
+                continue
+            packet = page.listen.wait(timeout=0.5, raise_err=False)
+            if not packet:
+                continue
+            if _post_cursor(packet, sec_uid) != "0":
+                continue
+            payload = _response_payload(packet.response)
+            items = parse_author_page(payload, sec_uid)[:limit]
+            for item in items:
+                item.source_method = "profile_latest"
+            if cancelled():
+                return items, cancellation
+            _page_login_marker(page)
+            progress(f"已读取目标作者最新一页，共 {len(items)} 条。", len(items))
+            return items, ""
+        raise DouyinCollectError("抖音暂未返回作品首页，请检查浏览器中的登录或验证状态后重试。", code="DOUYIN_EMPTY_RESPONSE")
+    except DouyinCollectError as exc:
+        if exc.code in {"DOUYIN_LOGIN_REQUIRED", "DOUYIN_LOGIN_EXPIRED"}:
+            _page_login_marker(page, clear=True)
+        raise
+    except InterruptedError:
+        raise
+    except Exception as exc:
+        code = "DOUYIN_NETWORK_ERROR" if _browser_alive(page) else "DOUYIN_BROWSER_CLOSED"
+        raise DouyinCollectError("专用浏览器连接已中断。", code=code) from exc
+    finally:
+        failure_in_flight = sys.exc_info()[0] is not None
+        try:
+            page.quit()
+        except Exception:  # noqa: BLE001 - close only this owned session
+            if not failure_in_flight and not cancelled():
+                raise DouyinCollectError("专用浏览器未能确认正常关闭。",
+                                         code="browser_close_failed", items=items) from None
 
 
 def collect_all(
@@ -319,14 +619,35 @@ def collect_all(
     progress = progress or (lambda *_: None)
     is_cancelled = is_cancelled or (lambda: False)
     low_risk = (mode == MODE_LOW_RISK)
+    if is_cancelled():
+        return [], "已取消（已采集的已保留）。"
+    sec_uid, work_id = _browser_target(profile_url, is_cancelled)
+    url = f"https://www.douyin.com/user/{sec_uid}" if sec_uid else "https://www.douyin.com/"
+    if is_cancelled():
+        return [], "已取消（已采集的已保留）。"
+    page = _open_page(browser_path, is_cancelled=is_cancelled)
 
-    sec_uid = resolve_sec_uid(profile_url)
-    url = f"https://www.douyin.com/user/{sec_uid}"
-    page = _open_page(browser_path)   # 独立 profile,登录态持久、与主浏览器隔离
-
-    seen: dict[str, dict] = {}
+    seen: dict[str, CollectedItem] = {}
+    pages: dict[str, tuple[bool | None, str | None, tuple[str, ...]]] = {}
     anomaly = ""
+    failure = None
+
+    def proven_terminal():
+        cursor = "0"
+        visited = set()
+        while cursor in pages and cursor not in visited:
+            visited.add(cursor)
+            more, following, _work_ids = pages[cursor]
+            if more is False:
+                return True
+            if more is not True or following is None:
+                break
+            cursor = following
+        return False
+
     try:
+        if is_cancelled():
+            return [], "已取消（已采集的已保留）。"
         page.listen.start(_POST_API)
         page.get(url)
         progress("已打开作者主页，正在确认登录状态…", 0)
@@ -334,8 +655,16 @@ def collect_all(
         if not _wait_for_session(page, is_cancelled):
             if is_cancelled():
                 return [], "已取消（已采集的已保留）。"
-            _clear_stale_login_mark()
+            _page_login_marker(page, clear=True)
             raise DouyinCollectError("登录态丢失，请重新登录后再试。")
+
+        if work_id is not None:
+            sec_uid = _read_browser_work_author(page, work_id, progress, is_cancelled)
+            url = f"https://www.douyin.com/user/{sec_uid}"
+            if is_cancelled():
+                return [], "已取消（已采集的已保留）。"
+            page.listen.start(_POST_API)
+            page.get(url)
 
         had_session = True
         idle = 0          # 连续「无新增 且 页面没变高」的轮数
@@ -343,8 +672,13 @@ def collect_all(
         last_height = 0
         api_errors = 0    # 连续接口异常计数(疑似风控)
         terminal_confirmed = False
+        first_page_deadline = time.monotonic() + _FIRST_PAGE_TIMEOUT_S
         next_long_pause = random.randint(*_LONG_PAUSE_EVERY)
         while rounds < max_rounds and not is_cancelled():
+            if not _browser_alive(page):
+                raise DouyinCollectError("专用浏览器已关闭。", code="DOUYIN_BROWSER_CLOSED")
+            if _login_wall_present(page):
+                raise DouyinCollectError("登录已失效，请重新登录。", code="DOUYIN_LOGIN_EXPIRED")
             rounds += 1
             # 滚动:低风险=分段随机(卡住才强拉);效率=一步到底滚两次
             if low_risk:
@@ -362,40 +696,54 @@ def collect_all(
                 break
 
             new = 0
-            round_has_more: bool | None = None
-            pkt = page.listen.wait(timeout=5)
+            pkt = page.listen.wait(timeout=0.5, raise_err=False)
             packet_count = 0
             while pkt and packet_count < _MAX_PACKETS_PER_ROUND and not is_cancelled():
                 packet_count += 1
-                try:
-                    resp = pkt.response
-                    body = resp.body
-                    status = getattr(resp, "status", None)
-                    if isinstance(body, dict):
-                        sc = body.get("status_code", 0)
-                        response_ok = not (
-                            (status is not None and status != 200)
-                            or (sc not in (0, None))
-                        )
-                        if not response_ok:
-                            api_errors += 1
-                        else:
-                            api_errors = 0
-                            parsed_has_more = _has_more_from_body(body)
-                            if parsed_has_more is not None:
-                                round_has_more = parsed_has_more
-                        for a in (body.get("aweme_list") or []):
-                            aid = a.get("aweme_id")
-                            if aid and aid not in seen:
-                                seen[aid] = a
-                                new += 1
-                except Exception:  # noqa: BLE001
-                    pass
+                cursor = _post_cursor(pkt, sec_uid)
+                if cursor is not None:
+                    body = _response_payload(pkt.response)
+                    works = body.get("aweme_list")
+                    if not isinstance(works, list):
+                        raise DouyinCollectError("作品列表格式已变化。", code="DOUYIN_PLATFORM_CHANGED")
+                    # Convert each trusted work immediately. A later bad entry
+                    # cannot invalidate an earlier, already verified one.
+                    work_ids = []
+                    for raw in works:
+                        author = raw.get("author") if isinstance(raw, dict) else None
+                        author_id = author.get("sec_uid") if isinstance(author, dict) else None
+                        if (isinstance(author_id, str) and _SEC_UID_RE.fullmatch(author_id)
+                                and author_id != sec_uid):
+                            # Real author feeds can contain a foreign work. Do
+                            # not use it or this page's end as completeness proof.
+                            raise DouyinCollectError("列表混入其他作者的作品，目标作者已读作品保留，但无法确认采全。",
+                                                     code="DOUYIN_INCOMPLETE")
+                        item = parse_author_page({"status_code": 0, "aweme_list": [raw]}, sec_uid)[0]
+                        item.source_method = "profile_all"
+                        work_ids.append(item.work_id)
+                        if item.work_id not in seen:
+                            seen[item.work_id] = item
+                            new += 1
+                    following = body.get("max_cursor")
+                    if type(following) is int and following >= 0:
+                        following = str(following)
+                    elif not (isinstance(following, str) and 1 <= len(following) <= 64
+                              and following.isascii() and following.isdecimal()):
+                        following = None
+                    if following is not None:
+                        following = str(int(following))
+                    evidence = (_has_more_from_body(body), following, tuple(work_ids))
+                    if cursor in pages and pages[cursor] != evidence:
+                        raise DouyinCollectError("同一页返回了不一致的分页或作品，无法确认采全。",
+                                                 code="DOUYIN_INCOMPLETE")
+                    pages.setdefault(cursor, evidence)
                 if not is_cancelled():
-                    pkt = page.listen.wait(timeout=2)
+                    pkt = page.listen.wait(timeout=0.5, raise_err=False)
 
             if is_cancelled():
                 break
+            if not _browser_alive(page):
+                raise DouyinCollectError("专用浏览器已关闭。", code="DOUYIN_BROWSER_CLOSED")
 
             try:
                 cur_url = page.url
@@ -419,6 +767,8 @@ def collect_all(
                         break
                     api_errors = 0
                     idle = 0
+                    if not seen:
+                        first_page_deadline = time.monotonic() + _FIRST_PAGE_TIMEOUT_S
                     time.sleep(_human_wait())
                     continue          # 过验证后直接进下一轮,避免被误判到底
                 anomaly = (
@@ -436,7 +786,7 @@ def collect_all(
                 break
 
             # 只有成功作品列表包的明确终点才能证明全量完成。
-            if round_has_more is False:
+            if proven_terminal():
                 if seen:
                     terminal_confirmed = True
                     progress(f"已确认采集到底，共 {len(seen)} 条。", len(seen))
@@ -467,8 +817,9 @@ def collect_all(
                 progress(anomaly, len(seen))
                 break
 
-            if not seen and rounds >= idle_rounds_to_stop:
-                break
+            if not seen and time.monotonic() >= first_page_deadline:
+                raise DouyinCollectError("抖音暂未返回作品首页，目前无法确认主页是否为空。",
+                                         code="DOUYIN_EMPTY_RESPONSE")
 
             # 节奏:低风险才降频(主等待随机 + 偶发长停顿);效率已在滚动里留了 0.9s×2
             if low_risk:
@@ -489,21 +840,37 @@ def collect_all(
                 f"已采集 {len(seen)} 条已保留。请稍后重试。"
             )
             progress(anomaly, len(seen))
+    except DouyinCollectError as exc:
+        if exc.code in {"DOUYIN_LOGIN_REQUIRED", "DOUYIN_LOGIN_EXPIRED"}:
+            _page_login_marker(page, clear=True)
+        failure = exc
+    except InterruptedError:
+        if not is_cancelled():
+            failure = DouyinCollectError("浏览器连接已中断。", code="DOUYIN_NETWORK_ERROR")
+    except Exception as exc:  # Boundary: return verified works even if CDP fails.
+        code = "DOUYIN_NETWORK_ERROR" if _browser_alive(page) else "DOUYIN_BROWSER_CLOSED"
+        failure = DouyinCollectError("专用浏览器连接已中断。", code=code)
     finally:
         try:
             page.quit()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:
+            if failure is None:
+                failure = DouyinCollectError("专用浏览器未能正常关闭。", code="browser_close_failed")
 
-    items = dedupe([from_aweme(a) for a in seen.values()])
+    items = list(seen.values())
+    if is_cancelled():
+        return items, "已取消（已采集的已保留）。"
+    if failure is not None:
+        failure.items = tuple(items)
+        raise failure
     if anomaly:
         return items, anomaly
     if is_cancelled():
         return items, "已取消（已采集的已保留）。"
     if not seen:
         raise DouyinCollectError(
-            "没有采集到作品。可能该作者无公开作品，或平台页面暂时无法读取。\n"
-            "请确认作者页在采集浏览器中能正常显示后重试。"
+            "未取得可读取的作品首页，目前无法确认主页是否为空。\n"
+            "请确认作者页在采集浏览器中能正常显示后重试。", code="DOUYIN_EMPTY_RESPONSE"
         )
     if not terminal_confirmed:
         return items, (

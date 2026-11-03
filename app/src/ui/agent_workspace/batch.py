@@ -25,7 +25,7 @@ def deliver(action, *, document_ids, folder=None):
             doc = library.document_snapshot(eid)
             transcript = library.load(eid)
             if not doc or not transcript:
-                raise FileNotFoundError('文稿不存在或已移至最近删除')
+                raise FileNotFoundError('文稿不存在或已归档')
             title = doc['title']
             if action == 'batch_feishu':
                 from ...core.feishu_storage import record_from_transcript

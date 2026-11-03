@@ -199,6 +199,9 @@ def transcribe_with_audio_progress(
     path_or_hf_repo: str,
     on_audio_position: AudioPositionCallback,
     is_cancelled: Callable[[], bool] | None = None,
+    condition_on_previous_text: bool | None = None,
+    temperature: float | None = None,
+    word_timestamps: bool | None = None,
 ) -> dict:
     """执行原始 Whisper MLX 转录，并旁路报告已处理音频比例。
 
@@ -209,6 +212,13 @@ def transcribe_with_audio_progress(
 
     module = importlib.import_module("mlx_whisper.transcribe")
     upstream = mlx_whisper.transcribe
+    options = {"path_or_hf_repo": path_or_hf_repo}
+    if condition_on_previous_text is not None:
+        options["condition_on_previous_text"] = condition_on_previous_text
+    if temperature is not None:
+        options["temperature"] = temperature
+    if word_timestamps is not None:
+        options["word_timestamps"] = word_timestamps
     def check_cancel():
         if is_cancelled is not None and is_cancelled():
             raise InterruptedError("转录已取消")
@@ -221,7 +231,7 @@ def transcribe_with_audio_progress(
         if not isinstance(descriptor, classmethod):
             if is_cancelled is not None:
                 raise RuntimeError("当前 Whisper 运行工具不支持安全取消，请修复运行环境后重试。")
-            return upstream(audio, path_or_hf_repo=path_or_hf_repo)
+            return upstream(audio, **options)
         progress_available = _compatible(module)
         original_descriptor = holder.__dict__["get_model"]
         original_get_model = holder.get_model
@@ -260,11 +270,11 @@ def transcribe_with_audio_progress(
                 holder.get_model = original_descriptor
             if is_cancelled is not None:
                 raise RuntimeError("Whisper 取消保护未能准备，转录未开始；请修复运行环境。")
-            return upstream(audio, path_or_hf_repo=path_or_hf_repo)
+            return upstream(audio, **options)
 
         try:
             check_cancel()
-            result = upstream(audio, path_or_hf_repo=path_or_hf_repo)
+            result = upstream(audio, **options)
             check_cancel()
             return result
         finally:

@@ -24,7 +24,7 @@ for p in fixture['providers']:
  modes={'api':policy[p['id']],**{x['id']:x for x in policy[p['id']]['plans']}}
  for mode in p.get('modes',[]):
   authority=modes.get(mode['id'],{});mode.update(available=authority.get('available',True),unavailableReason=authority.get('unavailable_reason',''))
-fixture.update(storage={'extract':'/fixture/models','voice':'/fixture/tts'},jobs={},connections=[],cloudConfigs={'openai':{'configured':True,'credentialId':'openai'},'custom_asr':{'requiresImport':True,'configured':None,'credentialId':'custom_openai'}},defaultConnectionId='',catalogue={'deepseek':[{'id':'fixture-model','label':'Fixture model','window':8192,'max_output':4096}]})
+fixture.update(storage={'extract':'/fixture/models','voice':'/fixture/tts'},jobs={},connections=[],cloudConfigs={'siliconflow':{'configured':True,'credentialId':'siliconflow'},'custom_asr':{'requiresImport':True,'configured':None,'credentialId':'custom_openai'}},defaultConnectionId='',catalogue={'deepseek':[{'id':'fixture-model','label':'Fixture model','window':8192,'max_output':4096}]})
 for kind,models in fixture['localModels'].items():
  for model in models:model.update(installed=True,ready=True,default=model['id'] in ('whisper','qwen_tts'))
 for f in fixture['voiceFeatures']:f.update(installed=f['id']=='clone',ready=f['id']=='clone')
@@ -181,7 +181,7 @@ js('document.querySelector("#modal-close").click()');tick();assert not js('docum
 # File and model commands are explicit, no action on ordinary navigation.
 click('#tab-extract');click('#reveal-storage');assert bridge.calls[-1][1:] == ('storage_open',{'purpose':'extract'})
 click('[data-local-mode="cloud"]');input_value('#api-key','fixture-asr');click('#test-connection');tick();assert js('document.querySelector("#api-key").value')=='fixture-asr';assert js('document.querySelector("#test-connection").textContent')=='检查完成';click('#save-connection');assert js('document.querySelector("#api-key").value')=='';click('#get-key');assert bridge.calls[-1][1]=='open_key_page'
-click('[data-provider="openai"]');assert js('document.querySelector(".detail-top .status").textContent')=='已保存'
+click('[data-provider="siliconflow"]');assert js('document.querySelector(".detail-top .status").textContent')=='已保存'
 count=len(bridge.calls);click('[data-provider="custom_asr"]');assert len(bridge.calls)==count;click('#load-saved-configuration');assert bridge.calls[-1][1:] == ('load_saved_configuration',{'purpose':'extract','provider':'custom_asr'})
 assert js('document.querySelector("#custom-base").value')=='https://legacy-asr.example.test/v1';assert js('document.querySelector("#asr-model-id").value')=='old-asr';assert js('document.querySelector("#api-key").value')=='';assert '已保存密钥' in js('document.querySelector("#api-key").placeholder')
 # Deletion is scoped to the selected service, explicit, retryable and secret-free.
@@ -193,7 +193,7 @@ bridge.fail_remove=False;click('#confirm-remove-key');tick()
 assert not js('document.querySelector("#modal").open');assert js('document.querySelector("#api-key").placeholder')=='输入 API 密钥'
 assert js('document.querySelector("#test-connection").disabled && document.querySelector("#save-connection").disabled')
 assert bridge.calls[-1][1]=='remove_credential';assert bridge.calls[-1][2]['credentialId']=='custom_openai';assert 'key' not in bridge.calls[-1][2]
-assert fixture['cloudConfigs']['openai']['configured']
+assert fixture['cloudConfigs']['siliconflow']['configured']
 # Two saved keys stay manageable on the provider page, including an inactive key.
 legacy=fixture['connections'][0]
 fixture['storedConnections']=[legacy,dict(legacy,id='second-connection',credential_id='workspace-key-second',label='第二把密钥')]

@@ -143,7 +143,7 @@ class LiveExtractionIntegrationTests(unittest.TestCase):
                     task.execution_policy = _policy_from_dict(old, schema_version=SCHEMA_VERSION)
                     self.assertFalse(task.execution_policy.local_only)
                 task.state = state
-                self.main.cfg.engine_name = 'openai'
+                self.main.cfg.engine_name = 'siliconflow'
                 self.widget.publish(force=True)
                 with patch('src.core.pipeline.get_engine') as engine, \
                      patch('src.core.pipeline.to_wav_16k_mono') as convert:
@@ -163,7 +163,7 @@ class LiveExtractionIntegrationTests(unittest.TestCase):
                 task, media = self.handoff()
                 before = media.read_bytes()
                 # A later global change cannot replace this admitted local choice.
-                self.main.cfg.engine_name = 'openai'
+                self.main.cfg.engine_name = 'siliconflow'
                 self.start_task(task)
                 self.fixture.until(lambda: self.main.current is None)
                 self.assertEqual(task.state, TaskState.DONE, task.error)
@@ -190,14 +190,14 @@ class LiveExtractionIntegrationTests(unittest.TestCase):
         task = self.main._add_task(str(media), 'file', '普通导入文件')
         task.execution_policy = replace(task.execution_policy, engine_name='local_whisper_mlx')
         task.state = TaskState.FAILED
-        self.main.cfg.engine_name = 'openai'
+        self.main.cfg.engine_name = 'siliconflow'
         def transcribe(wav, progress, is_cancelled):
-            return Transcript(text='模拟云端结果', engine='openai')
+            return Transcript(text='模拟云端结果', engine='siliconflow')
         engine = SimpleNamespace(display_name='模拟云端', transcribe=transcribe)
         with patch('src.core.pipeline.get_engine', return_value=engine) as selected:
             self.start_task(task)
             self.fixture.until(lambda: self.main.current is None)
-        selected.assert_called_once_with('openai')
+        selected.assert_called_once_with('siliconflow')
         self.assertEqual(task.state, TaskState.DONE, task.error)
         self.assertFalse(task.execution_policy.local_only)
 

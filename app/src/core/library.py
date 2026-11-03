@@ -1045,7 +1045,7 @@ def delete(entry_id: str) -> None:
         trash = root / ".trash"
         trash.mkdir(mode=0o700, exist_ok=True)
         if trash.is_symlink():
-            raise ValueError("最近删除目录不安全，已保留记录")
+            raise ValueError("归档目录不安全，已保留记录")
         receipt = trash / f"{token}.json"
         _write_atomic_text(receipt, json.dumps({
             "token": token, "id": raw_id, "title": data.get("title") or raw_id,
@@ -1135,15 +1135,41 @@ def delete(entry_id: str) -> None:
 
 @_serialized
 def list_deleted() -> list[dict]:
+    from .trash_cleanup import policy
+    policy()  # Persist retirement of a known old expiration setting.
     rows = []
     for path in (_dir() / ".trash").glob("*.json"):
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(record,dict) and record.get('system_stage'):
+                from .trash_cleanup import recover_system_stage
+                try:record=recover_system_stage(_dir(),path.stem,record)
+                except (OSError,ValueError):record['recovery_pending']=True
             if (isinstance(record, dict) and record.get("token") == path.stem
                     and record.get("json") == f'.delete-{record.get("id")}-{path.stem}.json'
-                    and ((_dir() / record["json"]).is_file() or record.get("purging"))):
+                    and ((_dir() / record["json"]).is_file() or record.get("purging") or record.get("system_stage"))):
+                metadata = {}
+                try:
+                    _entry_path(record["id"])
+                    staged = _dir() / record["json"]
+                    saved = staged.lstat()
+                    if (not stat.S_ISREG(saved.st_mode) or saved.st_size > 16 * 1024 * 1024
+                            or [saved.st_dev, saved.st_ino] != record["json_identity"]):
+                        raise ValueError("归档摘要身份无效")
+                    raw = json.loads(staged.read_text(encoding="utf-8"))
+                    source_text = raw.get("source_text_snapshot") or raw.get("text") or ""
+                    metadata = {
+                        "created_at": raw.get("created_at"),
+                        "folder_id": raw.get("folder_id"),
+                        "text_preview": _text_preview(source_text),
+                        "char_count": raw.get("char_count"),
+                        "duration_seconds": raw.get("duration_seconds"),
+                        "voice_name": raw.get("voice_name"),
+                    }
+                except (OSError, ValueError, KeyError):
+                    pass
                 rows.append({k: record[k] for k in ("token", "id", "title", "deleted_at")}
-                            | {"kind": record.get("kind")})
+                            | {"kind": record.get("kind")} | metadata)
         except (OSError, ValueError, KeyError):
             continue
     return sorted(rows, key=lambda r: r["deleted_at"], reverse=True)
@@ -1241,6 +1267,9 @@ def restore_deleted(token: str) -> str:
     if root.is_symlink() or receipt.is_symlink() or receipt.parent.is_symlink():
         raise ValueError("恢复路径不安全，已保留资料")
     stored_data = json.loads(receipt.read_text(encoding="utf-8"))
+    if stored_data.get('system_stage'):
+        from .trash_cleanup import recover_system_stage
+        stored_data=recover_system_stage(root,token,stored_data)
     data = _current_trash_identity(root, stored_data)
     if data.get("purging"):
         raise ValueError("这项资料已开始彻底删除，请重试删除剩余文件")
@@ -1340,7 +1369,7 @@ def restore_version(entry_id: str, name: str, expected_hash: str) -> None:
 
 
 @_serialized
-def deleted_preview(token: str) -> dict:
+def deleted_preview(token: str, *, include_audio: bool = False) -> dict:
     import re
     if not isinstance(token, str) or re.fullmatch(r"[0-9a-f]{24}", token) is None:
         raise ValueError("恢复凭据无效")
@@ -1349,6 +1378,9 @@ def deleted_preview(token: str) -> dict:
     if root.is_symlink() or receipt.is_symlink() or receipt.parent.is_symlink():
         raise ValueError("恢复路径不安全")
     data = json.loads(receipt.read_text(encoding="utf-8"))
+    if data.get('system_stage'):
+        from .trash_cleanup import recover_system_stage
+        data=recover_system_stage(root,token,data)
     data = _current_trash_identity(root, data)
     if data.get("purging"):
         raise ValueError("这项资料已开始彻底删除，请重试删除剩余文件")
@@ -1369,8 +1401,23 @@ def deleted_preview(token: str) -> dict:
                 or saved.st_size > 8 * 1024 * 1024):
             raise ValueError("待恢复正文身份已变化，原文件已保留")
         text = markdown.read_text(encoding="utf-8")
-    return dict(title=raw.get("title") or data.get("title"), kind=raw.get("kind"),
-                deleted_at=data.get("deleted_at"), text=text)
+    kind = raw.get("kind")
+    folder_name = next((folder["name"] for folder in _load_folders()
+                        if folder.get("id") == raw.get("folder_id")), None)
+    result = dict(id=eid, title=raw.get("title") or data.get("title"), kind=kind,
+                  created_at=raw.get("created_at"), deleted_at=data.get("deleted_at"), text=text,
+                  folder_name=folder_name or ("音频库" if kind == "voice" else "文稿库"),
+                  char_count=raw.get("display_char_count") or raw.get("char_count"),
+                  duration_seconds=raw.get("duration_seconds"), voice_name=raw.get("voice_name"),
+                  audio_filename=raw.get("audio_filename"),
+                  version_count=len(list_versions(eid)) if kind != "voice" else None)
+    if kind == "voice":
+        audio = Path(str(raw.get("audio_path") or "")).expanduser()
+        result["audio_missing"] = not audio.is_file()
+        result["audio_bytes"] = audio.stat().st_size if not result["audio_missing"] else None
+        if include_audio:
+            result["audio_path"] = str(audio)
+    return result
 
 
 @_serialized

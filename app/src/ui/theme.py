@@ -272,8 +272,19 @@ QFrame#sidebar{scope} QFrame[luluControl="navRow"]:hover {{
 QFrame#sidebar{scope} QFrame[luluControl="navRow"][consumerAccent="true"] {{
     background: {t.accent_wash}; border-left-color: {t.accent};
 }}
+QFrame#sidebar{scope} QFrame#workbenchNavigation {{ background: transparent; border: none; }}
+QFrame#sidebar{scope} QFrame#workbenchNavigation QFrame[luluControl="navRow"][consumerAccent="true"] {{
+    background: transparent; border-left-color: transparent;
+}}
 QFrame#sidebar{scope} QFrame[luluControl="navRow"]:focus {{
     border: {t.border_width}px solid {t.accent_hairline_active};
+}}
+QFrame#sidebar{scope} QFrame#workbenchNavigation QFrame[luluControl="navRow"],
+QFrame#sidebar{scope} QFrame#workbenchNavigation QFrame[luluControl="navRow"]:focus {{
+    background: transparent; border: 2px solid transparent; border-radius: 10px;
+}}
+QFrame#sidebar{scope} QFrame#workbenchNavigation QFrame[luluControl="navRow"][selected="false"]:hover {{
+    background: {t.secondary};
 }}
 QFrame#sidebar{scope} QLabel#navText {{ color: {t.ink_soft}; background: transparent; }}
 QFrame#sidebar{scope} QLabel#navTextActive {{

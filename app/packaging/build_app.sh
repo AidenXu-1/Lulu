@@ -160,8 +160,10 @@ trap cleanup_build_state EXIT
 "$VENV/python" packaging/source_repository.py --repo ..
 
 rm -f build_profile.json release_features.json product_source.json
-if [[ -n "$(/usr/bin/git -C .. status --porcelain=v1 --untracked-files=all)" ]]; then
-  echo "错误：候选构建只接受完全干净的 Git worktree；请先提交或移走未提交文件。" >&2
+# All bundle inputs live under app/. Match profile_gate's exact source scope;
+# unrelated notes and local acceptance evidence must remain in the user's checkout.
+if [[ -n "$(/usr/bin/git -C .. status --porcelain=v1 --untracked-files=all -- app)" ]]; then
+  echo "错误：候选构建只接受已提交且干净的 app/ 产品输入；请先提交本次产品修改。" >&2
   exit 2
 fi
 
@@ -300,6 +302,10 @@ if [[ "$BUILD_PROFILE" == "external_candidate" ]]; then
     --output "$DIST_ROOT/canonical-app-tree-receipt.json"
   PYTHONPATH="$PWD" "$VENV/python" packaging/verify_workspace_runtime.py \
     --app "$APP_PATH" --output "$DIST_ROOT/workspace-runtime-receipt.json"
+  PYTHONPATH="$PWD" "$VENV/python" packaging/verify_cloud_runtime.py \
+    --app "$APP_PATH" --output "$DIST_ROOT/cloud-runtime-receipt.json"
+  PYTHONPATH="$PWD" "$VENV/python" packaging/verify_cloud_batch_runtime.py \
+    --app "$APP_PATH" --output "$DIST_ROOT/cloud-batch-runtime-receipt.json"
 fi
 cp "$BASELINE_RECEIPT" "$DIST_ROOT/product-baseline-receipt.json"
 cp "$CAPABILITY_RECEIPT" "$DIST_ROOT/product-capabilities-receipt.json"

@@ -19,7 +19,7 @@ from threading import RLock
 from typing import Iterable, Mapping
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from .models import AWEME_TYPE_IMAGE, CollectedItem
+from .models import DOUYIN_NON_VIDEO_TYPES, CollectedItem
 
 
 SCHEMA_VERSION = 1
@@ -709,7 +709,7 @@ class CollectionHistoryRepository:
             "play_url": str(raw.get("play_url") or ""),
             "work_url": str(raw.get("source_url") or ""),
             "aweme_type": aweme_type,
-            "content_kind": "image" if aweme_type == AWEME_TYPE_IMAGE else "video",
+            "content_kind": "image" if aweme_type in DOUYIN_NON_VIDEO_TYPES else "video",
             "source_method": "legacy_snapshot_import",
         }
         try:
@@ -881,6 +881,7 @@ class CollectionHistoryRepository:
         confirmed_empty: bool = False,
         now: datetime | None = None,
         expected_source_hash: str | None = None,
+        record_id: str | None = None,
     ) -> HistorySnapshot:
         with self._lock:
             snapshot = self.load()
@@ -893,7 +894,16 @@ class CollectionHistoryRepository:
                 reason_code=reason_code,
                 confirmed_empty=confirmed_empty,
                 now=now,
+                record_id=record_id,
             )
+            if record_id is not None:
+                previous = next((r for r in snapshot.active_records + snapshot.trashed_records
+                                 if r.record_id == record_id), None)
+                if previous:
+                    fields = ('platform', 'homepage_url', 'source_method', 'completion', 'reason_code', 'confirmed_empty', 'items')
+                    if any(getattr(previous, k) != getattr(record, k) for k in fields):
+                        raise HistoryError('record_conflict', '此采集记录已有不同内容，未重复写入或覆盖')
+                    return snapshot
             return self._store(
                 snapshot,
                 active=(record,) + snapshot.active_records,

@@ -115,6 +115,14 @@ class _UpdateWorker(QThread):
             elif self.action == "download":
                 path = self.service.download(progress=self.progress.emit, cancelled=lambda: self.cancel_requested)
                 result = self.service.stage(path)
+            elif self.action in {'verify', 'stage'}:
+                from pathlib import Path
+                from ..core.updater.archive import validate_staged_app
+                snapshot = self.service.snapshot
+                result = validate_staged_app(Path(snapshot.staged_app), version=snapshot.latest_version,
+                                             build=snapshot.latest_build)
+                if result != snapshot.staged_manifest_sha256:
+                    raise UpdateError('staged_changed', '暂存安装包已有变化，请重新下载校验')
             else:
                 raise UpdateError("action", "更新操作无效")
             self.completed.emit(result)
@@ -226,6 +234,8 @@ class UpdateController(QObject):
         self.check(manual=False); return True
 
     def download(self): self._start("download")
+
+    def verify_staged(self): self._start('verify')
 
     def cancel(self):
         if self._worker and self._worker.isRunning():

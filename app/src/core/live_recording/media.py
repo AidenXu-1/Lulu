@@ -9,6 +9,7 @@ import signal
 import subprocess
 from threading import RLock
 import time
+import tempfile
 from uuid import uuid4
 from requests.certs import where as certificate_file
 
@@ -285,7 +286,7 @@ class SegmentProducer:
     def stop(self):
         self.process.stop()
 
-def export_media(segment, recording, ffmpeg, *, format='mp4', target=None, register=None):
+def export_media(segment, recording, ffmpeg, *, format='mp4', target=None, register=None, cancelled=lambda: False):
     source = managed_file(segment['path'], recording['directory'])
     if not segment['closed'] or not segment['valid'] or fingerprint(source) != segment['sha256']:
         raise LiveError('此分段尚未完成或已有变化，原文件保留')
@@ -299,6 +300,8 @@ def export_media(segment, recording, ffmpeg, *, format='mp4', target=None, regis
         raise LiveError('这个文件名已存在，请换一个名称；原文件未改动')
     temp = target.with_name('.' + target.stem + '-' + uuid4().hex + '.partial.' + format)
     try:
+        if cancelled():
+            raise LiveError('已取消导出，原录像保留')
         output = (['-map', '0:v?', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart']
                   if format == 'mp4' else ['-map', '0:a:0', '-vn', '-c:a', 'libmp3lame', '-q:a', '2'])
         process = OwnedProcess([ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'error', '-n',
@@ -314,6 +317,8 @@ def export_media(segment, recording, ffmpeg, *, format='mp4', target=None, regis
             raise LiveError('导出时长不一致，原 TS 文件保留')
         if fingerprint(source) != segment['sha256']:
             raise LiveError('原分段已变化，未发布导出文件')
+        if cancelled():
+            raise LiveError('已取消导出，原录像保留')
         # Hard link publication is atomic and refuses an existing destination.
         os.link(temp, target, follow_symlinks=False)
         return str(target)
@@ -325,3 +330,160 @@ def export_media(segment, recording, ffmpeg, *, format='mp4', target=None, regis
             process.stop()
         if temp.exists() and not temp.is_symlink():
             temp.unlink()
+
+
+def _media_pass(command, *, register=None, cancelled=lambda: False, progress=lambda value: None):
+    """Drain progress continuously: neither a long movie nor its log lives in RAM."""
+    with tempfile.TemporaryFile() as errors:
+        owned = OwnedProcess(command, capture=True)
+        # stderr is drained separately to avoid a full pipe blocking FFmpeg.
+        tail = bytearray()
+        def drain_errors():
+            while chunk := owned.process.stderr.read(8192):
+                errors.write(chunk)
+        import threading
+        reader = threading.Thread(target=drain_errors, daemon=True)
+        reader.start()
+        try:
+            if register:
+                register(owned)
+            os.set_blocking(owned.process.stdout.fileno(), False)
+            pending, duration = b'', 0.0
+            while True:
+                if cancelled():
+                    raise LiveError('已取消导出，原录像保留')
+                try:
+                    chunk = os.read(owned.process.stdout.fileno(), 65536)
+                except BlockingIOError:
+                    chunk = b''
+                lines = (pending + chunk).split(b'\n')
+                pending = lines.pop()[-1024:]
+                for line in lines:
+                    if line.startswith(b'out_time_us='):
+                        try:
+                            duration = max(duration, int(line.split(b'=', 1)[1]) / 1000000)
+                            progress(duration)
+                        except ValueError:
+                            pass
+                if owned.process.poll() is not None and not chunk:
+                    break
+                time.sleep(.03)
+            reader.join()
+            errors.seek(0)
+            tail.extend(errors.read(131072))
+            if owned.process.returncode:
+                raise LiveError('媒体检查或合并失败，原录像保留；请检查分段是否损坏或格式不兼容')
+            return duration, bytes(tail)
+        finally:
+            owned.stop()
+            reader.join(timeout=5)
+            owned.process.stdout.close()
+            owned.process.stderr.close()
+
+
+def _stream_signature(log):
+    """Compare the input streams, excluding changing PID, bitrate and wall time."""
+    header = log.split(b'Output #', 1)[0].decode('utf-8', 'replace')
+    result = []
+    for kind, description in re.findall(r'Stream #0:\d+[^\n]*?: (Video|Audio): ([^\n]+)', header):
+        codec = re.match(r'\w+(?: \([^)]*\))?', description).group()
+        if kind == 'Video':
+            size = re.search(r'\b\d{2,6}x\d{2,6}\b', description)
+            pixel = re.search(r',\s*((?:yuv|yuva|rgb|bgr|gray)[\w]+)', description)
+            if not size or not pixel:
+                raise LiveError('无法确认录像画面格式，请先使用单段导出')
+            result.append((kind, codec, size.group(), pixel.group(1)))
+        else:
+            audio = re.search(r'(\d+ Hz),\s*([^,]+),\s*([^,]+)', description)
+            if not audio:
+                raise LiveError('无法确认录像声音格式，请先使用单段导出')
+            result.append((kind, codec, *audio.groups()))
+    if not result or not any(s[0] == 'Video' for s in result):
+        raise LiveError('本场没有可确认的视频画面，请使用单段导出检查')
+    return result
+
+
+def export_recording(segments, recording, ffmpeg, *, target, register=None,
+                     cancelled=lambda: False, progress=lambda phase, value: None):
+    """Export exactly the frozen ordered manifest. Reject any missing/bad segment."""
+    if recording.get('ended') is None or not segments:
+        raise LiveError('请等本场录像结束并保存全部分段后再导出整场')
+    target = Path(target)
+    if not target.is_absolute() or target.suffix.lower() != '.mp4':
+        raise LiveError('请选择完整的 MP4 导出位置')
+    directory(target.parent)
+    if target.exists() or target.is_symlink():
+        raise LiveError('这个文件名已存在，请换一个名称；原文件未改动')
+    sources, identities = [], []
+    total = sum(s['duration'] for s in segments)
+    def check_cancel():
+        if cancelled():
+            raise LiveError('已取消导出，原录像保留')
+    def checked_hash(source):
+        digest = hashlib.sha256()
+        with source.open('rb') as handle:
+            while chunk := handle.read(1024 * 1024):
+                check_cancel()
+                digest.update(chunk)
+        return digest.hexdigest()
+    signature = None
+    for number, segment in enumerate(segments):
+        check_cancel()
+        source = managed_file(segment['path'], recording['directory'])
+        if (not segment['closed'] or not segment['valid'] or segment['duration'] <= 0
+                or checked_hash(source) != segment['sha256']):
+            raise LiveError(f'第 {number + 1} 段未保存完整、已损坏或变化，未跳过此段；原录像保留')
+        meta = source.stat()
+        identities.append((meta.st_dev, meta.st_ino, meta.st_size, meta.st_mtime_ns))
+        sources.append(source)
+        duration, log = _media_pass([ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'info',
+            '-xerror', '-i', str(source), '-map', '0:v?', '-map', '0:a?', '-c', 'copy',
+            '-progress', 'pipe:1', '-f', 'null', '-'], register=register, cancelled=cancelled)
+        current = _stream_signature(log)
+        if signature is not None and current != signature:
+            raise LiveError(f'第 {number + 1} 段的画面或音轨格式变化，无法无损合并；请分别导出分段，未降画质或丢弃声音')
+        signature = current
+        if abs(duration - segment['duration']) > max(2, segment['duration'] * .01):
+            raise LiveError('分段时长与登记不一致，未导出整场')
+        progress('checking', 20 * (number + 1) / len(segments))
+    temp = target.with_name('.' + target.stem + '-' + uuid4().hex + '.partial.mp4')
+    listing = target.with_name('.lulu-concat-' + uuid4().hex + '.txt')
+    try:
+        # ffconcat quoting is independent of shell quoting; no shell is involved.
+        with listing.open('x', encoding='utf-8') as handle:
+            os.chmod(listing, 0o600)
+            for source in sources:
+                if '\n' in str(source) or '\r' in str(source):
+                    raise LiveError('录像路径包含换行，无法安全合并；原文件保留')
+                handle.write("file '" + str(source).replace("'", "'\\''") + "'\n")
+        _media_pass([ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'error', '-xerror', '-n',
+            '-f', 'concat', '-safe', '0', '-i', str(listing), '-map', '0:v?', '-map', '0:a?',
+            '-c', 'copy', '-movflags', '+faststart', '-progress', 'pipe:1', str(temp)],
+            register=register, cancelled=cancelled,
+            progress=lambda d: progress('merging', 20 + min(55, 55 * d / max(total, .001))))
+        duration, log = _media_pass([ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'info',
+            '-xerror', '-i', str(temp), '-map', '0:v?', '-map', '0:a?',
+            '-progress', 'pipe:1', '-f', 'null', '-'], register=register, cancelled=cancelled,
+            progress=lambda d: progress('verifying', 75 + min(20, 20 * d / max(total, .001))))
+        if _stream_signature(log) != signature:
+            raise LiveError('合并后的画面或音轨与原段不一致，未发布文件')
+        if abs(duration - total) > max(2, len(segments) * .1, total * .0001):
+            raise LiveError('合并视频时长与全部分段不一致，未发布文件；原录像保留')
+        for source, segment, expected in zip(sources, segments, identities):
+            check_cancel()
+            source = managed_file(source, recording['directory'])
+            meta = source.stat()
+            if ((meta.st_dev, meta.st_ino, meta.st_size, meta.st_mtime_ns) != expected
+                    or checked_hash(source) != segment['sha256']):
+                raise LiveError('导出期间原分段已变化，未发布合并文件')
+        check_cancel()
+        with temp.open('rb') as handle:
+            os.fsync(handle.fileno())
+        os.link(temp, target, follow_symlinks=False)
+        progress('complete', 100)
+        return dict(path=str(target), duration=duration, segment_count=len(segments),
+                    bytes=target.stat().st_size, sha256=fingerprint(target))
+    finally:
+        for path in (temp, listing):
+            if path.exists() and not path.is_symlink():
+                path.unlink()

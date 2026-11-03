@@ -103,6 +103,12 @@ def transcribe_source(
     execution_policy: TaskExecutionPolicy | None = None,
     stage_changed: Callable[[str], None] | None = None,
     required_format: str | None = None,
+    max_input_bytes: int | None = None,
+    bounded_cloud: bool = False,
+    engine_override=None,
+    cloud_observer=None,
+    cloud_force_cancel=None,
+    stage_progress: ProgressCallback | None = None,
 ) -> Transcript:
     """端到端把一个输入转成 Transcript。
 
@@ -121,8 +127,10 @@ def transcribe_source(
     stage_changed = stage_changed or (lambda _stage: None)
     report_progress = progress or _noop
     is_cancelled = is_cancelled or (lambda: False)
+    cloud_waiting = cloud_result_received = False
+    preparing_input = True
     def progress(message, fraction):
-        if is_cancelled():
+        if is_cancelled() and not cloud_waiting and not cloud_result_received:
             raise _Cancelled()
         report_progress(message, fraction)
     if subtitle_fallback not in {"local_transcription", "fail"}:
@@ -155,15 +163,30 @@ def transcribe_source(
     if not isinstance(cover_snapshot, CollectCoverPreferenceSnapshot):
         raise TypeError("cover_snapshot 必须是 CollectCoverPreferenceSnapshot")
     is_link = extract_url(source) is not None
-    input_progress = stage_callback(progress, 0.02, 0.20)
+    def measured_callback(start, end):
+        weighted = stage_callback(progress, start, end)
+        def report(message, fraction):
+            if stage_progress is not None:
+                stage_progress(message, fraction)
+            weighted(message, fraction)
+        return report
+    input_progress = measured_callback(0.02, 0.20)
     cover_progress = stage_callback(progress, 0.12, 0.20)
-    engine_progress = stage_callback(progress, 0.32, 0.95)
+    engine_progress = measured_callback(0.32, 0.95)
 
     def _check():
         if is_cancelled():
             raise _Cancelled()
+        if preparing_input and bounded_cloud and hasattr(engine_override,'check_disk'):
+            engine_override.check_disk()
+
+    def _check_size(path):
+        if max_input_bytes is not None and not 0 < Path(path).stat().st_size <= max_input_bytes:
+            raise ValueError('本次转录仅支持 2 GB 以内的非空音视频文件；原文件保留')
 
     with ExitStack() as input_lease:
+        if bounded_cloud and hasattr(engine_override,'preparation'):
+            input_lease.enter_context(engine_override.preparation(is_cancelled))
         if execution_policy is not None and execution_policy.origin == "homepage_batch_transcribe":
             from .collect.media_coordination import prepare_media
             stage_changed("waiting_media")
@@ -190,7 +213,7 @@ def transcribe_source(
         ):
             from .subtitles import fetch_from_link
             stage_changed("subtitles")
-            sub = fetch_from_link(source, stage_callback(progress, 0.02, 0.88))
+            sub = fetch_from_link(source, measured_callback(0.02, 0.88))
             _check()
             if sub is not None:
                 sub.source = source
@@ -218,6 +241,7 @@ def transcribe_source(
             # 主页批量转录先只读复用受管原文件。验证后文件若发生变化，
             # 仅在进入模型前回退一次；原文件永远不移动、不复制、不删除。
             if managed_input.valid and managed_input.path is not None:
+                _check_size(managed_input.path)
                 try:
                     progress("使用已下载音视频转录…", 0.05)
                     media_path = resolve_source(
@@ -281,6 +305,7 @@ def transcribe_source(
                         is_cancelled=lambda: (_check() or False),
                     )
                 _check()
+                _check_size(media_path)
                 link_meta = _settle_single_link_cover(
                     link_meta,
                     snapshot=cover_snapshot,
@@ -308,6 +333,7 @@ def transcribe_source(
                 _check()
 
             input_lease.close()
+            preparing_input = False
 
             # 3) 引擎转录
             stage_changed("transcription")
@@ -317,21 +343,36 @@ def transcribe_source(
                 selected = LOCAL_MODELS.get(engine_name or DEFAULT_ENGINE)
                 if selected is not None and not selected.timestamps:
                     raise ValueError('没有可用平台字幕；所选模型不提供时间点，请选择 Whisper 或 MOSS 后重试。')
-            engine = get_engine(engine_name)
+            engine = engine_override if engine_override is not None else get_engine(engine_name)
+            if bounded_cloud:
+                from .engines.cloud_requests import cloud_ids
+                if engine_name not in cloud_ids():
+                    raise ValueError('此服务尚未适配云端批次')
+                transcriber = engine.transcribe_bounded
+            else:
+                transcriber = engine.transcribe
             progress(f"使用引擎:{engine.display_name}", 0.32)
-            transcribe_parameters = inspect.signature(engine.transcribe).parameters
+            transcribe_parameters = inspect.signature(transcriber).parameters
+            cloud_waiting = bool(getattr(engine,'requires_network',False))
+            options = {}
+            if 'cloud_observer' in transcribe_parameters:
+                options.update(cloud_observer=cloud_observer,cloud_force_cancel=cloud_force_cancel)
             if "is_cancelled" in transcribe_parameters:
-                transcript = engine.transcribe(
+                transcript = transcriber(
                     wav_path,
                     engine_progress,
                     is_cancelled=is_cancelled,
+                    **options,
                 )
             else:
                 # Third-party/custom engines written against the older public
                 # two-argument seam remain usable. Built-in engines all expose the
                 # cooperative cancellation parameter.
-                transcript = engine.transcribe(wav_path, engine_progress)
-            _check()
+                transcript = transcriber(wav_path, engine_progress)
+            cloud_result_received = bool(getattr(engine,'requires_network',False))
+            cloud_waiting = False
+            if not cloud_result_received:
+                _check()
 
             # 记录原始输入(而非临时 wav)+ 链接来源的真实标题
             if not (transcript.text or "").strip():

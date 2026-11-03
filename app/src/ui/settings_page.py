@@ -1094,7 +1094,7 @@ class SettingsPage(QWidget):
 
         card, lay = self._card("Lulu 资料", "文稿、音频和对话自动保存在本机，由 Lulu 管理。导出与下载会另存一份。")
         self.storage_groups["Lulu 资料"] = card
-        note = QLabel("需要恢复或清理文稿、音频时，请到资料库的「最近删除」。转录过程中产生的临时文件会在任务结束后清理。")
+        note = QLabel("需要恢复或清理文稿、音频时，请到资料库的「归档」。转录过程中产生的临时文件会在任务结束后清理。")
         note.setWordWrap(True)
         note.setObjectName("pageMeta")
         lay.addWidget(note)
@@ -1115,7 +1115,7 @@ class SettingsPage(QWidget):
         from ..core.agent_workspace.skills import skill_root
         root = Path(library.LIBRARY_DIR)
         locations = (
-            ("文稿与版本记录", root, "文稿正文、分类、历史版本与最近删除记录。"),
+            ("文稿与版本记录", root, "文稿正文、分类、历史版本与归档记录。"),
             ("库内音频", root / "audio", "Lulu 生成的音频；引用的外部音频仍在原位置。"),
             ("AI 对话", root / ".workspace", "文稿旁的会话、消息与对话草稿。"),
             ("主页采集资料", models_manager.app_data_dir() / "collection", "采集记录、封面和下载的音视频。"),

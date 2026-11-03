@@ -7,6 +7,7 @@ from pathlib import Path
 import stat
 import sys
 import threading
+import time
 from functools import wraps
 
 _mutex = threading.Lock()
@@ -75,25 +76,47 @@ def _release():
 
 
 @contextmanager
-def batch_context(owner):
+def batch_context(owner, *, wait_cancelled=None):
     previous = getattr(_context, 'owner', None)
+    previous_wait = getattr(_context, 'wait_cancelled', None)
     _context.owner = owner
+    _context.wait_cancelled = wait_cancelled
     try: yield
-    finally: _context.owner = previous
+    finally:
+        _context.owner = previous
+        _context.wait_cancelled = previous_wait
 
 
 @contextmanager
 def model_use(model_id, *, retain=False, root=None):
     global _fd, _owner, _model
-    if not _mutex.acquire(blocking=False): raise _busy()
     owner = getattr(_context, 'owner', None)
+    cancelled = getattr(_context, 'wait_cancelled', None)
+    # New workspaces wait for the same cross-process resource used by all local
+    # engines. The default remains a nonblocking check for maintenance/old users.
+    while True:
+        if cancelled is not None and cancelled():
+            raise InterruptedError('已取消等待本地模型，未开始识别')
+        if not _mutex.acquire(blocking=False):
+            if cancelled is None: raise _busy()
+            time.sleep(.1)
+            continue
+        try:
+            if _fd is not None and (owner is None or owner != _owner): raise _busy()
+            if _fd is None:
+                _fd = _open_lock(root)
+                _owner = owner
+            break
+        except ASRResourceBusy:
+            _mutex.release()
+            if cancelled is None: raise
+            time.sleep(.1)
+        except BaseException:
+            _mutex.release()
+            raise
     acquired = False
     success = False
     try:
-        if _fd is not None and (owner is None or owner != _owner): raise _busy()
-        if _fd is None:
-            _fd = _open_lock(root)
-            _owner = owner
         acquired = True
         if _model != model_id:
             _release_cache()

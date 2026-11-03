@@ -28,6 +28,10 @@ REASON_CODES = frozenset({
     "platform_changed",
     "network_error",
     "no_items_unverified",
+    "incomplete",
+    "browser_closed",
+    "browser_unavailable",
+    "profile_busy",
     "cancelled",
 })
 
@@ -71,8 +75,13 @@ class CollectRequest:
         if not isinstance(self.mode, str) or not self.mode.strip():
             raise ValueError("采集模式不能为空")
         if self.limit is not None and (
-            not isinstance(self.limit, int) or isinstance(self.limit, bool) or self.limit <= 0
+            not isinstance(self.limit, int) or isinstance(self.limit, bool)
         ):
+            raise ValueError("limit 必须是正整数或 None")
+        if self.mode == "profile_latest":
+            limit = 20 if self.limit is None else max(1, min(20, self.limit))
+            object.__setattr__(self, "limit", limit)
+        elif self.limit is not None and self.limit <= 0:
             raise ValueError("limit 必须是正整数或 None")
         if not isinstance(self.profile_id, str) or not self.profile_id.strip():
             raise ValueError("profile_id 不能为空")
@@ -169,7 +178,7 @@ ADAPTER_CAPABILITIES: Mapping[str, AdapterCapability] = MappingProxyType({
         platform="douyin",
         available=True,
         reason="existing_adapter_ready",
-        modes=("anonymous_latest", "profile_all"),
+        modes=("anonymous_latest", "profile_latest", "profile_all"),
     ),
     "xiaohongshu": AdapterCapability(
         platform="xiaohongshu",

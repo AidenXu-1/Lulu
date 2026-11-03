@@ -86,10 +86,73 @@ html,body{height:100%;overflow:hidden}#main{height:100%;width:100%}.main:before{
 html,body,#main{background:transparent!important}
 #main::before{display:none}
 
-/* Selected F entrance: unfold from the top edge, only for visible new cards. */
+/* A short paper-like settle, reserved for genuinely new, visible cards. */
 .motion-ready .board:not([hidden]){animation:none}
 .motion-ready:not(.empty-workspace) .workbench{transition:none;transform:none!important}
+.task-feed{position:relative}
 .task-feed>.task-group{grid-column:1/-1;align-self:start;position:relative;min-width:0;background:#f6efe1 var(--fiber);background-size:360px 360px;border:1px solid #d9d0bf;border-radius:10px 12px 10px 11px;box-shadow:0 2px 4px #69573609}
-.task-enter{transform-origin:center top;backface-visibility:hidden;animation:task-arrive 500ms cubic-bezier(.22,.61,.36,1) both}
-@keyframes task-arrive{from{transform:perspective(1100px) rotateX(-85deg)}to{transform:perspective(1100px) rotateX(0deg)}}
-@media(prefers-reduced-motion:reduce){.task-enter{animation:none!important}}
+.task-enter{transform-origin:center top;backface-visibility:hidden;will-change:transform,opacity;animation:task-arrive 360ms cubic-bezier(.16,1,.3,1) both}
+.task-exit{z-index:2;pointer-events:none}
+button[aria-busy="true"]{cursor:default}
+@keyframes task-arrive{from{opacity:0;transform:perspective(1100px) translateY(12px) rotateX(-14deg) scale(.985)}to{opacity:1;transform:perspective(1100px) translateY(0) rotateX(0) scale(1)}}
+@media(prefers-reduced-motion:reduce){.task-enter{animation:none!important}button[aria-busy="true"]{transition:none}}
+
+/* Keep the collage's own texture and shadow without the pale halo. */
+.paper-art{-webkit-mask-image:radial-gradient(ellipse at center,#000 51%,transparent 73%);mask-image:radial-gradient(ellipse at center,#000 51%,transparent 73%)}
+.art-pool{display:none}
+.link-side,.empty-workspace .link-side{background-color:#f0f3ef;border-color:#d2dcd8}
+.link-side .lead>svg{color:#5c8391}
+.link-side .lead h3{color:#40565c}
+.url-form{border-color:#cbd9d8}
+.recorder{background-color:#e6eef0;border-color:#c9d8dc}
+.recorder-symbol{background:#f4f8f5;border-color:#c4d5d8;color:#5c8391}
+.recorder-folder{color:#71858a}
+.record-source{position:relative;background-color:#d7e3e5;border-color:#c5d5d9}
+.record-source::before{content:"";position:absolute;top:3px;bottom:3px;left:3px;width:calc((100% - 10px)/3);border-radius:5px;background:#f8faf4;box-shadow:0 1px 3px #3c596514;transition:transform 260ms cubic-bezier(.22,1,.36,1)}
+.record-source[data-source="系统声音"]::before{transform:translateX(calc(100% + 2px))}
+.record-source[data-source="混录"]::before{transform:translateX(calc(200% + 4px))}
+.record-source button{position:relative;z-index:1}
+.record-source button.on{background-color:transparent;box-shadow:none;color:#527d91}
+.record-source button:hover:not(.on){background:#f4f7f34d}
+.recorder.is-recording{background-color:#f2ebe1;border-color:#d5c4b3}
+@media(prefers-reduced-motion:reduce){.record-source::before{transition:none}}
+
+/* A local, unmistakable drop target: tint, elevation and clear release copy. */
+.dropzone{transition:background 180ms,border-color 180ms,box-shadow 180ms}
+.dropzone>:not(.hintdrop){transition:opacity 160ms,transform 180ms}
+.file-side{transition:background 180ms}
+.dropzone.drag,.empty-workspace .dropzone.drag{background:#e7eff1;border:1.5px solid #648b9b;box-shadow:inset 0 0 0 3px #648b9b12,0 8px 24px #648b9b0d}
+.file-side:has(.dropzone.drag){background:#eaf1ef}
+.dropzone.drag>:not(.hintdrop){opacity:0;transform:translateY(-4px) scale(.98)}
+.dropzone .hintdrop{pointer-events:none;z-index:5;color:#527d91}
+.dropzone.drag .hintdrop{display:flex;animation:drop-content-in 180ms cubic-bezier(.22,1,.36,1)}
+.hintdrop .drop-symbol{display:grid;place-items:center;width:46px;height:46px;margin-bottom:4px;border:1px solid #c9dadd;border-radius:50%;background:#fffdf8;box-shadow:0 4px 12px #527d9114}
+.hintdrop .drop-symbol svg{width:22px;height:22px}
+.hintdrop strong{font-size:16px;font-weight:600;letter-spacing:.01em}
+.hintdrop>span:last-child{color:#718a91;font-size:11px}
+@keyframes drop-content-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.dropzone,.dropzone>:not(.hintdrop),.file-side{transition:none}.dropzone.drag .hintdrop{animation:none}}
+
+/* Recording uses the same mist-blue family, with a distinct active state. */
+.record-trigger{min-width:126px;background:#f8faf4;border-color:#b9cdd3;color:#527d91;transition:background 180ms,border-color 180ms,color 180ms,box-shadow 180ms}
+.record-trigger-mark{background:#648b9b;box-shadow:0 0 0 3px #648b9b12;transition:background 180ms,border-radius 180ms,box-shadow 180ms}
+.record-trigger:hover{background:#eef4f3;border-color:#8fadb8;box-shadow:0 2px 5px #527d9110}
+.record-trigger.stop{background:#527d91;border-color:#527d91;color:#fffdf8}
+.record-trigger.stop:hover{background:#476f82;border-color:#476f82}
+.record-trigger.stop .record-trigger-mark{background:#efb49c;border-radius:2px;box-shadow:0 0 0 0 #efb49c38;animation:record-stop-pulse 1.8s ease-out infinite}
+.record-trigger-time{padding-left:9px;border-left:1px solid #ffffff30;font-size:11px;font-variant-numeric:tabular-nums;letter-spacing:.03em}
+.live-record{background:#dce7e9;border-color:#c6d7db}
+.live-record .recording{display:inline-flex;align-items:center;gap:7px;color:#527d91}
+.recording-dot{width:6px;height:6px;border-radius:50%;background:#c9876c}
+.live-record .record-cancel{color:#71858a}
+.recorder.is-recording{background-color:#e4edef;border-color:#c4d5da}
+.is-recording .recorder-symbol{color:#527d91}
+@keyframes record-stop-pulse{0%{box-shadow:0 0 0 0 #efb49c38}70%{box-shadow:0 0 0 5px #efb49c00}100%{box-shadow:0 0 0 0 #efb49c00}}
+@media(prefers-reduced-motion:reduce){.record-trigger,.record-trigger-mark{transition:none}.record-trigger.stop .record-trigger-mark{animation:none}}
+
+/* Snackbar: quiet entrance and a bounded, reversible exit. */
+.toast{opacity:0;transform:translate(-50%,8px);transition:opacity 180ms ease,transform 180ms cubic-bezier(.22,1,.36,1);pointer-events:none}
+.toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.toast button{height:26px;margin-left:10px;padding:0 7px;border-radius:5px;color:#eaf2f2;text-decoration:underline;text-underline-offset:3px}
+.toast button:hover{background:#ffffff12}
+@media(prefers-reduced-motion:reduce){.toast{transition:none}}

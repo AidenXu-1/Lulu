@@ -98,7 +98,7 @@ def snapshot(document_id: str) -> dict:
         recover(document_id)
         doc = library.document_snapshot(document_id)
         if doc is None or doc.get("kind", "transcript") not in {"transcript", "rewrite"}:
-            raise FileNotFoundError("文稿不存在或已移入最近删除")
+            raise FileNotFoundError("文稿不存在或已归档")
         return doc
 
 

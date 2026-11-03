@@ -10,12 +10,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import socket
 import stat
 from typing import Any, NoReturn
 from uuid import uuid4
@@ -321,6 +323,8 @@ class ProfileRegistry:
         resolution = self.resolve(platform, profile_id)
         if resolution.state == "missing":
             self._fail("profile_missing", "profile 尚未创建，不能取得独占锁。")
+        if resolution.platform == "douyin" and not self._douyin_browser_absent(resolution, check_ports=False):
+            self._fail("profile_busy", "专用浏览器尚未关闭，请关闭遗留窗口后重试。")
 
         lock_root = self.managed_root / ".locks"
         self._assert_no_symlink(self.app_data, lock_root)
@@ -329,21 +333,113 @@ class ProfileRegistry:
         lock_path = lock_root / f"{resolution.platform}-{resolution.profile_id}.lock"
         self._reject_symlink(lock_path)
         token = uuid4().hex
-        payload = json.dumps({
+        payload = {
             "pid": os.getpid(),
             "started_at": datetime.now(timezone.utc).isoformat(),
             "token": token,
-        }, ensure_ascii=True).encode("utf-8")
-        try:
-            fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError as exc:
-            raise ProfileError("profile_busy", "该 profile 正被占用，已停止。") from exc
-        try:
-            os.write(fd, payload)
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        }
+        if resolution.platform == "douyin":
+            payload["owner_birth"] = self._process_birth(os.getpid())
+        self._create_lease(lock_path, payload, resolution, "profile_busy")
         return ProfileLease(lock_path, token)
+
+    @staticmethod
+    def _process_birth(pid):
+        if os.uname().sysname == "Darwin":
+            from .xhs_browser import _process_birth_epoch_ns
+            return str(_process_birth_epoch_ns(pid) or "")
+        try:
+            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+        except (OSError, IndexError):
+            return ""
+
+    @classmethod
+    def _owner_dead(cls, payload):
+        pid = payload.get("pid")
+        if type(pid) is not int or pid <= 1:
+            return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            return False
+        birth = payload.get("owner_birth")
+        current = cls._process_birth(pid) if isinstance(birth, str) and birth else ""
+        return bool(current and current != birth)
+
+    def _douyin_browser_absent(self, resolution, *, port=None, check_ports=True):
+        singleton = resolution.path / "SingletonLock"
+        if os.path.lexists(singleton):
+            if not singleton.is_symlink():
+                return False
+            try:
+                host, pid = os.readlink(singleton).rsplit("-", 1)
+                if host != socket.gethostname() or not self._owner_dead({"pid": int(pid)}):
+                    return False
+            except (OSError, ValueError):
+                return False
+        if check_ports:
+            from .browser_shell import _port_is_available, debug_port_for
+            base = debug_port_for(resolution.platform, resolution.profile_id)
+            ports = (port,) if port is not None else range(base, base + 4)
+            if not all(_port_is_available(value) for value in ports):
+                return False
+        return True
+
+    def _create_lease(self, lock_path, payload, resolution, busy_code, *, port=None):
+        """Serialize recovery and creation; never reclaim XHS process leases."""
+        guard = lock_path.parent / ".lease-guard"
+        self._reject_symlink(guard)
+        guard_fd = os.open(guard, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(guard_fd, fcntl.LOCK_EX)
+            self._reject_symlink(lock_path)
+            if lock_path.exists():
+                recoverable = False
+                if resolution.platform == "douyin":
+                    try:
+                        if lock_path.stat().st_size > 4096:
+                            raise ValueError("oversized lease")
+                        with lock_path.open("rb") as old:
+                            raw = old.read(4097)
+                        previous = json.loads(raw)
+                        expected = {"pid", "started_at", "token"}
+                        if port is not None:
+                            expected |= {"platform", "profile_id", "port"}
+                        valid = (isinstance(previous, dict)
+                                 and set(previous) in (expected, expected | {"owner_birth"})
+                                 and isinstance(previous.get("token"), str)
+                                 and re.fullmatch(r"[a-f0-9]{32}", previous["token"]))
+                        if port is not None:
+                            valid = valid and all(previous.get(key) == payload[key]
+                                                  for key in ("platform", "profile_id", "port"))
+                        started = datetime.fromisoformat(previous["started_at"])
+                        # LaunchServices may still be completing a launch after
+                        # the original owner dies. Give that launch time to settle.
+                        age = (datetime.now(timezone.utc) - started).total_seconds()
+                        recoverable = (valid and age >= 10 and self._owner_dead(previous)
+                                       and self._douyin_browser_absent(resolution, port=port))
+                    except (OSError, ValueError, KeyError, TypeError):
+                        recoverable = False
+                if not recoverable:
+                    self._fail(busy_code, "专用浏览器仍被占用，请结束原任务并关闭遗留窗口后稍后重试。")
+                lock_path.unlink()
+                self._fsync_directory(lock_path.parent)
+            try:
+                fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            except FileExistsError as exc:
+                raise ProfileError(busy_code, "专用浏览器仍被占用。") from exc
+            try:
+                with os.fdopen(fd, "wb") as output:
+                    output.write(json.dumps(payload, ensure_ascii=True).encode("utf-8"))
+                    output.flush()
+                    os.fsync(output.fileno())
+            except BaseException:
+                lock_path.unlink(missing_ok=True)
+                raise
+        finally:
+            os.close(guard_fd)
 
     def acquire_debug_port(
         self,
@@ -363,23 +459,18 @@ class ProfileRegistry:
         lock_path = lock_root / f"{port}.lock"
         self._reject_symlink(lock_path)
         token = uuid4().hex
-        payload = json.dumps({
+        payload = {
             "pid": os.getpid(),
             "started_at": datetime.now(timezone.utc).isoformat(),
             "platform": platform,
             "profile_id": profile_id,
             "port": port,
             "token": token,
-        }, ensure_ascii=True).encode("utf-8")
-        try:
-            fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError as exc:
-            raise ProfileError("browser_port_busy", "浏览器调试端口正被占用，已停止。") from exc
-        try:
-            os.write(fd, payload)
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        }
+        resolution = self.resolve(platform, profile_id)
+        if platform == "douyin":
+            payload["owner_birth"] = self._process_birth(os.getpid())
+        self._create_lease(lock_path, payload, resolution, "browser_port_busy", port=port)
         return DebugPortLease(lock_path, token, port)
 
     @staticmethod

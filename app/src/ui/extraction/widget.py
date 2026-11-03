@@ -2,6 +2,7 @@
 import json
 import time
 import threading
+from concurrent.futures import Future
 from queue import SimpleQueue, Empty
 from dataclasses import replace
 from pathlib import Path
@@ -49,12 +50,33 @@ class Page(QWebEnginePage):
 
 class View(QWebEngineView):
     filesDropped = Signal(list)
+    dragStateChanged = Signal(bool)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._drag_active = False
+
+    def _set_drag_active(self, active):
+        if self._drag_active != active:
+            self._drag_active = active
+            self.dragStateChanged.emit(active)
+
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() and all(u.isLocalFile() for u in event.mimeData().urls()):
             event.acceptProposedAction()
-        else: event.ignore()
+            self._set_drag_active(True)
+        else:
+            event.ignore()
+            self._set_drag_active(False)
+
     def dragMoveEvent(self, event): self.dragEnterEvent(event)
+
+    def dragLeaveEvent(self, event):
+        self._set_drag_active(False)
+        super().dragLeaveEvent(event)
+
     def dropEvent(self, event):
+        self._set_drag_active(False)
         urls = event.mimeData().urls()
         if urls and all(u.isLocalFile() for u in urls):
             self.filesDropped.emit([u.toLocalFile() for u in urls]);event.acceptProposedAction()
@@ -62,6 +84,7 @@ class View(QWebEngineView):
 
 class Bridge(QObject):
     snapshot = Signal(str)
+    intake = Signal(str)
     reply = Signal(str, str)
     notice = Signal(str)
     linkInput = Signal(str)
@@ -70,6 +93,7 @@ class Bridge(QObject):
     def ready(self):
         if self.widget.closing: return
         self.widget.ready=True;self.widget.publish(force=True)
+        self.widget._apply_drag_state(self.widget._drag_active)
         if self.widget._pending_link is not None:
             text=self.widget._pending_link;self.widget._pending_link=None
             self.linkInput.emit(text)
@@ -81,10 +105,22 @@ class Bridge(QObject):
             args=json.loads(raw)
             if type(args) is not dict: raise ValueError('操作参数无效')
             value=self.widget.dispatch(action,args)
-            self.reply.emit(request_id,json.dumps(dict(ok=True,value=value),ensure_ascii=False))
+            if isinstance(value, Future):
+                value.add_done_callback(lambda result: self._completed(request_id, result))
+            else:
+                self.reply.emit(request_id,json.dumps(dict(ok=True,value=value),ensure_ascii=False))
         except Exception as exc:
             self.reply.emit(request_id,json.dumps(dict(ok=False,message=str(exc) if isinstance(exc,(ValueError,OSError,RuntimeError)) else '操作未完成，请重试'),ensure_ascii=False))
         self.widget.publish(force=True)
+
+    def _completed(self, request_id, result):
+        if self.widget.closing:
+            return
+        try:
+            payload=dict(ok=True,value=result.result())
+        except Exception as exc:
+            payload=dict(ok=False,message=str(exc) if isinstance(exc,(ValueError,OSError,RuntimeError)) else '操作未完成，请重试')
+        self.reply.emit(request_id,json.dumps(payload,ensure_ascii=False))
 
 class ExtractionWorkspace(QWidget):
     def __init__(self, main):
@@ -97,6 +133,8 @@ class ExtractionWorkspace(QWidget):
         self._model_epoch=0
         self._model_pending=None
         self._model_results=SimpleQueue()
+        from .batches import WorkspaceBatches
+        self.batches = WorkspaceBatches(self)
         prepare_webengine_runtime()
         self.view=View(self);self.profile=QWebEngineProfile(self)
         self.interceptor=Resources(self.profile);self.profile.setUrlRequestInterceptor(self.interceptor)
@@ -107,9 +145,16 @@ class ExtractionWorkspace(QWidget):
         self.view.setPage(self.page);self.channel=QWebChannel(self.page);self.bridge=Bridge(self)
         self.channel.registerObject('extraction',self.bridge);self.page.setWebChannel(self.channel)
         self.view.filesDropped.connect(self.add_files)
+        self._drag_active=False
+        self.view.dragStateChanged.connect(self._apply_drag_state)
         layout=QVBoxLayout(self);layout.setContentsMargins(0,0,0,0);layout.addWidget(self.view)
         self.timer=QTimer(self);self.timer.setInterval(200);self.timer.timeout.connect(self.publish);self.timer.start()
         self.view.load(QUrl.fromLocalFile(str(ROOT/'index.html')))
+
+    def _apply_drag_state(self, active):
+        self._drag_active=active
+        state='true' if active else 'false'
+        self.page.runJavaScript(f'document.getElementById("dropzone")?.classList.toggle("drag",{state})')
 
     def stage_link(self, text):
         """Fill the current input only; never create or start a task."""
@@ -126,6 +171,7 @@ class ExtractionWorkspace(QWidget):
             if task and not task.is_active:
                 self.main._delete_task(tid)
         self._deleting.clear()
+        self.batches.shutdown()
         self.closing=True
         if self._model_pending is not None:
             self._model_pending.set()
@@ -163,12 +209,12 @@ class ExtractionWorkspace(QWidget):
         if not self._models:
             self._models=[dict(id=p.id, name=p.display_name.removeprefix('本地 · '), ready=False,
                 checking=p.kind=='local', cloud=p.requires_network,
-                detail='云端转录 · 音频会上传到服务商' if p.requires_network else '本地转录') for p in PRESETS.values()]
+                detail='云端转录 · 音频会上传到服务商' if p.requires_network else '本地转录') for p in PRESETS.values() if not p.retired]
         if (not self.isVisible() or self._model_pending is not None
                 or self._models_at and time.monotonic()-self._models_at <= 15):
             return
         cancel=self._model_pending=threading.Event()
-        epoch, results, presets = self._model_epoch, self._model_results, tuple(PRESETS.values())
+        epoch, results, presets = self._model_epoch, self._model_results, tuple(p for p in PRESETS.values() if not p.retired)
         # The daemon captures no Qt object. A blocked volume cannot keep a
         # destroyed page alive, call back into it, or accumulate more workers.
         def read():
@@ -200,8 +246,38 @@ class ExtractionWorkspace(QWidget):
             prefer_subtitles=bool(cfg.prefer_subtitles),engine_name=None,requested_outputs=chosen)
 
     def add_files(self, paths):
-        if len(paths)>500: raise ValueError('一次最多加入 500 个文件')
-        valid=[Path(path) for path in paths if Path(path).is_file() and Path(path).suffix.lower() in {'.mp3','.wav','.m4a','.aac','.flac','.ogg','.opus','.aiff','.mp4','.mov','.mkv','.webm'}]
+        batches=getattr(self,'batches',None)
+        if self.closing or batches is not None and batches.draining:
+            self.bridge.notice.emit('正在保存任务并退出，请等待收尾后再添加文件')
+            return
+        supported={'.mp3','.wav','.m4a','.aac','.flac','.ogg','.opus','.aiff','.mp4','.mov','.mkv','.webm'}
+        valid, rejected=[], []
+        for value in paths:
+            path=Path(value)
+            try:
+                if path.suffix.lower() not in supported:
+                    raise ValueError('格式不支持，请选择音视频文件')
+                if batches is not None and batches.enabled:
+                    from ...core.agent_workspace.operations import actual_file
+                    actual_file(str(path), maximum=2*1024**3)
+                elif not path.is_file():
+                    raise ValueError('文件不存在或是文件夹')
+                valid.append(path)
+            except (ValueError,OSError) as exc:
+                rejected.append(f'{path.name[:80]}（{exc}）')
+        if rejected:
+            detail='；'.join(rejected[:3])+('；其余请检查文件格式和位置' if len(rejected)>3 else '')
+            self.bridge.notice.emit(f'有 {len(rejected)} 项未加入：{detail}')
+        if batches is not None and batches.enabled:
+            if valid:
+                batches.stage([dict(source=str(p),title=p.name,outputs=['text'],prefer_subtitles=False) for p in valid],
+                                   name='本地文件' if len(valid)>1 else valid[0].name, group=len(valid)>1)
+            return
+        from ...core.engines.cloud_requests import cloud_ids
+        if len(valid)>1 and self.main.cfg.engine_name in cloud_ids():
+            self.open_cloud_batch(files=[str(p) for p in valid])
+            return
+        if len(paths)>500: raise ValueError('一次最多加入 500 个本地队列文件，更多文件可分批加入')
         added=[self.main._add_task(str(p),'file',p.name,defer_queue_refresh=True) for p in valid]
         if len(added)>1:
             from ...core.task import TaskGroup, TaskGroupMember
@@ -212,6 +288,32 @@ class ExtractionWorkspace(QWidget):
         if added:
             self.main._refresh_badge();self.main._persist_task_queue()
         self.publish(force=True)
+
+    def open_cloud_batch(self, *, files=None, links=None):
+        from ..cloud_batch import CloudBatchDialog
+        dialog = getattr(self.main,'_cloud_batch_dialog',None)
+        if dialog is None:
+            dialog = self.main._cloud_batch_dialog = CloudBatchDialog(self.main)
+        if self.batches.enabled:
+            dialog.setWindowTitle('旧版云端批次记录')
+            dialog.note.setText('这里保留原有批次和结果。新任务请从内容提取或主页采集加入。')
+            for control in (dialog.provider,dialog.provider_hint,dialog.quota,dialog.sources,
+                            dialog.file_names,dialog.add,dialog.clear_button,dialog.start):
+                control.hide()
+        if files:
+            dialog.files = list(dict.fromkeys([*dialog.files,*files]))
+            dialog.file_names.setPlainText('\n'.join(dialog.files))
+            dialog.add.setText(f'添加文件（已选 {len(dialog.files)}）')
+        if links:
+            old = dialog.sources.toPlainText().splitlines()
+            dialog.sources.setPlainText('\n'.join(dict.fromkeys([*old,*links])))
+        current = dialog.provider.findData(self.main.cfg.engine_name)
+        if current >= 0:
+            dialog.provider.setCurrentIndex(current)
+        dialog.timer.start()
+        dialog.show()
+        dialog.raise_()
+        dialog.refresh()
 
     def rows(self):
         result=[];groups={m.task_id:g for g in self.main.task_groups for m in g.members}
@@ -261,6 +363,7 @@ class ExtractionWorkspace(QWidget):
 
     def publish(self, force=False):
         if not self.ready or self.closing:return
+        self.batches.refresh()
         for tid in tuple(self._deleting):
             task=self.main._task(tid)
             if time.monotonic() >= self._deleting[tid] and (task is None or task.state not in {TaskState.RUNNING,TaskState.QUEUED}):
@@ -275,7 +378,11 @@ class ExtractionWorkspace(QWidget):
             members=[dict(name=m.title,reason=m.skipped_reason) for m in g.members if m.is_skipped])
             for g in main.task_groups if any(m.is_skipped for m in g.members)
             and not any(m.task_id in task_ids for m in g.members)]
-        raw=json.dumps(dict(tasks=self.rows(),models=self._models,model=main.cfg.engine_name,
+        raw=json.dumps(dict(tasks=self.rows(),batches=self.batches.snapshot(),batchesEnabled=self.batches.enabled,
+            batchesSupported=self.batches.supported,batchError=self.batches.error,
+            batchUndo=self.batches.undo_notice(),
+            legacyBatchCount=self.batches.legacy_count,
+            models=self._models,model=main.cfg.engine_name,
             startupError=getattr(main,'_install_preparation_error',''),
             queueSyncError=bool(getattr(main,'_task_queue_store_failed',False)),
             queueSyncPending=bool(getattr(main,'_task_queue_sync_retry_pending',False)),
@@ -296,13 +403,52 @@ class ExtractionWorkspace(QWidget):
 
     def dispatch(self, action, args):
         main=self.main
-        schemas={'files':set(),'link':{'text'},'choice':{'ids','key','value'},'folder':{'kind','ids'},
+        if action=='clear_tasks':
+            if set(args)!={'scope'} or type(args['scope']) is not str or args['scope'] not in {'single','batch'}:
+                raise ValueError('清空任务参数无效')
+            scope=args['scope']
+            label='批量处理任务' if scope=='batch' else '独立任务'
+            from .. import dialogs
+            if not dialogs.confirm(self.main,'清空'+label,
+                    '将移出全部'+label+'，包括未显示的分页；另一类任务、原始音视频、文稿和已有结果保留。正在处理的任务将停止等待；已上传的请求仍可能完成并计费。是否清空？'):
+                return False
+            ids=[row['id'] for row in self.rows() if bool(row.get('group'))==(scope=='batch')]
+            if ids:self.dispatch('delete',{'ids':ids})
+            return self.batches.clear_visible(scope)
+        batch_schemas={'batch_choice':{'batch_id','index','key','value'},
+            'batch_choices':{'batch_id','index','outputs','prefer_subtitles'},
+            'batch_model':{'batch_id','engine'},'batch_control':{'batch_id','action','indices','selected'},
+            'batch_page':{'batch_id','offset'},'batch_select':{'batch_id','index','selected'},
+            'batch_folder':{'batch_id','index'},'batch_result':{'batch_id','index','key'},'batch_refresh':set()}
+        batch_schemas['batch_restore']={'token'}
+        batch_schemas['batch_new_text']={'batch_id','index'}
+        batch_schemas['batch_locate']={'batch_id','index'}
+        if action in batch_schemas:
+            if set(args)!=batch_schemas[action] or not self.batches.enabled:
+                raise ValueError('任务操作无效或任务服务尚未就绪')
+            if action=='batch_restore':self.batches.restore(args['token'])
+            elif action=='batch_new_text':self.batches.new_text(args['batch_id'],args['index'])
+            elif action=='batch_locate':self.batches.locate(args['batch_id'],args['index'])
+            elif action=='batch_refresh':self.batches.refresh(force=True)
+            elif action=='batch_choices':return self.batches.configure_choices(args['batch_id'],args['index'],args['outputs'],args['prefer_subtitles'])
+            elif action=='batch_choice':return self.batches.configure(args['batch_id'],args['index'],args['key'],args['value'])
+            elif action=='batch_model':self.batches.set_model(args['batch_id'],args['engine'])
+            elif action=='batch_control':return self.batches.control(args['batch_id'],args['action'],args['indices'],args['selected'])
+            elif action=='batch_page':self.batches.page(args['batch_id'],args['offset'])
+            elif action=='batch_select':self.batches.select(args['batch_id'],args['index'],args['selected'])
+            elif action=='batch_folder':self.batches.folder(args['batch_id'],args['index'])
+            elif action=='batch_result':self.batches.result(args['batch_id'],args['index'],args['key'])
+            self.publish(force=True)
+            return
+        schemas={'cloud_batch':set(),'files':set(),'link':{'text'},'choice':{'ids','key','value'},'folder':{'kind','ids'},
             'sync':set(),
             'start':{'ids'},'cancel':{'ids'},'delete':{'ids'},'expanded':{'id','expanded'},
             'undo_delete':set(),'record_source':{'value'},'record':set(),'record_cancel':set(),'model':{'id'},
             'models':set(),'result':{'id','action'},'clear_skipped':{'id'}}
         if action not in schemas or set(args)!=schemas[action]:raise ValueError('界面操作无效')
-        if action=='sync': main._retry_task_queue_sync()
+        if action=='cloud_batch':
+            self.open_cloud_batch()
+        elif action=='sync': main._retry_task_queue_sync()
         elif action=='undo_delete': self._deleting.clear()
         elif action=='clear_skipped':
             group=next((g for g in main.task_groups if str(g.id)==args['id']),None)
@@ -312,7 +458,7 @@ class ExtractionWorkspace(QWidget):
         elif action=='link':
             from ...core.audio.extractor import extract_url
             if type(args['text']) is not str or len(args['text'])>16384 or not extract_url(args['text']):raise ValueError('请粘贴有效的作品链接')
-            main._grab_link(args['text'])
+            return main._grab_link(args['text'])
         elif action=='choice':
             key,value=args['key'],args['value']
             if key not in {'text','video','cover','subs'} or type(value) is not bool:raise ValueError('提取选项无效')

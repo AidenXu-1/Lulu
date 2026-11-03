@@ -347,6 +347,64 @@ class FirstVersionShellTests(unittest.TestCase):
         self.assertEqual(window.center_layout.contentsMargins().top(), TITLEBAR_TOTAL_H)
         self.assertEqual(window.rail_left.y(), PANE_TOGGLE_FALLBACK_Y)
 
+    def test_rapid_workbench_switches_keep_latest_selection_and_all_pages_alive(self):
+        from src.ui.collection_page import CollectionPage
+        with patch('src.ui.live_controller.LiveController.start'), \
+             patch.object(CollectionPage,'_sync_xhs_browser_status'), \
+             patch.object(library,'list_entries',return_value=[]):
+            window=MainWindow(task_queue_store=None,defer_core_startup=True)
+            window.resize(1200,760);window.show();self.app.processEvents()
+            try:
+                for _ in range(75):
+                    for index in (5,4,9,4,5,0):
+                        row=window.workbench_navigation.rows[index]
+                        QTest.mouseClick(row,Qt.MouseButton.LeftButton,pos=row.rect().center())
+                        QTest.qWait(2)
+                        self.assertEqual(window.stack.currentIndex(),index)
+                        self.assertEqual(window.workbench_navigation.current_index,index)
+                page=window.collection_page
+                for _ in range(100):
+                    if page._transcribed_read is None:break
+                    QTest.qWait(5)
+                self.assertIsNone(page._transcribed_read)
+                capture=os.environ.get('LULU_NAV_CAPTURE_DIR')
+                if capture:
+                    target=Path(capture);target.mkdir(parents=True,exist_ok=True)
+                    rail=window.workbench_navigation
+                    rail.select(0);rail.animation.setCurrentTime(240)
+                    window._sync_page_navigation(target_index=9)
+                    for at in (0,60,120,240):
+                        rail.animation.setCurrentTime(at)
+                        window.sidebar_paper.grab().save(str(target/f'pill-{at:03d}.png'))
+            finally:
+                if window.collection_page is not None:window.collection_page.shutdown_workers()
+
+
+    def test_library_rows_share_the_same_indicator_and_switch_kind_immediately(self):
+        window=MainWindow(task_queue_store=None,defer_core_startup=True)
+        # Only the destination content is a stand-in; all seven native sidebar
+        # rows, mouse events, selection updates and shared painting are real.
+        page=QWidget(window);page._kind='transcript'
+        page._set_kind=lambda kind:setattr(page,'_kind',kind)
+        page.refresh=lambda:None;page.shutdown=lambda:None
+        old=window.stack.widget(2);window.stack.removeWidget(old);old.deleteLater()
+        window.stack.insertWidget(2,page);window.library_page=page
+        window.resize(1200,760);window.show();self.app.processEvents()
+        rail=window.workbench_navigation
+        for key in (('library','transcript'),('library','voice'),('library','trash'),0,('library','trash')):
+            row=rail.rows[key]
+            QTest.mouseClick(row,Qt.MouseButton.LeftButton,pos=row.rect().center())
+            self.assertEqual(rail.current_index,key)
+            self.assertEqual(sum(bool(r.property('selected')) for r in rail.rows.values()),1)
+            if isinstance(key,tuple):
+                self.assertEqual(window.stack.currentIndex(),2)
+                self.assertEqual(page._kind,key[1])
+            else:self.assertEqual(window.stack.currentIndex(),key)
+        capture=os.environ.get('LULU_NAV_CAPTURE_DIR')
+        if capture:
+            rail.animation.setCurrentTime(240)
+            Path(capture).mkdir(parents=True,exist_ok=True)
+            window.sidebar_paper.grab().save(str(Path(capture)/'library-selected.png'))
 
     def test_library_long_markdown_scroll_reaches_final_timestamp(self):
         relative_cover = Path("douyin") / "long-scroll-cover.jpg"
@@ -406,7 +464,15 @@ class FirstVersionShellTests(unittest.TestCase):
         probe.app, probe.widget = self.app, window.library_page
         try:
             probe.until(lambda: probe.widget.ready)
-            probe.until(lambda: probe.js('Boolean(document.querySelector(".ProseMirror"))'))
+            try:
+                probe.until(lambda: probe.js('Boolean(document.querySelector(".ProseMirror"))'))
+            except AssertionError:
+                print('LONG_DOCUMENT_LOAD_DIAGNOSTIC', {
+                    'initialized': probe.widget.initialization_succeeded,
+                    'workers': probe.widget.pool.activeThreadCount(),
+                    'page': probe.js('JSON.stringify({ready:window.lulu?.ready,kind:window.lulu?.state?.kind,document:window.lulu?.state?.doc?.id,detail:document.querySelector("#detail")?.innerText?.slice(0,1200)})'),
+                }, flush=True)
+                raise
             self.assertTrue(probe.js('document.querySelector(".ProseMirror").innerText.includes("第 91 段正文")'))
             self.assertTrue(probe.js('document.querySelector("#document-scroll").scrollHeight > document.querySelector("#document-scroll").clientHeight'))
             probe.js('document.querySelector("#document-scroll").scrollTop = document.querySelector("#document-scroll").scrollHeight')

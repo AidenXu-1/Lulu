@@ -160,30 +160,3 @@ class LocalTaskMigrationTests(unittest.TestCase):
         self.assertEqual(migration_status(self.product), 'complete')
         self.assertEqual(self.current_store().get_job('job-001'), self.old_store.get_job('job-001'))
         self.assertEqual(self.originals(), before)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

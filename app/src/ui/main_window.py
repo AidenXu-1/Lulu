@@ -264,6 +264,8 @@ class MainWindow(QWidget):
             active_work=lambda: self._install_preparation_pending or self.has_active_work(),
             unsaved_work=self.has_unsaved_work, parent=self)
         self.update_controller.install_accepted.connect(lambda: QApplication.instance().quit())
+        from .cli_control import CliControl
+        self.cli_control = CliControl(self)
 
         self.setObjectName("root")
         self.setWindowTitle(APP_NAME)
@@ -825,14 +827,16 @@ class MainWindow(QWidget):
         self._library_count_labels = {}
         self._page_navs: list = []
         lay.addWidget(self._nav_label("工作台"))
-        lay.addWidget(self._page_nav("headphones", "内容提取", 0, live_count=0))
-        lay.addWidget(self._page_nav("workspace_grid", "主页采集", 5))
-        lay.addWidget(self._page_nav("mic", "文案配音", 4))
-        lay.addWidget(self._page_nav("video", "直播录制", LIVE_RECORDING_PAGE))
-        lay.addWidget(self._nav_label("素材库"))
-        lay.addWidget(self._library_nav("workspace_doc", "文稿库", "transcript"))
-        lay.addWidget(self._library_nav("waveform", "音频库", "voice"))
-        lay.addWidget(self._library_nav("trash", "最近删除", "trash"))
+        from .workbench_navigation import WorkbenchNavigation
+        self.workbench_navigation = WorkbenchNavigation(self.workbench_consumer_theme)
+        for ico, text, index in (("headphones", "内容提取", 0), ("workspace_grid", "主页采集", 5),
+                                 ("mic", "文案配音", 4), ("video", "直播录制", LIVE_RECORDING_PAGE)):
+            self.workbench_navigation.add_row(index, self._page_nav(ico, text, index, live_count=0 if index == 0 else None))
+        self.workbench_navigation.layout().addWidget(self._nav_label("素材库"))
+        for ico, text, kind in (("workspace_doc", "文稿库", "transcript"),
+                                ("waveform", "音频库", "voice"), ("trash", "归档", "trash")):
+            self.workbench_navigation.add_row(('library', kind), self._library_nav(ico, text, kind))
+        lay.addWidget(self.workbench_navigation)
         lay.addStretch(1)
         lay.addWidget(self._nav_label("配置与连接"))
         lay.addWidget(self._page_nav("ai_cube", "AI 大模型", 1))
@@ -1087,6 +1091,8 @@ class MainWindow(QWidget):
             index = 0
         if self._storage_relocation_in_progress and index != 6:
             return
+        # Selection responds before a first-use page constructs its controls.
+        self._sync_page_navigation(target_index=index, target_kind=library_kind)
         self._ensure_page_loaded(index)
         self.stack.setCurrentIndex(index)
         self._sync_workbench_paper_scope(index)
@@ -1108,13 +1114,15 @@ class MainWindow(QWidget):
         self._sync_page_navigation()
         self._sync_toggle_icons()
 
-    def _sync_page_navigation(self, *_args) -> None:
-        index = self.stack.currentIndex()
-        current_kind = getattr(self.library_page, "_kind", "all") if self.library_page is not None else "all"
+    def _sync_page_navigation(self, *_args, target_index=None, target_kind=None) -> None:
+        index = self.stack.currentIndex() if target_index is None else target_index
+        current_kind = target_kind or (getattr(self.library_page, "_kind", "all") if self.library_page is not None else "all")
         if index == 6:
             current_kind = getattr(self.settings_page, "current_category", "general")
         for idx, kind, row, iconlab, lab, ico in self._page_navs:
             active = (idx == index and (kind is None or kind == current_kind)) or (idx == 1 and index == 2 and current_kind == "models")
+            if row.property("consumerAccent") == active and row.property("selected") == active:
+                continue
             row.setObjectName("navItemActive" if active else "navItem")
             row.setProperty("selected", active)
             row.setProperty("consumerAccent", active)
@@ -1126,9 +1134,12 @@ class MainWindow(QWidget):
             )
             if iconlab is not None:
                 iconlab.setPixmap(icons.pixmap(ico, icon_color, 17))
+            if idx == 2 and kind in self._library_count_labels:
+                self._library_count_labels[kind].setStyleSheet(f"font-size: 11px; color: {icon_color};")
             for w in (row, lab):
                 w.style().unpolish(w)
                 w.style().polish(w)
+        self.workbench_navigation.select(('library', current_kind) if index == 2 else index)
         self._sync_toggle_icons()
 
     def _sync_workbench_paper_scope(self, index: int | None = None) -> None:
@@ -1416,6 +1427,12 @@ class MainWindow(QWidget):
         super().dragLeaveEvent(e)
 
     def dropEvent(self, e):  # noqa: N802
+        paths = [u.toLocalFile() for u in e.mimeData().urls() if u.toLocalFile()]
+        from ..core.engines.cloud_requests import cloud_ids
+        workspace = getattr(self,'extraction_workspace',None)
+        if len(paths)>1 and workspace is not None and self.cfg.engine_name in cloud_ids():
+            workspace.add_files(paths)
+            return
         for url in e.mimeData().urls():
             p = url.toLocalFile()
             if p:
@@ -1424,7 +1441,7 @@ class MainWindow(QWidget):
     def _pick_file(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
             self, "选择音频/视频文件", self.cfg.last_output_dir,
-            "媒体文件 (*.mp3 *.wav *.m4a *.aac *.flac *.mp4 *.mov *.mkv *.webm);;所有文件 (*)",
+            "媒体文件 (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus *.aiff *.mp4 *.mov *.mkv *.webm);;所有文件 (*)",
         )
         workspace = getattr(self, "extraction_workspace", None)
         if workspace is not None:
@@ -1433,7 +1450,7 @@ class MainWindow(QWidget):
             for p in paths:
                 self._add_task(p, "file", Path(p).name)
 
-    def _grab_link(self, text: str) -> None:
+    def _grab_link(self, text: str):
         text = text.strip()
         if not text:
             self._toast("先粘贴一个链接吧")
@@ -1442,10 +1459,12 @@ class MainWindow(QWidget):
         if podcast.looks_like_feed(text):       # 像播客 RSS 订阅 → 先解析、再选集
             if self._feed_worker is not None:
                 self._toast("正在解析播客订阅，请稍候")
-                return
+                return False
             self._toast("正在解析播客订阅…")
             from .podcast_dialog import _FeedWorker
             worker = _FeedWorker(text, self)
+            from concurrent.futures import Future
+            completion = worker.submission = Future()
             self._feed_worker = worker
             worker.done.connect(
                 lambda feed, raw=text, current=worker:
@@ -1455,13 +1474,24 @@ class MainWindow(QWidget):
                 lambda current=worker: self._finish_feed_worker(current)
             )
             worker.start()
-            return
-        self._add_task(text, "link", "链接转写")
+            return completion
+        batches = getattr(getattr(self, 'extraction_workspace', None), 'batches', None)
+        if batches is not None and batches.enabled:
+            return batches.stage([dict(source=text, title='链接转写', outputs=['text'],
+                                prefer_subtitles=bool(self.cfg.prefer_subtitles))], name='链接转写')
+        else:
+            self._add_task(text, "link", "链接转写")
 
     def _collect_transcribe(self, sources: list[str], folder_name: str | None = None) -> None:
         """采集页「批量转录选中」→ 加入工作台转录队列。folder_name 非空时，这批自动归入同名文件夹。"""
         from ..core import library
         fid = library.ensure_folder("transcript", folder_name) if folder_name else None
+        batches = getattr(getattr(self, 'extraction_workspace', None), 'batches', None)
+        if batches is not None and batches.enabled:
+            batches.stage([dict(source=s, title='采集转写', outputs=['text']) for s in sources],
+                          name=folder_name or '采集作品', group=len(sources)>1, folder_id=fid)
+            self._switch_page(0)
+            return
         for s in sources:
             self._add_task(s, "link", "采集转写", folder_id=fid)
         self._switch_page(0)
@@ -1501,6 +1531,21 @@ class MainWindow(QWidget):
         folder_name: str | None = None,
     ) -> None:
         """把两条以上可执行作品编成运行期组，子任务仍走既有串行队列。"""
+        batches = getattr(getattr(self, 'extraction_workspace', None), 'batches', None)
+        if batches is not None and batches.enabled:
+            from ..core import library
+            executable = [c for c in candidates if c.executable]
+            if not executable:
+                self._toast('所选作品没有可转录的音视频')
+                return
+            fid = library.ensure_folder('transcript',folder_name) if folder_name else None
+            batches.stage([dict(source=c.source,title=c.title or '采集转写',stable_key=c.stable_key,
+                                outputs=['text'],prefer_subtitles=bool(self.cfg.prefer_subtitles)) for c in executable],
+                          name=folder_name or '主页采集作品', group=True, folder_id=fid,
+                          skipped=[dict(title=c.title or '作品',reason=c.skipped_reason or '不支持转录')
+                                   for c in candidates if not c.executable])
+            self._switch_page(0)
+            return
         selected_engine = self.cfg.engine_name
         unfinished = {
             (task.stable_key, task.execution_policy.engine_name or selected_engine) for task in self.tasks
@@ -1597,25 +1642,57 @@ class MainWindow(QWidget):
         suffix = f"，{skipped} 条已诚实跳过" if skipped else ""
         self._toast(f"已建立 {len(executable)} 条批量转录任务{suffix}")
 
-    def _on_feed(self, feed, raw: str) -> None:
+    def _on_feed(self, feed, raw: str):
+        batches = getattr(getattr(self, 'extraction_workspace', None), 'batches', None)
         if feed is None:                        # 不是有效播客 RSS → 当普通链接处理
-            self._add_task(raw, "link", "链接转写")
+            if batches is not None and batches.enabled:
+                return batches.stage([dict(source=raw,title='链接转写',outputs=['text'])], name='链接转写')
+            else:
+                self._add_task(raw, "link", "链接转写")
             return
         from .podcast_dialog import PodcastPicker
         dlg = PodcastPicker(feed, self)
         if dlg.exec() and dlg.chosen:
+            if batches is not None and batches.enabled:
+                return batches.stage([dict(source=ep.audio_url,title=ep.title or '播客单集',outputs=['text']) for ep in dlg.chosen],
+                              name=getattr(feed,'title','播客节目') or '播客节目',group=len(dlg.chosen)>1)
             for ep in dlg.chosen:
                 self._add_task(ep.audio_url, "link", ep.title[:60] or "播客单集")
             self._toast(f"已加入 {len(dlg.chosen)} 集，点卡片「开始」转写")
+            return True
+        return False
 
     def _on_feed_result(self, worker, feed, raw: str) -> None:
+        completion = getattr(worker, 'submission', None)
         if self._feed_worker is not worker or self._close_settling:
+            if completion is not None and not completion.done():
+                completion.set_result(False)
             return
-        self._on_feed(feed, raw)
+        # The picker owns a nested event loop: mark delivery before opening it,
+        # so thread-finished cannot acknowledge a still unconfirmed selection.
+        worker.feed_delivered = True
+        try:
+            value = self._on_feed(feed, raw)
+            from concurrent.futures import Future
+            if isinstance(value, Future) and completion is not None:
+                def finish(result):
+                    try:
+                        completion.set_result(result.result())
+                    except Exception as exc:
+                        completion.set_exception(exc)
+                value.add_done_callback(finish)
+            elif completion is not None:
+                completion.set_result(value)
+        except Exception as exc:
+            if completion is not None and not completion.done():
+                completion.set_exception(exc)
 
     def _finish_feed_worker(self, worker) -> None:
         if self._feed_worker is worker:
             self._feed_worker = None
+        completion = getattr(worker, 'submission', None)
+        if completion is not None and not completion.done() and not getattr(worker, 'feed_delivered', False):
+            completion.set_exception(RuntimeError('订阅解析未完成，链接已保留，请稍后重试'))
         worker.deleteLater()
 
     # ---------------- 提取偏好与录音来源 ---------------- #
@@ -2469,7 +2546,11 @@ class MainWindow(QWidget):
             self._toast("这段录音是空的，没有保存。")
             return
         title = getattr(self, "_rec_title", None) or p.name
-        self._add_task(str(p), "file", title)
+        batches = getattr(getattr(self, 'extraction_workspace', None), 'batches', None)
+        if batches is not None and batches.enabled:
+            batches.stage([dict(source=str(p),title=title,outputs=['text'])],name=title)
+        else:
+            self._add_task(str(p), "file", title)
         self._toast("录音已加入转录队列，点卡片「开始」转写")
 
     def _finish_mixed_recording(self, mic_path: Path | None) -> None:
@@ -2509,7 +2590,11 @@ class MainWindow(QWidget):
             self._toast("混合录音保存失败，请重新录制")
             return
         title = getattr(self, "_rec_title", None) or output_path.name
-        self._add_task(str(output_path), "file", title)
+        batches = getattr(getattr(self, 'extraction_workspace', None), 'batches', None)
+        if batches is not None and batches.enabled:
+            batches.stage([dict(source=str(output_path),title=title,outputs=['text'])],name=title)
+        else:
+            self._add_task(str(output_path), "file", title)
         self._toast("混合录音已加入转录队列，点卡片「开始」转写")
 
     def _analyze_recording_file(self, path: Path) -> dict[str, object]:
@@ -3615,6 +3700,8 @@ class MainWindow(QWidget):
 
     def has_active_work(self) -> bool:
         """Single install gate for every user-visible long-running operation."""
+        if getattr(self, '_external_core_busy', False):
+            return True
         inheritance = getattr(self, '_legacy_inheritance', None)
         if inheritance is not None and inheritance.active:
             return True
@@ -3647,8 +3734,13 @@ class MainWindow(QWidget):
             if owner is None: continue
             for name, value in vars(owner).items():
                 if "worker" not in name.lower() or value is None: continue
-                if owner is self and name in {"_task_queue_startup_worker", "_core_result_worker"}:
-                    # 被动状态读取不属于用户任务；退出由 closeEvent 单独取消并等待。
+                if owner is self and name in {"_task_queue_startup_worker", "_core_result_worker", "_core_save_worker"}:
+                    # Queue I/O is not processing. closeEvent still waits for
+                    # registered writes/reads and refuses exit if saving fails.
+                    continue
+                if owner is getattr(self, 'voice_page', None) and name == '_indextts2_status_worker':
+                    # Inspecting an environment does not synthesize any audio.
+                    # The thread remains registered for safe shutdown.
                     continue
                 if MainWindow._update_activity_running(value): return True
         models_page = getattr(self, "models_page", None)
@@ -3663,6 +3755,8 @@ class MainWindow(QWidget):
 
     def _model_usage_reason(self, model_id: str) -> str:
         """Return an exact same-model operation conflict; unrelated models remain independent."""
+        if model_id in getattr(self, '_external_core_models', ()):
+            return '这个模型正在处理 CLI 任务，请等完成或取消后再操作。'
         page = getattr(self, "models_page", None)
         if page is not None and model_id in page.active_model_ids():
             return "这个模型仍有任务正在处理，请等完成或取消后再操作。"
@@ -3768,6 +3862,9 @@ class MainWindow(QWidget):
         workers: list[QThread] = []
         live_worker = getattr(getattr(self, "live_controller", None), "worker", None)
         MainWindow._collect_qthreads(live_worker, workers)
+        MainWindow._collect_qthreads(getattr(getattr(self, 'cli_control', None), 'worker', None), workers)
+        MainWindow._collect_qthreads(getattr(getattr(self, '_cloud_batch_dialog', None), 'worker', None), workers)
+        MainWindow._collect_qthreads(getattr(getattr(getattr(self, 'extraction_workspace', None), 'batches', None), 'worker', None), workers)
         connection = getattr(getattr(self, "settings_page", None), "feishu_connection", None)
         if connection is not None:
             MainWindow._collect_qthreads(connection.owned_workers(), workers)
@@ -3911,10 +4008,30 @@ class MainWindow(QWidget):
                 self._update_check_timer.stop()
         else:
             xhs_exit_action = getattr(self, "_close_xhs_action", "keep")
+        batches = getattr(getattr(self, 'extraction_workspace', None), 'batches', None)
+        if batches is not None:
+            if not batches.prepare_close():
+                self._defer_close_until_workers_settle(e)
+                return
+            if batches.close_error:
+                message = batches.close_error
+                batches.draining = False
+                batches.close_error = ''
+                self._close_settling = False
+                self._toast('刚才的任务尚未保存，已保留窗口和输入。' + message)
+                e.ignore()
+                return
         if not self.live_controller.request_stop():
             self._defer_close_until_workers_settle(e)
             return
         update_controller = getattr(self, "update_controller", None)
+        cli_control = getattr(self, 'cli_control', None)
+        cloud_batch = getattr(self, '_cloud_batch_dialog', None)
+        if cloud_batch is not None:
+            cloud_batch.shutdown()
+        if cli_control is not None and not cli_control.shutdown(500):
+            self._defer_close_until_workers_settle(e)
+            return
         if update_controller is not None:
             update_controller.cancel()
         if self.models_page is not None:
@@ -3928,6 +4045,9 @@ class MainWindow(QWidget):
         if self.collection_page is not None:
             self.collection_page.shutdown_workers()
         if not self._settle_xhs_exit(xhs_exit_action):
+            if batches is not None:
+                batches.draining = False
+            self._close_settling = False
             e.ignore()
             return
         # Core 先结算实际线程再确认最终状态；旧文件恢复队列保留原快照语义。
@@ -3938,6 +4058,8 @@ class MainWindow(QWidget):
                 return
             if not MainWindow._persist_task_queue(self, force=True):
                 if getattr(self, "_result_recovery_failed", False):
+                    if batches is not None:
+                        batches.draining = False
                     self._close_settling = False
                     e.ignore()
                     return
@@ -3951,6 +4073,8 @@ class MainWindow(QWidget):
                             preserve_existing=not self._task_queue_recovery_checked,
                             hidden_ids=getattr(self, "_core_hidden_intents", set()))
                     except (OSError, RuntimeError, ValueError, TypeError):
+                        if batches is not None:
+                            batches.draining = False
                         self._close_settling = False
                         self._toast("恢复记录无法写入磁盘，请检查可用空间或保存位置后再退出")
                         e.ignore()

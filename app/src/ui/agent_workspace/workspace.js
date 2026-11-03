@@ -139,16 +139,28 @@ function renderRows() {
         if (state.loading || id !== state.doc?.id) choose(id).catch(error);
         return;
       }
-      renderRows(); renderBatch();
-      document.querySelector(`[data-entry="${id}"]`)?.focus({preventScroll:true});
+      $("list").querySelectorAll('[data-entry]').forEach(row=>{
+        const selected=state.selected.has(row.dataset.entry);row.classList.toggle('selected',selected);row.setAttribute('aria-selected',String(selected));
+        const checkbox=row.querySelector('input[type=checkbox]');if(checkbox)checkbox.checked=selected;
+      });
+      renderBatch();node.focus({preventScroll:true});
     };
     node.onmousedown = e => { if (e.shiftKey || e.metaKey || e.ctrlKey) e.preventDefault(); };
     node.onclick = activate;
     node.oncontextmenu = event => {
-      if (state.kind !== 'documents') return;
       event.preventDefault();
       const id = node.dataset.entry;
       const ids = state.batch && state.selected.has(id) ? [...state.selected] : [id];
+      if(state.kind==='voice'){
+        openMenu(node,[
+          {label:'打开音频',icon:'audio',run:()=>choose(id)},
+          {label:'移动到文件夹',icon:'folder',disabled:batchBusy,run:()=>moveDialog(ids,node)},
+          {separator:true},
+          {label:'归档',icon:'folder',disabled:batchBusy,run:()=>deleteDialog(ids)},
+          {label:'删除',icon:'trash',danger:true,disabled:batchBusy,run:()=>systemDeleteDialog(ids)}
+        ],{label:'音频操作',point:{x:event.clientX,y:event.clientY},align:'start',onError:error});
+        return;
+      }
       openMenu(node, [
         {label:'打开文稿', icon:'doc', run:() => choose(id)},
         {separator:true},
@@ -157,7 +169,8 @@ function renderRows() {
         {label:ids.length > 1 ? '批量导出' : '导出文稿', icon:'export', disabled:batchBusy, run:() => deliverBatch('batch_export', ids)},
         {label:'移动到文件夹', icon:'folder', disabled:batchBusy, run:() => moveDialog(ids, node)},
         {separator:true},
-        {label:'移至最近删除', icon:'trash', danger:true, disabled:batchBusy, run:() => deleteDialog(ids)}
+        {label:'归档', icon:'folder', disabled:batchBusy, run:() => deleteDialog(ids)},
+        {label:'删除', icon:'trash', danger:true, disabled:batchBusy, run:() => systemDeleteDialog(ids)}
       ], {label:'文稿操作', point:{x:event.clientX,y:event.clientY}, align:'start', onError:error});
     };
     node.onkeydown = (e) => {
@@ -196,16 +209,18 @@ function renderBatch() {
   $("list").setAttribute('aria-multiselectable', String(state.batch));
   $("batch").hidden = !state.batch;
   $("batch").classList.toggle('manuscript-batch', docs);
-  $("batch").innerHTML = `<span class="batch-count">${batchBusy ? '正在处理' : '已选'} ${state.selected.size} ${docs ? '篇' : '个'}</span>${docs ? `<div class="batch-destinations" role="group" aria-label="存入知识库"><button id="batch-obsidian" class="text-button knowledge-save">${icon('obsidian')}<span>存入 Obsidian</span></button><button id="batch-feishu" class="text-button knowledge-save">${icon('feishu')}<span>存入飞书</span></button></div><div class="batch-tools"><button id="batch-export" class="text-button">${icon('export')}<span>导出</span></button><button id="batch-more" class="text-button" aria-label="更多批量操作" title="更多批量操作">${icon('more')}</button></div>` : '<span class="grow"></span><button id="batch-move">移动</button><button id="batch-delete">移至最近删除</button>'}`;
-  $("batch").querySelectorAll('button').forEach(b => b.disabled = disabled);
+  $("batch").innerHTML = `<span class="batch-count">${batchBusy ? '正在处理' : '已选'} ${state.selected.size} ${docs ? '篇' : '个'}</span>${docs ? `<div class="batch-destinations" role="group" aria-label="存入知识库"><button id="batch-obsidian" class="text-button knowledge-save">${icon('obsidian')}<span>存入 Obsidian</span></button><button id="batch-feishu" class="text-button knowledge-save">${icon('feishu')}<span>存入飞书</span></button></div><div class="batch-tools"><button id="batch-export" class="text-button">${icon('export')}<span>导出</span></button><button id="batch-more" class="text-button" aria-label="更多批量操作" title="更多批量操作">${icon('more')}<span>更多</span></button></div>` : '<span class="grow"></span><button id="batch-move">移动</button><button id="batch-delete">归档</button><button id="batch-system-delete">删除</button>'}`;
+  $("batch").querySelectorAll('button').forEach(b => {b.disabled = disabled;if(disabled)b.title=batchBusy?"正在处理所选资料":"先选择资料后即可使用"});
   bind("batch-move", () => moveDialog([...state.selected]));
   bind("batch-delete", () => deleteDialog([...state.selected]));
+  bind("batch-system-delete", () => systemDeleteDialog([...state.selected]));
   bind("batch-export", () => deliverBatch('batch_export'));
   bind("batch-obsidian", () => deliverBatch('batch_obsidian'));
   bind("batch-feishu", () => deliverBatch('batch_feishu'));
   bind("batch-more", () => openMenu($("batch-more"), [
     {label:'移动到文件夹', icon:'folder', run:() => moveDialog([...state.selected], $("batch-more"))},
-    {label:'移至最近删除', icon:'trash', danger:true, run:() => deleteDialog([...state.selected])}
+    {label:'归档', icon:'folder', run:() => deleteDialog([...state.selected])},
+    {label:'删除', icon:'trash', danger:true, run:() => systemDeleteDialog([...state.selected])}
   ], {label:'更多批量操作', onError:error}));
   $("select-mode").textContent = state.batch ? "完成" : "选择";
   $("select-mode").disabled = batchBusy;
@@ -379,7 +394,7 @@ async function renderDocument(savedScroll = undefined) {
   const retainedRoot = editor?.loadDocument ? $("editor") : null;
   if (retainedRoot) retainedRoot.remove();
   else if (editor) { await editor.destroy(); editor = null; }
-  $("detail").innerHTML = `<header class="detail-head"><span class="detail-folder">${icon("folder")} ${esc(folderName(d.folder_id))}</span><span class="grow"></span><button id="save-obsidian" class="text-button knowledge-save">${icon("obsidian")}<span>存入 Obsidian</span></button><button id="save-feishu" class="text-button knowledge-save">${icon("feishu")}<span>存入飞书</span></button><span class="toolbar-separator"></span><button id="history" class="icon-button" title="修改记录" aria-label="修改记录">${icon("clock")}</button><button id="export" class="text-button">${icon("export")} 导出</button><button id="doc-more" class="icon-button" aria-haspopup="menu" aria-expanded="false" aria-label="文稿操作">${icon("more")}</button></header><div id="document-scroll" class="document-scroll"><article class="document"><div class="document-kicker">${esc(documentOrigin(d))}</div><h1 id="doc-title" class="doc-title" contenteditable="plaintext-only" role="textbox" aria-label="文稿标题">${esc(d.title)}</h1><div class="doc-meta"><span>${esc(date(d.created_at))}</span><span id="words">${d.display_char_count ?? d.char_count ?? 0} 字</span><button id="source-info" class="text-button">${icon("link")} 来源与数据</button><span id="save-state" role="status">已保存</span></div><div id="editor" class="editor"></div></article></div>`;
+  $("detail").innerHTML = `<header class="detail-head"><span class="detail-folder">${icon("folder")} ${esc(folderName(d.folder_id))}</span><span class="grow"></span><button id="save-obsidian" class="text-button knowledge-save">${icon("obsidian")}<span>存入 Obsidian</span></button><button id="save-feishu" class="text-button knowledge-save">${icon("feishu")}<span>存入飞书</span></button><span class="toolbar-separator"></span><button id="history" class="icon-button" title="修改记录" aria-label="修改记录">${icon("clock")}</button><button id="export" class="text-button">${icon("export")} 导出</button><button id="doc-more" class="icon-button" aria-haspopup="menu" aria-expanded="false" aria-label="文稿操作">${icon("more")}<span>更多</span></button></header><div id="document-scroll" class="document-scroll"><article class="document"><div class="document-kicker">${esc(documentOrigin(d))}</div><h1 id="doc-title" class="doc-title" contenteditable="plaintext-only" role="textbox" aria-label="文稿标题">${esc(d.title)}</h1><div class="doc-meta"><span>${esc(date(d.created_at))}</span><span id="words">${d.display_char_count ?? d.char_count ?? 0} 字</span><button id="source-info" class="text-button">${icon("link")} 来源与数据</button><span id="save-state" role="status">已保存</span></div><div id="editor" class="editor"></div></article></div>`;
   if (retainedRoot) $("editor").replaceWith(retainedRoot);
   const reused = editor?.loadDocument?.(d.text, aliases);
   if (!reused && editor) { await editor.destroy(); editor = null; }
@@ -923,7 +938,7 @@ async function showConversations(archived = false) {
   const render = () => {
     const query = $('conversation-search').value.trim().toLocaleLowerCase();
     const matches = rows.filter(c => c.title.toLocaleLowerCase().includes(query));
-    $('conversation-results').innerHTML = matches.map(c => `<div class="dialog-row"><button class="grow" data-chat="${esc(c.id)}" ${c.id === cid ? 'aria-current="true"' : ''}>${esc(c.title)}${c.id === cid ? ' · 当前' : ''}<small class="conversation-date">${esc(versionDate(c.updated_at))}</small></button><button data-rename-chat="${esc(c.id)}" class="text-button" aria-label="重命名 ${esc(c.title)}">重命名</button><button data-archive-chat="${esc(c.id)}" class="text-button">${archived ? "恢复" : "归档"}</button><button data-delete-chat="${esc(c.id)}" class="text-button conversation-delete">彻底删除</button></div>`).join('') || '<p class="muted">没有匹配的会话。</p>';
+    $('conversation-results').innerHTML = matches.map(c => `<div class="dialog-row"><button class="grow" data-chat="${esc(c.id)}" ${c.id === cid ? 'aria-current="true"' : ''}>${esc(c.title)}${c.id === cid ? ' · 当前' : ''}<small class="conversation-date">${esc(versionDate(c.updated_at))}</small></button><button data-rename-chat="${esc(c.id)}" class="text-button" aria-label="重命名 ${esc(c.title)}">重命名</button><button data-archive-chat="${esc(c.id)}" class="text-button">${archived ? "恢复" : "归档"}</button><button data-delete-chat="${esc(c.id)}" class="text-button conversation-delete">删除</button></div>`).join('') || '<p class="muted">没有匹配的会话。</p>';
     document.querySelectorAll('[data-chat]').forEach(b => b.onclick = () => serializeTransition(async () => {
       await flushDraft();
       if (state.doc?.id !== did) return;
@@ -948,7 +963,7 @@ async function showConversations(archived = false) {
 }
 
 async function confirmDeleteConversation(chat) {
-  dialog("彻底删除这段会话？", `<p>将永久删除“${esc(chat.title)}”的对话、草稿、修改建议和 Lulu 可恢复备份中的副本，无法撤销。</p><p class="muted">已应用到文稿的内容、单独保存的转录文稿和原音视频会保留。</p><div class="dialog-actions"><button id="cancel-delete-chat" class="text-button">返回</button><button id="confirm-delete-chat" class="primary">彻底删除</button></div>`);
+  dialog("删除这段会话？", `<p>将永久删除“${esc(chat.title)}”的对话、草稿、修改建议和 Lulu 可恢复备份中的副本，无法撤销。</p><p class="muted">已应用到文稿的内容、单独保存的转录文稿和原音视频会保留。</p><div class="dialog-actions"><button id="cancel-delete-chat" class="text-button">返回</button><button id="confirm-delete-chat" class="primary">删除</button></div>`);
   bind("cancel-delete-chat", showConversations);
   bind("confirm-delete-chat", async () => {
     const button = $("confirm-delete-chat");
@@ -974,7 +989,7 @@ async function confirmDeleteConversation(chat) {
         renderChat();
       }
       await showConversations();
-      toast(`会话已彻底删除，${result.removed_backup_copies} 份旧备份中的副本也已清除`);
+      toast(`会话已删除，${result.removed_backup_copies} 份旧备份中的副本也已清除`);
     } catch (e) {
       error(e);
       await showConversations();
@@ -1123,7 +1138,8 @@ function documentMenu() {
     {id:'source-mode', label:'查看 Markdown 源码', icon:'doc', run:() => dialog('Markdown 源码', `<pre class="source-text">${esc(state.doc.text)}</pre>`)},
     {id:'markdown-guide', label:'Markdown 语法指南', icon:'book', run:() => showMarkdownGuide({dialog, esc, copy:text => native('copy_text', {text}), onError:error})},
     {separator:true},
-    {id:'delete-doc', label:'移至最近删除', icon:'trash', danger:true, run:() => deleteDialog([id])}
+    {id:'archive-doc', label:'归档', icon:'folder', run:() => deleteDialog([id])},
+    {id:'delete-doc', label:'删除', icon:'trash', danger:true, run:() => systemDeleteDialog([id])}
   ], {label:'文稿操作', onError:error});
 }
 function moveDialog(ids, source = null) {
@@ -1141,25 +1157,41 @@ function moveDialog(ids, source = null) {
     }
   })), {label:'移动到文件夹', choice:true, onError:error});
 }
-function deleteDialog(ids) {
-  dialog("移至最近删除", `<p>将 ${ids.length} 篇资料移至最近删除，可以恢复。</p><div class="dialog-actions"><button id="confirm-delete" class="primary">移至最近删除</button></div>`);
-  bind("confirm-delete", async () => {
+function deleteDialog(ids) { return runMaterialAction(ids,false); }
+function systemDeleteDialog(ids) { materialActionDialog(ids,true); }
+async function runMaterialAction(ids,systemTrash) {
+  if(batchBusy || !ids.length)return;
+  batchBusy=true;renderBatch();
+  const verb=systemTrash?'删除':'归档',done=[],failed=[];
+  const originalKind=state.kind;
+  let selectionGeneration=choiceGeneration;
+  try{
     await flush();
-    const done = [], failed = [];
-    for (const id of ids) {
-      try {
-        await rpc("delete", { document_id: id });
-        done.push(id);
-      } catch (e) {
-        failed.push({ id, message: e.message });
-      }
+    for(const id of new Set(ids)){
+      try{await rpc(systemTrash?'system_delete':'delete',{document_id:id,...(systemTrash?{confirmed:true}:{})});done.push(id)}
+      catch(e){failed.push({id,message:e.message})}
     }
-    if (failed.length) dialog("删除结果", `<p>已移至最近删除 ${done.length} 篇，${failed.length} 篇未完成。</p>${failed.map((f) => `<p>${esc(state.rows.find((r) => r.id === f.id)?.title || f.id)}：${esc(f.message)}</p>`).join("")}`);
-    else $("dialog").close();
-    if (done.includes(state.doc?.id)) await choose(null);
-    state.selected.clear();
-    renderBatch();
+    if(failed.length)dialog(verb+'结果',`<p>已${verb} ${done.length} 项，${failed.length} 项保留。</p>${failed.map(f=>`<p>${esc(f.message)}</p>`).join('')}`);
+    if(done.includes(state.doc?.id) && choiceGeneration===selectionGeneration && state.kind===originalKind){
+      const clear=choose(null);selectionGeneration++;await clear;
+    }
+    if(choiceGeneration===selectionGeneration && state.kind===originalKind)state.selected=new Set(failed.map(f=>f.id));
     await refresh();
+    if(!failed.length)toast(systemTrash?'已移入电脑废纸篓':'已归档，可随时恢复');
+  }finally{batchBusy=false;renderBatch()}
+}
+function materialActionDialog(ids,systemTrash) {
+  const verb=systemTrash?'删除':'归档';
+  dialog(verb, `<p>${systemTrash?'将正文、记录与修改历史移入电脑废纸篓；原始音视频和独立备份保留。':'资料长期保留，可从归档恢复。'}共 ${ids.length} 项。</p><div class="dialog-actions"><button id="confirm-delete" class="${systemTrash?'danger-button':'primary'}">${systemTrash?'移入废纸篓':'归档'}</button></div>`);
+  let busy=false;
+  bind("confirm-delete", async () => {
+    if(busy)return;busy=true;
+    const button=$("confirm-delete");button.disabled=true;button.textContent=systemTrash?'正在移入废纸篓…':'正在归档…';
+    try{
+      $("dialog").close();
+      await runMaterialAction(ids,systemTrash);
+    }catch(e){error(e);if(button.isConnected){button.disabled=false;button.textContent=verb}}
+    finally{busy=false}
   });
 }
 function listMenu() {
@@ -1171,7 +1203,7 @@ function listMenu() {
       {id:'import-doc', label:'导入文稿', icon:'doc', run:() => native('import')},
     ] : []),
     {separator:true},
-    {id:'trash', label:'最近删除', icon:'trash', run:() => native('library_page', {kind:'trash'})},
+    {id:'trash', label:'归档', icon:'trash', run:() => native('library_page', {kind:'trash'})},
     {id:'storage-protection', label:'资料保护与恢复', icon:'clock', run:showStorage}
   ], {label:voice ? '音频库操作' : '文稿库操作', onError:error});
 }
@@ -1184,11 +1216,11 @@ function newFolderDialog() {
   };
 }
 function manageFoldersDialog() {
-  dialog('管理文件夹', `<p>删除时可以保留素材，也可以将所属素材一起移至最近删除。</p>${state.folders.map(f => `<div class="dialog-row"><span>${esc(f.name)}</span><button class="text-button" data-delete-folder="${esc(f.id)}">删除文件夹</button></div>`).join('')}`);
+  dialog('管理文件夹', `<p>删除时可以保留素材，也可以将所属素材一起归档。</p>${state.folders.map(f => `<div class="dialog-row"><span>${esc(f.name)}</span><button class="text-button" data-delete-folder="${esc(f.id)}">删除文件夹</button></div>`).join('')}`);
   document.querySelectorAll('[data-delete-folder]').forEach(button => button.onclick = () => {
     const folder = state.folders.find(f => f.id === button.dataset.deleteFolder);
     if (!folder) return;
-    dialog('删除文件夹', `<p>删除「${esc(folder.name)}」时，如何处理里面的素材？</p><p class="muted">保留素材：移到未分类，内容和音频文件均保留。<br>一起删除：所属素材移至最近删除，可以恢复；外部原文件保留。</p><div class="dialog-actions"><button id="cancel-folder-delete" class="secondary">取消</button><button id="confirm-folder-delete" class="primary">删除文件夹，保留素材</button><button id="delete-folder-materials" class="danger-button">删除文件夹及所属素材</button></div>`);
+    dialog('删除文件夹', `<p>删除「${esc(folder.name)}」时，如何处理里面的素材？</p><p class="muted">保留素材：移到未分类，内容和音频文件均保留。<br>一起归档：所属素材归档，可以恢复；外部原文件保留。</p><div class="dialog-actions"><button id="cancel-folder-delete" class="secondary">取消</button><button id="confirm-folder-delete" class="primary">删除文件夹，保留素材</button><button id="delete-folder-materials" class="danger-button">删除文件夹并归档素材</button></div>`);
     $('cancel-folder-delete').onclick = manageFoldersDialog;
     let deleting = false;
     const remove = async deleteMaterials => {
@@ -1216,11 +1248,11 @@ function manageFoldersDialog() {
         state.selected.clear();
         await refresh();
         if (result.failed?.length) {
-          dialog('删除未全部完成', `<p>已移至最近删除 ${removed.length} 项。文件夹仍保留，可重试剩余项。</p>${result.failed.map(f => `<p>${esc(f.title)}：${esc(f.message)}</p>`).join('')}<div class="dialog-actions"><button id="retry-folder-delete" class="secondary">返回文件夹管理</button></div>`);
+          dialog('删除未全部完成', `<p>已归档 ${removed.length} 项。文件夹仍保留，可重试剩余项。</p>${result.failed.map(f => `<p>${esc(f.title)}：${esc(f.message)}</p>`).join('')}<div class="dialog-actions"><button id="retry-folder-delete" class="secondary">返回文件夹管理</button></div>`);
           $('retry-folder-delete').onclick = manageFoldersDialog;
         } else {
           modal.close();
-          toast(deleteMaterials ? `文件夹已删除，${removed.length} 项素材已移至最近删除` : '文件夹已删除，素材已保留');
+          toast(deleteMaterials ? `文件夹已删除，${removed.length} 项素材已归档` : '文件夹已删除，素材已保留');
         }
       } catch (e) { error(e); }
       finally {
@@ -1254,106 +1286,72 @@ async function showStorage() {
 }
 function utilityPage(page, html) {
   closeMenu();
+  if (state.page === "trash" && page !== "trash" && $("trash-preview")?.dataset.documentId) {
+    native("audio_stop", {document_ids: [$("trash-preview").dataset.documentId]}).catch(() => {});
+  }
   $("selection-menu").hidden = true;
   state.page = page;
   $("workspace").hidden = true;
   $("utility-page").hidden = false;
+  $("utility-page").dataset.page = page;
   $("utility-page").innerHTML = html;
 }
 async function showTrash(options = {}) {
   await flush();
-  const policy = await rpc("trash_policy");
+  let loadingPage = null;
+  if (!options.refresh || state.page !== "trash") {
+    utilityPage("trash", '<header class="utility-heading"><h1>归档</h1><p role="status">正在读取归档资料…</p></header>');
+    loadingPage = $("utility-page").firstElementChild;
+  }
   const rows = await rpc("trash");
-  const query = String(options.query || "");
-  let selectionMode = Boolean(options.selectionMode), anchorToken = options.previewToken || null;
+  if (state.page !== "trash" || (loadingPage && !loadingPage.isConnected)) return;
+  let query = String(options.query || "");
+  let kindFilter = ["all", "document", "voice"].includes(options.kindFilter) ? options.kindFilter : "all";
+  let sort = ["newest", "oldest", "name"].includes(options.sort) ? options.sort : "newest";
+  let previewView = options.previewView === "detail" ? "detail" : "content";
+  let anchorToken = options.previewToken || null;
   const selectedTokens = new Set((options.selectedTokens || []).filter(token => rows.some(row => row.token === token)));
-  let previewToken = rows.some(row => row.token === options.previewToken) ? options.previewToken : null;
-  if (!previewToken && !selectionMode) previewToken = rows[0]?.token || null;
-  const rowMarkup = rows.map(row => {
-    const title = row.title || "未命名资料";
-    const kind = row.kind === "voice" ? "音频" : row.kind ? "文稿" : "资料";
-    const kindIcon = row.kind === "voice" ? "audio" : row.kind ? "doc" : "trash";
-    return `<button class="trash-item" role="option" aria-selected="false" data-trash="${esc(row.token)}" data-search="${esc(title.toLocaleLowerCase())}">
-      <span class="trash-check" aria-hidden="true">${icon("check")}</span>
-      <span class="trash-item-copy"><span class="trash-kind">${icon(kindIcon)}${kind}</span>
-      <strong>${esc(title)}</strong><span class="trash-item-date">删除于 ${esc(date(row.deleted_at) || "时间未知")}</span></span>
-    </button>`;
-  }).join("");
-  utilityPage("trash", `<header class="utility-heading trash-heading"><div><h1>最近删除 <small>${rows.length} 项</small></h1><p>找回已删除的资料，或手动彻底删除。</p></div><button id="trash-auto" class="trash-auto-policy" type="button" aria-label="自动清理设置，${policy.enabled ? "已开启，保留 7 天" : "未开启"}">${icon("clock")}<span>自动清理</span><span id="trash-auto-state" class="trash-auto-state" data-enabled="${Boolean(policy.enabled)}">${policy.enabled ? "7 天后" : "未开启"}</span>${icon("chevron")}</button></header><div id="trash-status" class="trash-status" role="status" aria-live="polite"${options.statusMessage ? "" : " hidden"}>${esc(options.statusMessage || "")}</div>${rows.length ? `
-    <div class="trash-toolbar">
-      <label class="trash-search"><span>${icon("search")}</span><input id="trash-search" type="search" value="${esc(query)}" placeholder="搜索已删除的名称" aria-label="搜索已删除资料名称"><kbd>⌘ F</kbd></label>
-
-    </div>
-    <div class="trash-browser"><div class="trash-sidebar">      <div class="trash-selection-controls"><span id="trash-count" class="muted"></span><button id="trash-select-visible" class="text-button">全选当前结果</button><button id="trash-select-mode" class="secondary" type="button" aria-pressed="${selectionMode}">${selectionMode ? "取消选择" : "选择"}</button></div><div id="trash-list" class="version-list trash-list" role="listbox" aria-label="已删除资料"${selectionMode ? " aria-multiselectable=\"true\"" : ""}>${rowMarkup}<div id="trash-no-results" class="trash-no-results" hidden>没有找到符合条件的资料</div></div></div>
-      <section class="trash-preview" aria-label="资料预览"><div class="trash-preview-head"><div><span class="trash-preview-kicker">资料详情</span><h2 id="trash-title">选择资料查看</h2><span id="trash-meta" class="muted"></span></div><span class="trash-retention">${icon("clock")} 可恢复</span></div>
-        <div id="trash-preview-empty" class="trash-preview-empty"><span class="trash-preview-symbol">${icon("doc")}</span><strong id="trash-preview-empty-title">先选中一项</strong><p id="trash-preview-empty-copy">预览能帮助你确认内容。即使预览暂时不可用，也可以尝试恢复。</p></div>
-        <div id="trash-text" class="source-text trash-text" hidden></div>
-        <footer class="trash-preview-footer"><span id="trash-restore-hint">恢复后会回到原来的文稿库或音频库。</span><button id="trash-purge" class="danger-button" type="button" disabled>彻底删除</button><button id="trash-restore" class="primary" type="button" disabled>恢复到素材库</button></footer>
-      </section></div>` : `<div class="trash-empty-state"><span class="trash-empty-symbol">${icon("trash")}</span><h2>最近删除为空</h2><p>删除文稿或音频后，可以在这里找回。</p></div>`}`);
-
-  bind("trash-auto", () => {
-    const modal = $("dialog");
-    dialog("自动清理", `
-      <label class="auto-setting"><span><strong>自动清理</strong><span id="auto-description">${policy.enabled ? "删除 7 天后自动清理" : "一直保留，由你手动处理"}</span></span><input id="auto-enabled" type="checkbox" role="switch" aria-label="开启自动清理" ${policy.enabled ? "checked" : ""}></label>
-      <div id="auto-warning" class="auto-warning"${policy.enabled ? "" : " hidden"}><strong>到期后彻底删除，无法恢复</strong><p>现有已到期的资料也会清理。退出期间到期的资料，会在下次打开时检查。</p></div>
-      <div class="auto-scope">
-        <div><span>清理内容</span><p>最近删除中的文稿、音频记录及修改历史</p></div>
-        <div><span>原文件</span><p>原音频文件和独立备份保留</p></div>
-        <div><span>会话</span><p>在会话列表中单独彻底删除，不进入最近删除</p></div>
-      </div>
-      <p id="auto-error" class="auto-error" role="alert" hidden></p>
-      <div class="dialog-actions"><button id="auto-cancel" class="secondary">取消</button><button id="auto-confirm" class="primary" disabled>保存设置</button></div>`);
-    modal.classList.add("auto-cleanup-modal");
-    modal.addEventListener("close", () => modal.classList.remove("auto-cleanup-modal"), {once:true});
-    const toggle = $("auto-enabled"), confirm = $("auto-confirm"), cancel = $("auto-cancel"), close = $("dialog-close");
-    let busy = false;
-    const preventCancel = event => { if (busy) event.preventDefault(); };
-    modal.addEventListener("cancel", preventCancel);
-    modal.addEventListener("close", () => modal.removeEventListener("cancel", preventCancel), {once:true});
-    toggle.onchange = () => {
-      $("auto-description").textContent = toggle.checked ? "删除 7 天后自动清理" : "一直保留，由你手动处理";
-      $("auto-warning").hidden = !toggle.checked;
-      confirm.disabled = toggle.checked === Boolean(policy.enabled);
-      confirm.className = toggle.checked ? "danger-button" : "primary";
-      confirm.textContent = toggle.checked ? "开启并清理到期资料" : "关闭自动清理";
-      $("auto-error").hidden = true;
-    };
-    bind("auto-cancel", () => modal.close());
-    bind("auto-confirm", async () => {
-      if (busy || toggle.checked === Boolean(policy.enabled)) return;
-      const enabling = toggle.checked;
-      busy = true;
-      [toggle, confirm, cancel, close].forEach(control => control.disabled = true);
-      confirm.textContent = "正在保存…";
-      try {
-        await rpc("trash_policy", {enabled:enabling});
-      } catch (e) {
-        busy = false;
-        [toggle, confirm, cancel, close].forEach(control => control.disabled = false);
-        confirm.textContent = enabling ? "开启并清理到期资料" : "关闭自动清理";
-        $("auto-error").textContent = "设置未保存，请重试。" + (e.message || "");
-        $("auto-error").hidden = false;
-        return;
-      }
-      close.disabled = false;
-      modal.close();
-      let result = {deleted:[], failures:[]}, cleanupError = "";
-      if (enabling) {
-        try { result = await rpc("cleanup_trash"); }
-        catch (e) { cleanupError = "设置已保存，清理检查未完成，请稍后重试。"; }
-      }
-      const feedback = cleanupError || (result.failures.length ? `${result.failures.length} 项未能清理，资料已保留，请选择后重试。` : "");
-      if (state.page === "trash") await showTrash({statusMessage:feedback});
-      toast(feedback || (enabling ? `自动清理已开启，保留 7 天${result.deleted.length ? `；已清理 ${result.deleted.length} 项` : ""}。` : "自动清理已关闭，资料继续保留。"));
-    });
-  });
+  let previewToken = rows.some(row => row.token === options.previewToken) ? options.previewToken : rows[0]?.token || null;
+  const documentCount = rows.filter(row => row.kind !== "voice").length;
+  const audioCount = rows.length - documentCount;
+  const emptyMarkup = `<div class="trash-empty-state"><span class="trash-empty-symbol">${icon("folder")}</span><h2>归档里很安静</h2><p>归档文稿或音频后，可在这里查看和恢复。<br>它们会一直保留，直到你主动处理。</p></div>`;
+  utilityPage("trash", `<header class="utility-heading trash-heading"><div><h1>归档 <small>${rows.length} 项</small></h1><p>把暂时不用的资料收好，需要时随时找回。</p></div><div class="trash-retention-note">${icon("lock")}<span><strong>长期保留</strong><small>不会自动清理</small></span></div></header><div id="trash-status" class="trash-status" role="status" aria-live="polite"${options.statusMessage ? "" : " hidden"}>${esc(options.statusMessage || "")}</div>
+  <section class="trash-shell${rows.length ? "" : " is-empty"}">${rows.length ? `
+    <div class="trash-toolbar"><div class="trash-type-tabs" role="tablist" aria-label="资料类型" style="--trash-tab:${["all", "document", "voice"].indexOf(kindFilter)}"><span class="trash-tab-slider" aria-hidden="true"></span>
+      <button role="tab" data-trash-filter="all" aria-selected="${kindFilter === "all"}">全部 <span>${rows.length}</span></button><button role="tab" data-trash-filter="document" aria-selected="${kindFilter === "document"}">文稿 <span>${documentCount}</span></button><button role="tab" data-trash-filter="voice" aria-selected="${kindFilter === "voice"}">音频 <span>${audioCount}</span></button></div>
+      <div class="trash-toolbar-right"><label class="trash-search"><span>${icon("search")}</span><input id="trash-search" type="search" value="${esc(query)}" placeholder="搜索归档名称" aria-label="搜索归档资料名称"><kbd>⌘ F</kbd></label><button id="trash-sort" class="trash-sort" aria-haspopup="listbox" aria-expanded="false"><span>${sort === "oldest" ? "最早归档" : sort === "name" ? "按名称" : "最近归档"}</span>${icon("chevron")}</button></div></div>
+    <div class="trash-browser"><div class="trash-sidebar"><div class="trash-selection-controls"><button id="trash-select-visible" class="trash-select-all" role="checkbox" aria-checked="false"><span class="trash-select-box">${icon("check")}</span><span id="trash-select-label">全选</span></button><span id="trash-count" class="muted"></span></div><div id="trash-list" class="trash-list" role="listbox" aria-label="归档资料" aria-multiselectable="true"></div><footer class="trash-list-footer"><i></i>所有资料均保存在本机</footer></div>
+      <section id="trash-preview" class="trash-preview" aria-label="资料预览"><header class="trash-preview-head"><div class="trash-preview-kicker"><span id="trash-kind-label">${icon("doc")}文稿</span><span class="trash-preserved">${icon("check")}内容完整保留</span></div><h2 id="trash-title">选择资料查看</h2><span id="trash-meta" class="muted"></span><div class="trash-preview-tabs" role="tablist" aria-label="预览内容"><button role="tab" data-trash-view="content" aria-selected="true">内容</button><button role="tab" data-trash-view="detail" aria-selected="false">详细信息</button></div></header>
+        <div id="trash-preview-body" class="trash-preview-body"><div id="trash-preview-empty" class="trash-preview-empty"><span class="trash-preview-symbol">${icon("doc")}</span><strong id="trash-preview-empty-title">先选中一项</strong><p id="trash-preview-empty-copy">预览能帮助你确认内容。即使预览暂时不可用，也可以尝试恢复。</p></div>
+        <section id="trash-audio" class="trash-audio" hidden><div class="trash-audio-player"><div class="trash-audio-top"><button id="trash-audio-play" class="trash-audio-play" aria-label="播放">${icon("play")}</button><div><strong id="trash-audio-time">00:00 / --:--</strong><span>本地音频 · 归档试听</span></div></div><div id="trash-audio-wave" class="trash-audio-wave" role="img" aria-label="正在读取真实波形"></div><input id="trash-audio-seek" type="range" min="0" max="1000" value="0" aria-label="播放进度"><p id="trash-audio-status" role="status"></p></div><h3>生成时的文字</h3></section>
+        <div id="trash-text" class="source-text trash-text" hidden></div><div id="trash-details" class="trash-details" hidden></div></div>
+        <footer class="trash-preview-footer"><span id="trash-restore-hint">恢复后会回到原来的文稿库或音频库。</span><div><button id="trash-purge" class="trash-delete-button" type="button" disabled>删除</button><button id="trash-restore" class="primary" type="button" disabled>${icon("undo")}恢复到素材库</button></div></footer></section></div>
+    <div id="trash-bulk-bar" class="trash-bulk-bar" hidden><span class="trash-bulk-count">${icon("check")}<strong id="trash-selected-count">已选 0 项</strong></span><span class="trash-shortcuts">⌘ 多选 · ⇧ 连选</span><i></i><button id="trash-bulk-delete" class="trash-bulk-delete">删除</button><button id="trash-bulk-restore" class="primary">${icon("undo")}恢复所选</button></div>` : emptyMarkup}</section>`);
   if (!rows.length) return;
 
-  const list = $("trash-list");
+  const list = $("trash-list"), shell = document.querySelector(".trash-shell");
   const active = () => state.page === "trash" && list?.isConnected;
-  const itemButtons = [...document.querySelectorAll("[data-trash]")];
-  let serial = 0, busy = false;
-  const visibleItems = () => itemButtons.filter(button => !button.hidden);
+  const allItems = () => [...list.querySelectorAll("[data-trash]")];
+  const visibleItems = () => allItems().filter(button => !button.hidden);
+  let serial = 0, busy = false, currentPreview = null;
+  const sortLabels = {newest: "最近归档", oldest: "最早归档", name: "按名称"};
+  const orderedRows = () => [...rows].sort((a, b) => sort === "name" ? (a.title || "未命名资料").localeCompare(b.title || "未命名资料", "zh-CN") : sort === "oldest" ? new Date(a.deleted_at) - new Date(b.deleted_at) : new Date(b.deleted_at) - new Date(a.deleted_at));
+  const itemMeta = row => row.kind === "voice" ? (row.duration_seconds == null ? "音频" : audioClock(row.duration_seconds * 1000)) : row.char_count != null ? `${number(row.char_count)} 字` : "文稿";
+  const rowMarkup = row => {
+    const title = row.title || "未命名资料", audio = row.kind === "voice";
+    const summary = row.text_preview || (audio ? row.voice_name || "保留的音频作品" : "暂无文字摘要");
+    return `<button class="trash-item" role="option" aria-selected="false" data-trash="${esc(row.token)}" data-kind="${audio ? "voice" : "document"}" data-search="${esc(title.toLocaleLowerCase())}" data-previewed="false" data-checked="false"><span class="trash-check" aria-hidden="true">${icon("check")}</span><span class="trash-item-symbol">${icon(audio ? "audio" : "doc")}</span><span class="trash-item-copy"><strong>${esc(title)}</strong><span class="trash-item-summary">${esc(summary)}</span><span class="trash-item-date"><span>${audio ? "音频" : "文稿"}</span><i></i><span>${esc(itemMeta(row))}</span><i></i><span>${esc(date(row.deleted_at) || "时间未知")} 归档</span></span></span></button>`;
+  };
+  const renderList = () => {
+    const ordered = orderedRows(), groups = [];
+    for (const row of ordered) {
+      const name = sort === "name" ? "" : group(row.deleted_at);
+      let target = groups.find(entry => entry.name === name);
+      if (!target) { target = {name, rows: []}; groups.push(target); }
+      target.rows.push(row);
+    }
+    list.innerHTML = groups.map(entry => `<section class="trash-group">${entry.name ? `<h3>${entry.name}</h3>` : ""}${entry.rows.map(rowMarkup).join("")}</section>`).join("") + '<div id="trash-no-results" class="trash-no-results" hidden>没有找到符合条件的资料</div>';
+  };
   const setStatus = message => {
     const status = $("trash-status");
     if (!status) return;
@@ -1362,174 +1360,247 @@ async function showTrash(options = {}) {
   };
   const updateSelection = () => {
     if (!active()) return;
-    if (selectionMode) list.setAttribute("aria-multiselectable", "true");
-    else list.removeAttribute("aria-multiselectable");
-    itemButtons.forEach(button => {
-      const isSelected = selectionMode ? selectedTokens.has(button.dataset.trash) : previewToken === button.dataset.trash;
-      button.setAttribute("aria-selected", String(isSelected));
+    allItems().forEach(button => {
+      const checked = selectedTokens.has(button.dataset.trash);
+      button.setAttribute("aria-selected", String(checked));
+      button.dataset.checked = String(checked);
       button.dataset.previewed = String(previewToken === button.dataset.trash);
       button.disabled = busy;
     });
-    const visible = visibleItems();
-    $("trash-count").textContent = selectionMode
-      ? `已选 ${selectedTokens.size} 项 · 显示 ${visible.length} / ${rows.length} 项`
-      : `显示 ${visible.length} / ${rows.length} 项`;
-    const selectVisible = $("trash-select-visible");
-    selectVisible.hidden = false;
-    selectVisible.disabled = busy || visible.length === 0;
-    const allVisibleSelected = visible.length > 0 && visible.every(button => selectedTokens.has(button.dataset.trash));
-    selectVisible.textContent = allVisibleSelected ? "取消选择当前结果" : "全选当前结果";
-    $("trash-select-mode").textContent = selectionMode ? "取消选择" : "选择";
-    $("trash-select-mode").setAttribute("aria-pressed", String(selectionMode));
-    $("trash-select-mode").disabled = busy;
+    const visible = visibleItems(), selectedVisible = visible.filter(button => selectedTokens.has(button.dataset.trash)).length;
+    const allSelected = visible.length > 0 && selectedVisible === visible.length;
+    $("trash-count").textContent = query || kindFilter !== "all" ? `找到 ${visible.length} 项` : `${visible.length} 项资料`;
+    const selectAll = $("trash-select-visible");
+    selectAll.setAttribute("aria-checked", allSelected ? "true" : selectedVisible ? "mixed" : "false");
+    selectAll.disabled = busy || !visible.length;
+    $("trash-select-label").textContent = allSelected ? "取消全选" : "全选";
     $("trash-search").disabled = busy;
-    const restore = $("trash-restore");
-    const targetCount = selectionMode ? selectedTokens.size : Number(Boolean(previewToken));
-    restore.disabled = busy || targetCount === 0;
-    $("trash-purge").disabled = busy || targetCount === 0;
-    $("trash-purge").textContent = targetCount > 1 ? `彻底删除 · ${targetCount} 项` : "彻底删除";
-    $("trash-auto").disabled = busy;
-    restore.textContent = selectionMode ? `恢复所选${targetCount ? ` · ${targetCount} 项` : ""}` : "恢复到素材库";
-    restore.setAttribute("aria-label", selectionMode && targetCount ? `恢复所选 ${targetCount} 项` : "恢复到素材库");
+    const hasSelection = selectedTokens.size > 0;
+    shell.classList.toggle("has-selection", hasSelection);
+    $("trash-selected-count").textContent = `已选 ${selectedTokens.size} 项`;
+    $("trash-bulk-restore").disabled = busy || !hasSelection;
+    $("trash-bulk-delete").disabled = busy || !hasSelection;
+    const bulk = $("trash-bulk-bar");
+    if (hasSelection) { bulk.hidden = false; bulk.classList.remove("leaving"); }
+    else if (!bulk.hidden && !bulk.classList.contains("leaving")) {
+      bulk.classList.add("leaving");
+      setTimeout(() => { if (!selectedTokens.size && bulk.isConnected) { bulk.hidden = true; bulk.classList.remove("leaving"); } }, 160);
+    }
+    $("trash-restore").disabled = busy || !previewToken;
+    $("trash-purge").disabled = busy || !previewToken;
   };
   const showPreviewMessage = (title, message) => {
     $("trash-preview-empty-title").textContent = title;
     $("trash-preview-empty-copy").textContent = message;
     $("trash-preview-empty").hidden = false;
     $("trash-text").hidden = true;
+    $("trash-audio").hidden = true;
+    $("trash-details").hidden = true;
+  };
+  const detailMarkup = value => {
+    const audio = value.kind === "voice";
+    const fields = [["资料类型", audio ? "音频作品" : "文稿"], ["原位置", value.folder_name || (audio ? "音频库" : "文稿库")], ["创建时间", date(value.created_at) || "未记录"], ["归档时间", date(value.deleted_at) || "时间未知"], [audio ? "文件大小" : "内容统计", audio ? value.audio_bytes == null ? "未记录" : `${(value.audio_bytes / 1024 / 1024).toFixed(1)} MB` : `${number(value.char_count || 0)} 字`], [audio ? "生成记录" : "历史记录", audio ? value.voice_name || "保留生成记录" : `${value.version_count || 0} 个完整正文版本`]];
+    return `<div class="trash-detail-grid">${fields.map(([label, text]) => `<div><span>${label}</span><strong>${esc(text)}</strong></div>`).join("")}</div><div class="trash-detail-note">${icon("lock")}<span>归档只收起资料，不会清除正文、修改历史或关联记录。恢复后回到原位置；若原文件夹已不存在，则回到对应素材库。</span></div>`;
+  };
+  const renderPreview = (value, animate = true) => {
+    currentPreview = value;
+    const audio = value.kind === "voice";
+    $("trash-preview").dataset.documentId = value.id;
+    $("trash-kind-label").innerHTML = `${icon(audio ? "audio" : "doc")}${audio ? "音频作品" : "文稿"}`;
+    $("trash-title").textContent = value.title || "未命名资料";
+    $("trash-meta").textContent = `归档于 ${date(value.deleted_at) || "时间未知"} · 原位置 ${value.folder_name || (audio ? "音频库" : "文稿库")}`;
+    $("trash-restore-hint").textContent = `恢复到「${value.folder_name || (audio ? "音频库" : "文稿库")}」`;
+    document.querySelectorAll("[data-trash-view]").forEach(button => button.setAttribute("aria-selected", String(button.dataset.trashView === previewView)));
+    $("trash-details").innerHTML = detailMarkup(value);
+    $("trash-preview-empty").hidden = true;
+    $("trash-details").hidden = previewView !== "detail";
+    $("trash-audio").hidden = !audio || previewView !== "content";
+    const text = value.text || "";
+    $("trash-text").hidden = !text || previewView !== "content";
+    if (text) renderMarkdownPreview($("trash-text"), text);
+    if (!audio && !text && previewView === "content") showPreviewMessage("这份资料没有可预览的文字", "恢复后仍可在原来的素材库中打开资料。");
+    if (audio && previewView === "content") {
+      $("trash-audio-play").disabled = Boolean(value.audio_missing);
+      $("trash-audio-seek").disabled = true;
+      $("trash-audio-status").textContent = value.audio_missing ? "音频文件不在原位置，生成时的文字仍保留。" : "";
+      $("trash-audio-time").textContent = `00:00 / ${audioClock(value.duration_seconds == null ? null : value.duration_seconds * 1000)}`;
+      if (!value.audio_missing) {
+        const args = {document_id: value.id, archive_token: previewToken};
+        native("audio_status", args).then(window.lulu.audioState).catch(error);
+        native("audio_waveform", args).then(window.lulu.waveformState).catch(() => window.lulu.waveformState({id: value.id, state: "failed", description: "暂时无法读取波形，仍可试听完整文件", peaks: []}));
+      }
+    }
+    if (animate && !matchMedia("(prefers-reduced-motion: reduce)").matches) $("trash-preview-body").animate([{opacity: .25, transform: "translateY(5px)"}, {opacity: 1, transform: "none"}], {duration: 200, easing: "cubic-bezier(.22,1,.36,1)"});
   };
   const preview = async token => {
+    const previousId = $("trash-preview").dataset.documentId;
+    const previousRow = rows.find(row => row.token === previewToken);
+    if (previousId && previousRow?.kind === "voice" && token !== previewToken) native("audio_stop", {document_ids: [previousId]}).catch(() => {});
     previewToken = token || null;
+    currentPreview = null;
+    previewView = "content";
     const generation = ++serial;
     updateSelection();
     setStatus("");
-    $("trash-title").textContent = token ? "正在读取…" : "选择资料查看";
-    $("trash-meta").textContent = "";
+    const row = rows.find(entry => entry.token === token);
+    $("trash-title").textContent = row?.title || "选择资料查看";
+    $("trash-meta").textContent = row ? `归档于 ${date(row.deleted_at) || "时间未知"}` : "";
     showPreviewMessage(token ? "正在载入预览" : "先选中一项", token ? "正在读取保留的内容。" : "预览能帮助你确认内容。即使预览暂时不可用，也可以尝试恢复。");
     if (!token) return;
     try {
       const value = await rpc("trash", {token});
       if (!active() || serial !== generation) return;
-      const kind = value.kind === "voice" ? "音频" : "文稿";
-      const item = itemButtons.find(button => button.dataset.trash === token);
-      if (item) {
-        item.querySelector(".trash-kind").innerHTML = `${icon(value.kind === "voice" ? "audio" : "doc")}${kind}`;
-      }
-      $("trash-title").textContent = value.title || "未命名资料";
-      $("trash-meta").textContent = `${kind}${value.kind === "voice" ? " · 生成时的文字" : ""} · 删除于 ${date(value.deleted_at) || "时间未知"}`;
-      const text = value.text || "";
-      if (text) {
-        renderMarkdownPreview($("trash-text"), text);
-        $("trash-text").hidden = false;
-        $("trash-preview-empty").hidden = true;
-      } else {
-        showPreviewMessage("这份资料没有可预览的文字", "恢复后仍可在原来的素材库中打开资料。");
-      }
+      renderPreview(value);
     } catch {
       if (!active() || serial !== generation) return;
       $("trash-title").textContent = "暂时无法预览";
-      $("trash-meta").textContent = "资料仍保留在最近删除中";
-      showPreviewMessage("预览没有加载出来", "你仍可以尝试恢复这份资料。恢复遇到冲突时，原件会留在这里。 ");
+      $("trash-meta").textContent = "资料仍保留在归档中";
+      showPreviewMessage("预览没有加载出来", "你仍可以尝试恢复这份资料。恢复遇到冲突时，原件会留在这里。");
     }
     updateSelection();
   };
   const filterItems = (loadPreview = true) => {
     const q = $("trash-search").value.trim().toLocaleLowerCase();
-    itemButtons.forEach(button => button.hidden = !button.dataset.search.includes(q));
+    allItems().forEach(button => button.hidden = (kindFilter !== "all" && button.dataset.kind !== kindFilter) || !button.dataset.search.includes(q));
+    document.querySelectorAll(".trash-group").forEach(section => section.hidden = ![...section.querySelectorAll("[data-trash]")].some(button => !button.hidden));
     const visible = visibleItems();
-    for (const token of selectedTokens) if (!visible.some(b => b.dataset.trash === token)) selectedTokens.delete(token);
-    if (!visible.some(b => b.dataset.trash === anchorToken)) anchorToken = null;
+    if (!visible.some(button => button.dataset.trash === anchorToken)) anchorToken = null;
     $("trash-no-results").hidden = visible.length !== 0;
-    const previewedItem = itemButtons.find(button => button.dataset.trash === previewToken);
+    const previewedItem = allItems().find(button => button.dataset.trash === previewToken);
     if ((!previewToken && visible.length) || previewedItem?.hidden) {
       const nextToken = visible[0]?.dataset.trash || null;
       if (loadPreview) preview(nextToken);
       else { previewToken = nextToken; updateSelection(); }
     } else updateSelection();
+    if (!matchMedia("(prefers-reduced-motion: reduce)").matches) list.animate([{opacity: .58}, {opacity: 1}], {duration: 170, easing: "ease-out"});
   };
-
-  itemButtons.forEach(button => {
-    button.onmousedown = e => { if (e.shiftKey || e.metaKey || e.ctrlKey) e.preventDefault(); };
-    button.onclick = async event => {
-      if (busy) return;
-      const token = button.dataset.trash, additive = event.metaKey || event.ctrlKey;
-      if ((event.shiftKey || additive) && !selectionMode) {
-        selectionMode = true;
-        if (previewToken) selectedTokens.add(previewToken);
-        anchorToken ||= previewToken;
-      }
-      if (event.shiftKey) {
-        const visible = visibleItems().map(b => b.dataset.trash);
-        const end = visible.indexOf(token), start = Math.max(0, visible.indexOf(anchorToken || token));
-        if (!additive) selectedTokens.clear();
-        visible.slice(Math.min(start,end), Math.max(start,end)+1).forEach(t => selectedTokens.add(t));
-        anchorToken ||= token;
-      } else {
-        if (selectionMode) selectedTokens.has(token) ? selectedTokens.delete(token) : selectedTokens.add(token);
-        anchorToken = token;
-      }
-      await preview(token);
-    };
-  });
-  $("trash-search").oninput = filterItems;
-  $("trash-select-mode").onclick = () => {
-    if (selectionMode) selectedTokens.clear();
-    else if (previewToken) selectedTokens.add(previewToken);
-    selectionMode = !selectionMode;
-    updateSelection();
-  };
-  $("trash-select-visible").onclick = () => {
+  const selectItem = (button, event = {}) => {
     if (busy) return;
-    selectionMode = true;
-    const visible = visibleItems();
-    const allSelected = visible.length > 0 && visible.every(button => selectedTokens.has(button.dataset.trash));
+    const token = button.dataset.trash, additive = event.metaKey || event.ctrlKey, checkbox = Boolean(event.checkbox);
+    if (event.shiftKey) {
+      const visible = visibleItems().map(item => item.dataset.trash);
+      const anchor = visible.includes(anchorToken) ? anchorToken : visible.includes(previewToken) ? previewToken : token;
+      const start = visible.indexOf(anchor), end = visible.indexOf(token);
+      if (!additive) selectedTokens.clear();
+      visible.slice(Math.min(start, end), Math.max(start, end) + 1).forEach(value => selectedTokens.add(value));
+    } else if (additive || checkbox) {
+      selectedTokens.has(token) ? selectedTokens.delete(token) : selectedTokens.add(token);
+      anchorToken = token;
+    } else {
+      selectedTokens.clear();
+      anchorToken = token;
+    }
+    if (token === previewToken && currentPreview) updateSelection();
+    else preview(token);
+  };
+  renderList();
+  list.onmousedown = event => { if (event.shiftKey || event.metaKey || event.ctrlKey) event.preventDefault(); };
+  list.onclick = event => {
+    const button = event.target.closest("[data-trash]");
+    if (button) selectItem(button, {metaKey: event.metaKey, ctrlKey: event.ctrlKey, shiftKey: event.shiftKey, checkbox: Boolean(event.target.closest(".trash-check"))});
+  };
+  list.onkeydown = event => {
+    const button = event.target.closest("[data-trash]");
+    if (!button) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectItem(button, {checkbox: event.key === " "});
+    }
+    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault();
+      const items = visibleItems(), next = items[Math.max(0, Math.min(items.length - 1, items.indexOf(button) + (event.key === "ArrowDown" ? 1 : -1)))];
+      next?.focus();
+      if (next) selectItem(next, event);
+    }
+  };
+  $("utility-page").onkeydown = event => {
+    if (event.key !== "Escape") return;
+    if (selectedTokens.size) {
+      event.preventDefault(); event.stopPropagation();
+      selectedTokens.clear(); anchorToken = null; updateSelection();
+    } else if (document.activeElement === $("trash-search") && query) {
+      event.preventDefault(); event.stopPropagation();
+      $("trash-search").value = ""; query = ""; filterItems();
+    }
+  };
+  $("trash-search").oninput = () => { query = $("trash-search").value; filterItems(); };
+  document.querySelectorAll("[data-trash-filter]").forEach(button => button.onclick = () => {
+    kindFilter = button.dataset.trashFilter;
+    document.querySelector(".trash-type-tabs").style.setProperty("--trash-tab", ["all", "document", "voice"].indexOf(kindFilter));
+    document.querySelectorAll("[data-trash-filter]").forEach(tab => tab.setAttribute("aria-selected", String(tab === button)));
+    filterItems();
+  });
+  $("trash-sort").onclick = () => openMenu($("trash-sort"), Object.entries(sortLabels).map(([value, label]) => ({label, selected: sort === value, run: () => {
+    sort = value;
+    $("trash-sort").querySelector("span").textContent = label;
+    renderList();
+    filterItems();
+  }})), {label: "归档排序", choice: true});
+  const toggleAll = () => {
+    if (busy) return;
+    const visible = visibleItems(), allSelected = visible.length && visible.every(button => selectedTokens.has(button.dataset.trash));
     visible.forEach(button => allSelected ? selectedTokens.delete(button.dataset.trash) : selectedTokens.add(button.dataset.trash));
+    if (visible.length) anchorToken = visible[0].dataset.trash;
     updateSelection();
+  };
+  $("trash-select-visible").onclick = toggleAll;
+  document.querySelectorAll("[data-trash-view]").forEach(button => button.onclick = () => {
+    previewView = button.dataset.trashView;
+    if (currentPreview) renderPreview(currentPreview);
+    else document.querySelectorAll("[data-trash-view]").forEach(tab => tab.setAttribute("aria-selected", String(tab === button)));
+  });
+  $("trash-audio-play").onclick = () => {
+    if (!currentPreview) return;
+    native("audio_toggle", {document_id: currentPreview.id, archive_token: previewToken}).catch(error);
+  };
+  $("trash-audio-seek").oninput = () => {
+    const fraction = Number($("trash-audio-seek").value) / 1000;
+    document.querySelectorAll("#trash-audio-wave i").forEach((bar, index, bars) => bar.classList.toggle("played", index / bars.length < fraction));
+  };
+  $("trash-audio-seek").onchange = () => {
+    if (currentPreview) native("audio_seek", {document_id: currentPreview.id, archive_token: previewToken, fraction: Number($("trash-audio-seek").value) / 1000}).catch(error);
   };
   const runTrashAction = async (operation, targets) => {
     if (!targets.length || busy) return;
-    const purging = operation === "purge_deleted", verb = purging ? "彻底删除" : "恢复";
+    const purging = operation === "purge_deleted", verb = purging ? "删除" : "恢复";
     busy = true;
     serial++;
     updateSelection();
-    const restored = [], failures = [];
+    const ids = targets.map(token => rows.find(row => row.token === token)?.id).filter(Boolean);
+    if (ids.length) await native("audio_stop", {document_ids: ids}).catch(() => {});
+    const completed = [], failures = [];
     for (const [index, token] of targets.entries()) {
       setStatus(`正在${verb} ${index + 1} / ${targets.length} 项…`);
       try {
-        await rpc(operation, {token, ...(purging ? {confirmed:true} : {})});
-        restored.push(token);
-      } catch (e) {
-        failures.push({token, message: e?.message || String(e)});
-      }
+        await rpc(operation, {token, ...(purging ? {confirmed: true} : {})});
+        completed.push(token);
+      } catch (e) { failures.push({token, message: e?.message || String(e)}); }
     }
-    const summary = failures.length
-      ? `已${verb} ${restored.length} 项。${failures.length} 项仍在最近删除中，可以选择后重试。${failures[0].message}`
-      : `已${verb} ${restored.length} 项${purging ? "。" : "，资料已回到原来的素材库。"}`;
-    const searchValue = $("trash-search")?.value || query;
-    if (!active()) {
-      await refresh();
-      toast(summary);
-      return;
-    }
+    const summary = failures.length ? `已${verb} ${completed.length} 项。${failures.length} 项仍在归档中，可以选择后重试。${failures[0].message}` : `已${verb} ${completed.length} 项${purging ? "。" : "，资料已回到原来的素材库。"}`;
+    if (!active()) { await refresh(); toast(summary); return; }
+    allItems().forEach(button => { if (completed.includes(button.dataset.trash)) button.classList.add("trash-removing"); });
+    await new Promise(resolve => setTimeout(resolve, matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200));
+    if (!active()) { await refresh(); toast(summary); return; }
     try {
-      await showTrash({query: searchValue, selectionMode: failures.length > 0, selectedTokens: failures.map(item => item.token), previewToken: failures[0]?.token, statusMessage: summary});
+      await showTrash({query, kindFilter, sort, selectedTokens: failures.map(item => item.token), previewToken: failures[0]?.token, statusMessage: summary, refresh: true});
       await refresh();
-    } catch (e) {
-      busy = false;
-      updateSelection();
-      error(e);
-    }
+    } catch (e) { busy = false; updateSelection(); error(e); }
   };
-  const targets = () => selectionMode ? [...selectedTokens] : previewToken ? [previewToken] : [];
+  const targets = () => selectedTokens.size ? [...selectedTokens] : previewToken ? [previewToken] : [];
   $("trash-restore").onclick = () => runTrashAction("restore_deleted", targets()).catch(error);
-  $("trash-purge").onclick = () => {
+  $("trash-bulk-restore").onclick = () => runTrashAction("restore_deleted", targets()).catch(error);
+  const confirmDelete = () => {
     const chosen = targets();
     if (busy || !chosen.length) return;
     const titles = chosen.map(token => rows.find(row => row.token === token)?.title || "未命名资料");
-    dialog(`彻底删除 ${chosen.length} 项资料？`, `<p>将删除这些资料的记录、正文和修改历史，无法从最近删除恢复。原音频文件和独立备份保留；会话需在会话列表中单独删除。</p><ul>${titles.map(title => `<li>${esc(title)}</li>`).join("")}</ul><div class="dialog-actions"><button id="purge-cancel" class="secondary">取消</button><button id="purge-confirm" class="danger-button">彻底删除 ${chosen.length} 项</button></div>`);
+    dialog("移入电脑废纸篓？", `<p>${chosen.length === 1 ? `「${esc(titles[0])}」将从归档移入电脑废纸篓。` : `选中的 ${chosen.length} 项资料将从归档移入电脑废纸篓。`}</p><div class="trash-delete-summary">${icon("folder")}正文、记录与修改历史将一起移入</div><p class="muted">原始音视频和独立备份不会受影响。若系统无法完成操作，资料仍会保留在归档中。</p><div class="dialog-actions"><button id="purge-cancel" class="secondary">取消</button><button id="purge-confirm" class="danger-button">移入废纸篓</button></div>`);
+    $("dialog").classList.add("archive-delete-modal");
+    $("dialog").addEventListener("close", () => $("dialog").classList.remove("archive-delete-modal"), {once: true});
     bind("purge-cancel", () => $("dialog").close());
     bind("purge-confirm", async () => { $("dialog").close(); await runTrashAction("purge_deleted", chosen); });
   };
+  $("trash-purge").onclick = confirmDelete;
+  $("trash-bulk-delete").onclick = confirmDelete;
   filterItems(false);
   updateSelection();
   if (previewToken) await preview(previewToken);
@@ -2129,6 +2200,19 @@ window.lulu = {
     await refresh();
   }
 }), open: choose, refresh, trash: showTrash, audioState: (v) => {
+  if (state.page === "trash" && $("trash-preview")?.dataset.documentId === v.id && $("trash-audio-seek")) {
+    $("trash-audio-seek").value = v.duration ? 1000 * v.position / v.duration : 0;
+    $("trash-audio-seek").disabled = !v.duration || Boolean(v.error);
+    const duration = v.duration ? audioClock(v.duration) : $("trash-audio-time").textContent.split(" / ")[1];
+    $("trash-audio-time").textContent = `${audioClock(v.position)} / ${duration}`;
+    const playLabel = v.loading ? "载入中…" : v.playing ? "暂停" : "播放";
+    $("trash-audio-play").setAttribute("aria-label", playLabel);
+    $("trash-audio-play").innerHTML = icon(v.playing ? "pause" : "play");
+    const fraction = v.duration ? v.position / v.duration : 0;
+    document.querySelectorAll("#trash-audio-wave i").forEach((bar, index, bars) => bar.classList.toggle("played", index / bars.length < fraction));
+    if (v.error) $("trash-audio-status").textContent = v.error;
+    return;
+  }
   if (v.id === state.doc?.id && $("audio-seek")) {
     $("audio-seek").value = v.duration ? 1e3 * v.position / v.duration : 0;
     $("audio-seek").disabled = !v.duration || Boolean(v.error) || Boolean(state.doc.missing_flags?.audio_missing);
@@ -2144,17 +2228,19 @@ window.lulu = {
     } else if ($("audio-status").dataset.owner === "player") audioNote(v.id, "", "player");
   }
 }, waveformState: (v) => {
-  if (v.id !== state.doc?.id || !$("audio-wave")) return;
-  const wave = $("audio-wave");
+  const archived = state.page === "trash" && $("trash-preview")?.dataset.documentId === v.id;
+  const wave = archived ? $("trash-audio-wave") : v.id === state.doc?.id ? $("audio-wave") : null;
+  if (!wave) return;
   wave.setAttribute("aria-label", v.description);
   wave.dataset.state = v.state;
   if (v.state === "ready" && v.peaks?.length) {
-    const count = Math.min(110, v.peaks.length);
+    const count = Math.min(archived ? 72 : 110, v.peaks.length);
     wave.innerHTML = Array.from({ length: count }, (_, i) => {
       const amplitude = Math.max(...v.peaks.slice(Math.floor(i * v.peaks.length / count), Math.floor((i + 1) * v.peaks.length / count)));
-      return `<i aria-hidden="true" style="height:${Math.max(2, Math.min(1, amplitude) * 110)}px"></i>`;
+      return `<i aria-hidden="true" style="height:${Math.max(2, Math.min(1, amplitude) * (archived ? 54 : 110))}px"></i>`;
     }).join("");
-    audioProgress(Number($("audio-seek").value) / 1e3);
+    const fraction = Number((archived ? $("trash-audio-seek") : $("audio-seek")).value) / 1000;
+    wave.querySelectorAll("i").forEach((bar, index, bars) => bar.classList.toggle("played", index / bars.length < fraction));
   } else wave.textContent = v.description;
 }, prepareClose: async () => {
   try {
@@ -2185,7 +2271,7 @@ new QWebChannel(qt.webChannelTransport, async (channel) => {
   });
   $("search-icon").innerHTML = icon("search");
   $("new-doc").innerHTML = icon("plus");
-  $("list-menu").innerHTML = icon("more");
+  $("list-menu").innerHTML = icon("more")+"<span>更多</span>";
   bind("dialog-close", () => $("dialog").close());
   bind("clear-selection", () => choose(null));
   bind("new-doc", async () => {
@@ -2234,7 +2320,7 @@ new QWebChannel(qt.webChannelTransport, async (channel) => {
   });
   document.onkeydown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a" && !$("dialog").open && !e.target.closest('input,textarea,[contenteditable="true"]')) {
-      if (state.page === "trash") { e.preventDefault(); if ($("trash-select-visible")?.textContent === "全选当前结果") $("trash-select-visible").click(); }
+      if (state.page === "trash") { e.preventDefault(); if ($("trash-select-visible")?.getAttribute("aria-checked") !== "true") $("trash-select-visible")?.click(); }
       else if (state.page === "library" && e.target.closest('#list-pane')) { e.preventDefault(); selectAllResults().catch(error); }
     }
     if ((e.metaKey || e.ctrlKey) && e.key === "f" && !$("dialog").open) {
@@ -2264,21 +2350,6 @@ new QWebChannel(qt.webChannelTransport, async (channel) => {
     window.lulu.ready = state.ready = true;
     bridge.initialized(true);
     setInterval(() => checkExternalEdit().catch(error), 5e3);
-    let cleaning = false;
-    const cleanTrash = async () => {
-      if (cleaning || $("dialog").open || (state.page === "trash" && $("trash-auto")?.disabled)) return;
-      cleaning = true;
-      try {
-        const result = await rpc("cleanup_trash");
-        if (result.deleted.length || result.failures.length) {
-          const message = `自动清理 ${result.deleted.length} 项${result.failures.length ? `，${result.failures.length} 项失败，已保留待重试` : ""}`;
-          if (state.page === "trash") await showTrash({statusMessage:result.failures.length ? message : ""});
-          toast(message);
-        }
-      } finally { cleaning = false; }
-    };
-    cleanTrash().catch(error);
-    setInterval(() => cleanTrash().catch(error), 60000);
     bridge.ready();
   } catch (e) {
     bridge.initialized(false);

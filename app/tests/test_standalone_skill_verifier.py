@@ -62,21 +62,3 @@ class StandaloneSkillVerifierTests(unittest.TestCase):
         self.state = prepare_local_app(self.app, self.product)
         shutil.rmtree(self.skill)
         shutil.copytree(self.app/'Contents/Resources/skills/lulu-agent', self.skill)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

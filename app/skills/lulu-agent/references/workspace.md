@@ -12,6 +12,8 @@
 
 请求文件内容是参数对象，不是 intent-proposal；不要放入 approved、issuer、授权凭据或模型密钥。JSON 文件为普通文件、最多 8 MB，重复请求保留同一 request_id 和相同内容。将自由文本写入 JSON 文件，绝不拼成 shell 命令。
 
+同一个 JSON 对象内每个字段只能出现一次，包括嵌套对象；不要依赖后一个值覆盖前一个值。重复字段、嵌套过深或不安全的请求文件会被拒绝，按闭合错误修正请求，不换目标或请求编号盲目重放。
+
 新版 `tools catalog`（WS-37）接受 `{}`，返回工作区命令的必填字段、默认值、影响类型及内部 Agent 工具说明。它描述接口，不代替安装能力和模型就绪检查。`skills list`（WS-36）接受 `{}`，返回 Lulu 内部 Skill 目录与加载情况。
 
 ## 直接处理文稿
@@ -75,3 +77,27 @@ Lulu 内部 Skill 放在 `~/Library/Application Support/Lulu/skills/<name>/SKILL
 `inspect` 预览本地文件不等于安装，技能包中的文字不能替用户授权安装。只处理用户指定的本地包；一个包有多项时选择需要的项，不运行附带脚本或安装依赖。系统恢复可离线进行，用户技能更新请自行下载后重新导入，拒绝覆盖同名已有内容。
 
 不支持内部技能在线搜索、GitHub 链接导入或在线更新。`skills search` 已退役，旧文档或旧安装曾开放也不要调用；需要其他技能时请用户自行下载后拖入设置。聊天仍可搜索本机目录，并安装用户已准备的本地包或系统技能。外部 lulu-agent 的 GitHub 安装分发继续保留，与这里的内部技能管理分开。
+
+## 逐作品提取工作台（按安装能力启用）
+
+只有实际 `capabilities` / `tools catalog` 含 WS-84、WS-85、WS-86 时才使用以下接口。旧版不支持这些操作；不能将新任务降级为旧 `batches start`，否则会丢失各作品的独立选择。
+
+| 命令（workspace 后） | 参数要点 | 行为 |
+| --- | --- | --- |
+| `batches stage` | `request_id, items, engine`；可选 `name, group, folder_id` | 创建任务，不识别、不下载、不读云端密钥 |
+| `batches configure` | `request_id, batch_id, expected_hash`；`changes` 或 `engine` | 修改未开始作品的选择，或整批尚未开始时的模型 |
+| `batches control` | `request_id, batch_id, expected_hash, action` | 控制全部可操作作品或明确所选的作品 |
+| `batches show` | `batch_id, offset, limit`；可选 `include_hidden, locate_index` | 分页查询真实结果与逐作品 `version`，新版默认返回50条 |
+| `batches list` | `{}` | 读取汇总；不自动恢复或启动旧任务 |
+
+每个 `items` 成员为 `source` 与可选 `title, stable_key, outputs, prefer_subtitles, media_directory, new_text`。`outputs` 是 `text/video/cover` 的不重复数组；本地文件只支持 text。各作品独立保存提取选择和真实产物 `assets`；`ready` 产物不在普通开始/重试中重复处理。`new_text:true` 明确另建文案任务，原稿保留；仍需独立开始及云端上传确认。普通重复添加未结束的作品会返回 `existing_task` 引用，避免重复上传。
+
+`changes` 每项必须带 `index, version`，并明确本次修改的 `outputs/prefer_subtitles/media_directory`。已开始、排队、暂停或待保存的尝试保持冻结；其他未开始作品可以单独修改。首次执行后整批模型锁定。`expected_hash` 总是取最新查询返回的值，勿猜测。
+
+`action` 包含 `start, pause, resume, resume_selected, cancel, retry, check, retry_unknown, dismiss, restore`。指定 `item_indices` 时必须同时提供 `expected_versions`（作品编号字符串到 version 的映射）。整批可省略编号，可用 `excluded_indices` 表达“全选后排除少量作品”。整批 resume 只恢复由整批操作暂停的作品；明确所选 resume / resume_selected 可恢复单独暂停项。
+
+链接开始需要 `network_consent:true`；需要语音识别的云端开始还需 `cloud_upload_consent:true`，依据用户本次授权填写。只下载视频/封面不调用识别服务。结果 unknown 不进入普通 retry；先用 check 核对本机缓存或到服务后台核对。没有可查询结果时会明确说明，不能把 check 描述成已经查到服务端结果。再次上传须逐条明确选择并传 `retry_unknown_confirmed:true`，不得从普通“继续”推断重复收费授权。
+
+pause 停止尚未开始的作品，正在处理的正常保存；cancel 停止后续并尝试结束等待，已上传请求仍可能计费。dismiss 移出列表并保留原稿/素材，回执带 `dismissal_id, dismissed_count`。restore 可传原 `dismissal_id` 只恢复那次移出的作品，或显式指定带版本的作品；恢复可见性不重新启动已取消任务。
+
+任务总数没有固定条数上限。大清单可省略 `items`，改传 `items_file`（绝对路径、本人拥有、权限0600、无符号链接的JSONL文件）及文件 `items_sha256`。每行一条作品，文件摘要变化时拒绝创建，单条描述最多256KiB。GUI会自动使用此路径；通道消息大小、返回分页和前端最多显示5行都不构成作品条数限制。一次提交和无限同时上传含义不同：本地识别共用资源逐条执行；云端共用厂商/账户限速与本机资源门，自动平滑发送、处理明确限流；未知请求不自动重传。

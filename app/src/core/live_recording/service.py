@@ -21,7 +21,7 @@ from .data import DataLimitError, append_sample, data_path, read_data
 from .comments import CommentReadCache, read_comments, export_comments, status_text as comment_status
 from .danmaku import CommentRecorder
 from .index import LiveIndex, directory
-from .media import SegmentProducer, bundled_ffmpeg, export_media, fingerprint, managed_file, probe
+from .media import SegmentProducer, bundled_ffmpeg, export_media, export_recording, fingerprint, managed_file, probe
 
 KIND = 'live_recording'
 ACTIVE = {JobState.PREPARED, JobState.QUEUED, JobState.RUNNING, JobState.CANCEL_REQUESTED}
@@ -73,6 +73,17 @@ class LiveService:
         self.closing = True
         self.credential = ''
         self.monitors, self.checks, self.exports = {}, {}, {}
+        for saved in self.index.all("SELECT key,value FROM settings WHERE key LIKE 'export:%' ORDER BY rowid DESC LIMIT 100"):
+            try:
+                receipt = json.loads(saved['value'])
+                eid = saved['key'].split(':', 1)[1]
+                if receipt['state'] == 'running':
+                    receipt.update(state='interrupted', message='上次导出已中断，原段和已有文件保留；未自动重做')
+                receipt.update(cancel=threading.Event(), owned=None, session='',
+                               recording_ids=set(receipt['recording_ids']))
+                self.exports[eid] = receipt
+            except (ValueError, KeyError, TypeError):
+                continue  # An invalid receipt never authorizes a media operation.
         self.starts, self.disk_checks = {}, {}
         self.prepare_reads = {}
         self.host_sequences = {}
@@ -135,6 +146,21 @@ class LiveService:
             self.credential = self._credentials()
         except Exception:
             raise LiveError('抖音凭据无法读取，请在本页重新添加；未开始监控') from None
+
+    def handle_cli(self, operation, arguments):
+        """Borrow the genuine GUI lease without opening or renewing a session."""
+        allowed = {'snapshot', 'add', 'start', 'pause', 'pause_all', 'remove', 'detail',
+                   'export', 'export_recording', 'export_status', 'export_cancel', 'data',
+                   'comments', 'comments_export'}
+        if operation not in allowed or type(arguments) is not dict or 'session' in arguments:
+            raise LiveError('CLI 直播操作无效；登录信息请在 Lulu 安全设置中处理')
+        with self.lock:
+            if not self._can_run(self.session):
+                raise LiveError('请先打开 Lulu 的直播录制页，建立正常会话后重试；退出 Lulu 会停止监控')
+            token = self.session
+        if operation == 'snapshot':
+            arguments = {'tab': 'hosts', 'query': '', 'filter': 'all', 'page': 1, **arguments}
+        return self.handle(operation, {'session': token, **arguments})
 
     def handle(self, operation, arguments):
         validate_request(operation, arguments)
@@ -276,11 +302,21 @@ class LiveService:
                 return {**row, **self._progress(row, host['status'] if host else ''), 'segments': segments}
             if operation == 'export':
                 return self._export(arguments['segment_id'], token, arguments['format'], arguments['path'])
+            if operation == 'export_recording':
+                return self._export_recording(arguments['recording_id'], token, arguments['path'])
+            if operation == 'export_cancel':
+                work = self.exports.get(arguments['export_id'])
+                if work is None or work['session'] != token:
+                    raise LiveError('导出记录不存在，请刷新后重试')
+                if work['state'] == 'running':
+                    work['cancel'].set()
+                    self._stop_cancelled(work)
+                return {'state': work['state'], 'cancel_requested': work['cancel'].is_set()}
             if operation == 'export_status':
                 result = self.exports.get(arguments['export_id'])
                 if result is None:
                     raise LiveError('导出记录不存在，请重新选择分段')
-                return {k: result[k] for k in ('state', 'path', 'message')}
+                return {k: result[k] for k in ('state', 'path', 'message', 'progress', 'phase', 'result') if k in result}
         raise LiveError('直播操作无效')
 
     def _transcribe(self, arguments):
@@ -1249,7 +1285,9 @@ class LiveService:
                 remaining_files, inventory_error = [], True
             with self.lock:
                 reason = monitor.get('reason', reason)
-                if gap is not None and reason != 'offline':
+                # A wait after the final frame is not an internal hole. Only a
+                # later successful connection proves video exists after it.
+                if gap is not None and reason not in {'offline', 'paused', 'app_exit'}:
                     gaps.append([gap, time.time()])
                 try:
                     if inventory_error:
@@ -1300,6 +1338,80 @@ class LiveService:
             raise LiveError('请选择已完成且可用的分段')
         return segment
 
+    def _export_recording(self, rid, token, target):
+        recording = self._recording(rid)
+        if recording['ended'] is None:
+            raise LiveError('本场还在录制或收尾，请保存结束后再导出整场')
+        self._authorize_recording_folder(recording)
+        recording['gaps'] = self._display_gaps(recording)
+        try:
+            gaps = json.loads(recording['gaps'])
+            if type(gaps) is not list:
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise LiveError('本场断流记录无法核对，原录像保留；请检查记录后再导出') from None
+        if sum(e['state'] == 'running' for e in self.exports.values()) >= 2:
+            raise LiveError('已有两项导出正在处理，请稍后再试')
+        segments = self.index.all('SELECT * FROM segments WHERE recording_id=? ORDER BY started,path', (rid,))
+        if any(not s['started'] for s in segments):
+            segments.sort(key=lambda s: s['path'])
+        if not segments or any(not s['valid'] or not s['closed'] for s in segments):
+            raise LiveError('本场含有未完成或损坏的分段，请先检查，未跳过任何分段')
+        if rid in self.deleting:
+            raise LiveError('本场正在移入废纸篓，请稍后再试')
+        if any(Path(target).is_relative_to(Path(folder)) for folder in self.deleting.values()):
+            raise LiveError('导出位置正在移入废纸篓，请选择其他文件夹')
+        if any(w['state'] == 'running' and w.get('target') == target for w in self.exports.values()):
+            raise LiveError('这个位置已有导出任务，请查询已有进度')
+        eid = uid('export')
+        work = dict(state='running', path='', message='', cancel=threading.Event(), owned=None,
+                    session=token, recording_ids={rid}, target=target, progress=0, phase='checking')
+        self.exports[eid] = work
+        try:
+            self._remember_export(eid, work)
+        except Exception:
+            self.exports.pop(eid, None)
+            raise LiveError('无法保存导出记录，尚未开始；原录像保留') from None
+        def run():
+            try:
+                # An ended index must account for every raw part, including failed recovery.
+                folder = directory(recording['directory'])
+                registered = {s['path'] for s in segments}
+                with os.scandir(folder) as entries:
+                    actual = {e.path for e in entries if e.name.startswith('part-') and e.name.endswith('.ts')}
+                if actual != registered:
+                    raise LiveError('本场原始文件与分段清单不一致，请先检查；未漏段导出')
+                result = export_recording(segments, recording, self.ffmpeg or bundled_ffmpeg(), target=target,
+                    register=lambda p: self._owned(work, p), cancelled=work['cancel'].is_set,
+                    progress=lambda phase, value: work.update(phase=phase, progress=round(value, 1)))
+                warning = ('本场有断流或中断，文件只包含实际录到的内容。'
+                           if gaps or recording.get('reason') in {
+                               'recording_error', 'write_error', 'reconnect_timeout', 'recovery_required', 'recovery_checked'} else '')
+                with self.lock:
+                    work.update(state='succeeded', path=result['path'], result={**result,
+                        'gaps': gaps, 'warning': warning}, message=warning)
+            except Exception as exc:
+                with self.lock:
+                    work.update(state='cancelled' if work['cancel'].is_set() else 'failed',
+                        message=str(exc) if isinstance(exc, LiveError) else '整场导出失败，原录像及已有文件保留')
+            finally:
+                with self.lock:
+                    work['owned'] = None
+                    try:
+                        self._remember_export(eid, work)
+                    except Exception:
+                        work.update(state='recovery_required', message='导出处理已停止，但回执未能保存；请核对目标文件，原录像保留')
+        for key in list(self.exports):
+            if len(self.exports) > 100 and self.exports[key]['state'] != 'running':
+                del self.exports[key]
+        threading.Thread(target=run, name='lulu-live-full-export', daemon=True).start()
+        return {'export_id': eid, 'segment_count': len(segments)}
+
+    def _remember_export(self, eid, work):
+        value = {k: work[k] for k in ('state', 'path', 'message', 'target', 'progress', 'phase', 'result') if k in work}
+        value['recording_ids'] = sorted(work['recording_ids'])
+        self.index.set_setting('export:' + eid, json.dumps(value, ensure_ascii=False, allow_nan=False))
+
     def _export(self, sid, token, format, target):
         segment = self._completed_segment(sid)
         if sum(e['state'] == 'running' for e in self.exports.values()) >= 2:
@@ -1320,12 +1432,12 @@ class LiveService:
         def run():
             try:
                 path = export_media(segment, recording, self.ffmpeg, format=format, target=target,
-                                    register=lambda p: self._owned(work, p))
+                                    register=lambda p: self._owned(work, p), cancelled=work['cancel'].is_set)
                 with self.lock:
                     work.update(state='succeeded', path=path)
             except LiveError as exc:
                 with self.lock:
-                    work.update(state='failed', message=str(exc))
+                    work.update(state='cancelled' if work['cancel'].is_set() else 'failed', message=str(exc))
             except Exception:
                 with self.lock:
                     work.update(state='failed', message='导出失败，原录像保留')
@@ -1394,6 +1506,32 @@ class LiveService:
                     work['owned'] = None
         threading.Thread(target=run, name='lulu-live-recovery', daemon=True).start()
 
+    def _display_gaps(self, recording):
+        """Project proven holes; retain old pending-tail evidence on disk.
+
+        Older builds stored a trailing reconnect wait when the user stopped.
+        Exclude only that exact final interval, bounded by valid saved media and
+        the normal stop time. Real holes followed by resumed media remain.
+        """
+        raw = recording.get('gaps', '[]')
+        if recording.get('reason') not in {'paused', 'app_exit'} or recording.get('ended') is None:
+            return raw
+        try:
+            gaps = json.loads(raw)
+            if not gaps:
+                return raw
+            start, end = gaps[-1]
+            saved = self.index.one('SELECT COUNT(*) AS n, '
+                'SUM(CASE WHEN valid=1 AND closed=1 AND started>0 THEN 1 ELSE 0 END) AS ready, '
+                'MAX(started+duration) AS ended FROM segments WHERE recording_id=?', (recording['id'],))
+            if (saved['n'] and saved['ready'] == saved['n']
+                    and 0 <= recording['ended']-end < 1
+                    and abs(start-saved['ended']) < .01):
+                return json.dumps(gaps[:-1])
+        except (ValueError, TypeError, IndexError, KeyError):
+            pass  # Unreadable evidence stays visible and export still fails closed.
+        return raw
+
     def _progress(self, recording, status=''):
         info = self.index.one('SELECT COUNT(*) AS n,COALESCE(SUM(bytes),0) AS bytes,COALESCE(SUM(duration),0) AS duration '
                              'FROM segments WHERE recording_id=?', (recording['id'],))
@@ -1417,7 +1555,8 @@ class LiveService:
                  'live' if running else
                  'connecting' if monitor and monitor.get('recording_state') == 'connecting'
                                  and (not producer or producer.process.process.poll() is None) else 'reconnecting')
-        return {**info, 'clock_running': running, 'recording_state': state, **self._comment_summary(recording)}
+        return {**info, 'gaps': self._display_gaps(recording), 'clock_running': running,
+                'recording_state': state, **self._comment_summary(recording)}
 
     def _login_state(self):
         from ..collect.douyin_login import login_state

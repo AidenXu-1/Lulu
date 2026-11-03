@@ -278,16 +278,17 @@
       "billing": "https://help.aliyun.com/zh/model-studio/model-pricing"
     },
     {
-      "id": "openai",
-      "name": "OpenAI",
-      "mark": "O",
-      "logo": "openai.png",
-      "modelLogo": "openai.png",
-      "model": "GPT-4o Transcribe",
-      "modelId": "gpt-4o-transcribe",
-      "keys": "https://platform.openai.com/api-keys",
-      "description": "多语言语音识别",
-      "base": "https://api.openai.com/v1"
+      "id": "volcengine",
+      "name": "火山引擎",
+      "mark": "V",
+      "logo": "volcengine.png",
+      "modelLogo": "volcengine.png",
+      "model": "豆包录音识别极速版",
+      "modelId": "volc.bigasr.auc_turbo",
+      "keys": "https://console.volcengine.com/speech/app",
+      "description": "需在豆包语音开通录音文件识别极速版，使用新版API Key",
+      "base": "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash",
+      "billing": "https://docs.volcengine.com/docs/doubao-voice/billing-instructions?lang=zh"
     },
     {
       "id": "siliconflow",
@@ -300,18 +301,6 @@
       "keys": "https://cloud.siliconflow.cn/account/ak",
       "description": "中文与多语言语音识别",
       "base": "https://api.siliconflow.cn/v1"
-    },
-    {
-      "id": "groq",
-      "name": "Groq",
-      "mark": "G",
-      "logo": "groq.svg",
-      "modelLogo": "openai.png",
-      "model": "Whisper Large V3 Turbo",
-      "modelId": "whisper-large-v3-turbo",
-      "keys": "https://console.groq.com/keys",
-      "description": "多语言语音识别",
-      "base": "https://api.groq.com/openai/v1"
     },
     {
       "id": "custom_asr",

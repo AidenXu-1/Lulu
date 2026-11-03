@@ -40,13 +40,17 @@ def _backend():
         return None
 
 
-def get_key(provider: str, *, require_access: bool = False) -> str | None:
-    if provider in _cache:
+def get_key(provider: str, *, require_access: bool = False, refresh: bool = False) -> str | None:
+    if not refresh and provider in _cache:
         return _cache[provider]
     with _lock:
+        if refresh:
+            # Explicit new work may follow a save in another Lulu process.
+            # A denied refresh must not silently reuse the previous credential.
+            _cache.pop(provider, None)
         if provider in _cache:
             return _cache[provider]
-        return _read_key(provider, require_access=require_access)
+        return _read_key(provider, require_access=require_access, allow_memory=not refresh)
 
 
 def configuration_loaded(provider: str) -> bool:
@@ -70,12 +74,12 @@ def cached_public_config(provider: str) -> dict | None:
                 'configured': bool(value.get('api_key'))}
 
 
-def _read_key(provider: str, *, require_access: bool) -> str | None:
+def _read_key(provider: str, *, require_access: bool, allow_memory: bool = True) -> str | None:
     kr = _backend()
     if kr is not None:
         try:
             v = kr.get_password(_SERVICE, provider)
-            _cache[provider] = v or _memory.get(provider)
+            _cache[provider] = v or (_memory.get(provider) if allow_memory else None)
             return _cache[provider]
         except Exception as exc:  # noqa: BLE001
             _log.warning("keyring 读取失败,降级内存:%s", type(exc).__name__)
@@ -83,7 +87,7 @@ def _read_key(provider: str, *, require_access: bool) -> str | None:
                 raise RuntimeError("CREDENTIAL_READ_UNAVAILABLE") from None
     elif require_access:
         raise RuntimeError("CREDENTIAL_READ_UNAVAILABLE")
-    return _memory.get(provider)
+    return _memory.get(provider) if allow_memory else None
 
 
 def set_key(provider: str, key: str) -> None:
@@ -149,8 +153,8 @@ def has_key(provider: str) -> bool:
 
 
 # ---- 多字段配置:把每家的整份配置(api_key / base_url / appid / token …)以 JSON 存一条 ----
-def get_config(provider: str, *, require_access: bool = False) -> dict:
-    raw = get_key(provider, require_access=require_access)
+def get_config(provider: str, *, require_access: bool = False, refresh: bool = False) -> dict:
+    raw = get_key(provider, require_access=require_access, refresh=refresh)
     if not raw:
         return {}
     try:

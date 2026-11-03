@@ -13,7 +13,7 @@ _local_instances: dict[str, TranscriptionEngine] = {}
 
 
 def available_engines() -> list[tuple[str, str]]:
-    return [(p.id, p.display_name) for p in PRESETS.values()]
+    return [(p.id, p.display_name) for p in PRESETS.values() if not p.retired]
 
 
 def _build_local(name: str, runtime: str) -> TranscriptionEngine:
@@ -49,6 +49,8 @@ def get_engine(name: str | None = None) -> TranscriptionEngine:
     preset: Provider | None = PRESETS.get(name)
     if preset is None:
         raise ValueError(f"未知引擎:{name}")
+    if preset.retired:
+        raise ValueError('此云端转录服务已移除，历史文稿保留；请选择其他服务或本地模型。')
     cfg = secrets.get_config(name)
     if preset.kind == "openai_compat":
         return OpenAICompatEngine(
@@ -63,4 +65,7 @@ def get_engine(name: str | None = None) -> TranscriptionEngine:
             engine_id=preset.id, display_name=preset.display_name,
             model=preset.default_model, api_key=cfg.get("api_key"),
         )
+    if preset.kind == "volcano":
+        from .volcano_engine import VolcanoEngine
+        return VolcanoEngine(api_key=cfg.get('api_key'))
     raise ValueError(f"未知引擎类型:{preset.kind}")

@@ -444,6 +444,10 @@
       "bytes": 100061,
       "sha256": "c5783c2be8c913da7fd892e06de2f7617d91f74eac1cfe2709f6fc004bbc2ae1"
     },
+    "archive.css": {
+      "bytes": 18710,
+      "sha256": "ae37d54752bdea4b598d28d776baf5f96f5324adf927cd9d1307e27798c55368"
+    },
     "columns.css": {
       "bytes": 8586,
       "sha256": "e24d5df6f176c1f087efe3d647b354f097120ed76068cf2fa334224c4bc49649"
@@ -453,8 +457,8 @@
       "sha256": "0cc2413890fb85d32ce12b6e3631ec0ec73dfec31d13a4c61762182b6413bdeb"
     },
     "local.css": {
-      "bytes": 35307,
-      "sha256": "568375b984dd912df40203cc6087b27cf601fc8f15739ff73d167c2c5d53e129"
+      "bytes": 37258,
+      "sha256": "b367372636f7f938bb1af5b54a1937a8902d651dc217aeebff8e3a7cae94331f"
     },
     "style.css": {
       "bytes": 19138,
@@ -465,8 +469,8 @@
       "sha256": "6db421a49730a13ed73e66b35b932ea272eff83b991927f58d58aaa56ed0d10c"
     },
     "workspace.js": {
-      "bytes": 580173,
-      "sha256": "2c08073becb40b513e8fb3b6e788724f38e2ba15e6d1f7ba74d1a84437e55851"
+      "bytes": 588516,
+      "sha256": "3b082e16490e5236af650eb2c74f8944b2b4f699116605522786554e9ba92ded"
     }
   },
   "inputs": [
@@ -1427,7 +1431,7 @@
           "bytesInOutput": 927
         },
         "node_modules/micromark-core-commonmark/lib/code-fenced.js": {
-          "bytesInOutput": 2309
+          "bytesInOutput": 2311
         },
         "node_modules/micromark-core-commonmark/lib/code-indented.js": {
           "bytesInOutput": 865
@@ -1469,10 +1473,10 @@
           "bytesInOutput": 528
         },
         "node_modules/micromark-core-commonmark/lib/html-flow.js": {
-          "bytesInOutput": 3623
+          "bytesInOutput": 3614
         },
         "node_modules/micromark-core-commonmark/lib/html-text.js": {
-          "bytesInOutput": 2503
+          "bytesInOutput": 2507
         },
         "node_modules/micromark-core-commonmark/lib/label-end.js": {
           "bytesInOutput": 3122
@@ -1505,7 +1509,7 @@
           "bytesInOutput": 520
         },
         "node_modules/micromark/lib/create-tokenizer.js": {
-          "bytesInOutput": 3174
+          "bytesInOutput": 3168
         },
         "node_modules/micromark/lib/parse.js": {
           "bytesInOutput": 217
@@ -1529,7 +1533,7 @@
           "bytesInOutput": 0
         },
         "node_modules/mdast-util-from-markdown/lib/index.js": {
-          "bytesInOutput": 10349
+          "bytesInOutput": 10347
         },
         "node_modules/mdast-util-from-markdown/index.js": {
           "bytesInOutput": 0
@@ -1775,16 +1779,16 @@
           "bytesInOutput": 31057
         },
         "node_modules/prosemirror-state/dist/index.js": {
-          "bytesInOutput": 11858
+          "bytesInOutput": 11865
         },
         "node_modules/prosemirror-commands/dist/index.js": {
-          "bytesInOutput": 10319
+          "bytesInOutput": 10328
         },
         "node_modules/prosemirror-inputrules/dist/index.js": {
           "bytesInOutput": 1583
         },
         "node_modules/@milkdown/prose/lib/index.js": {
-          "bytesInOutput": 3099
+          "bytesInOutput": 3101
         },
         "node_modules/w3c-keyname/index.js": {
           "bytesInOutput": 1516
@@ -1796,7 +1800,7 @@
           "bytesInOutput": 4896
         },
         "node_modules/prosemirror-view/dist/index.js": {
-          "bytesInOutput": 98457
+          "bytesInOutput": 98480
         },
         "node_modules/@milkdown/core/lib/index.js": {
           "bytesInOutput": 10014
@@ -1826,7 +1830,7 @@
           "bytesInOutput": 31088
         },
         "node_modules/prosemirror-tables/dist/index.js": {
-          "bytesInOutput": 37445
+          "bytesInOutput": 37446
         },
         "node_modules/prosemirror-safari-ime-span/dist/index.js": {
           "bytesInOutput": 689
@@ -1907,7 +1911,7 @@
           "bytesInOutput": 429
         },
         "node_modules/micromark-extension-gfm-table/lib/syntax.js": {
-          "bytesInOutput": 4631
+          "bytesInOutput": 4637
         },
         "node_modules/micromark-extension-gfm-table/index.js": {
           "bytesInOutput": 0
@@ -1991,16 +1995,16 @@
           "bytesInOutput": 0
         },
         "editor.js": {
-          "bytesInOutput": 6682
+          "bytesInOutput": 6689
         },
         "markdown_guide.js": {
           "bytesInOutput": 7120
         },
         "workspace.js": {
-          "bytesInOutput": 107944
+          "bytesInOutput": 116243
         }
       },
-      "bytes": 580173
+      "bytes": 588516
     },
     "assets/workspace.css": {
       "imports": [],

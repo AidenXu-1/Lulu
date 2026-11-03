@@ -258,6 +258,11 @@ class BrowserShell:
                     script=_XHS_SCRIPT_TIMEOUT_SECONDS,
                 )
                 close_timeout = _XHS_CLOSE_TIMEOUT_SECONDS
+            elif paths.resolution.platform == "douyin" and spec.profile_id == "default":
+                options.set_load_mode("normal")
+                options.set_retry(times=0, interval=0)
+                options.set_timeouts(page_load=15, script=3)
+                close_timeout = 3.0
             page = self.page_factory(options)
             session = BrowserSession(
                 page,

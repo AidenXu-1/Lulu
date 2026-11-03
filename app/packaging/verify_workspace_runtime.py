@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 
-PROBE = r'''
+BUNDLED_IMPORTS = r'''
 import ctypes, importlib.abc, importlib.util, json, os, sys, time
 from pathlib import Path
 from PyInstaller.archive.readers import CArchiveReader
@@ -40,6 +40,9 @@ class BundledModules(importlib.abc.MetaPathFinder, importlib.abc.Loader):
         if code is not None:
             exec(code, module.__dict__)
 sys.meta_path.insert(0, BundledModules())
+'''
+
+PROBE = BUNDLED_IMPORTS + r'''
 # Exercise the compiled default key loader with the real frozen layout; injecting
 # a public key into UpdateService would miss PyInstaller's Frameworks data links.
 host_executable = sys.executable
@@ -106,7 +109,7 @@ print(json.dumps({'ok':True,'profiles':2,'chinese_edit':True,'native_qt_from_bun
 '''
 
 
-def verify(app: Path) -> dict:
+def verify(app: Path, *, probe=PROBE, timeout=60) -> dict:
     from src.core.agent_entry.delivery_identity import delivery_app_tree_identity, verify_final_signature
     app = app.resolve()
     verify_final_signature(app)
@@ -118,15 +121,15 @@ def verify(app: Path) -> dict:
                    XDG_CONFIG_HOME=directory, XDG_DATA_HOME=directory,
                    QT_QPA_PLATFORM='offscreen', QTWEBENGINE_DISABLE_SANDBOX='1',
                    QTWEBENGINE_CHROMIUM_FLAGS='--disable-gpu', PYTHONDONTWRITEBYTECODE='1')
-        result = subprocess.run([sys.executable, '-I', '-B', '-c', PROBE, str(app)],
-                                env=env, cwd=directory, capture_output=True, text=True, timeout=60)
+        result = subprocess.run([sys.executable, '-I', '-B', '-c', probe, str(app)],
+                                env=env, cwd=directory, capture_output=True, text=True, timeout=timeout)
     # Always compare even on a failed/crashed probe. Never repair or re-sign a
     # package here: any runtime write invalidates this candidate.
     after = delivery_app_tree_identity(app)
     if before != after:
         raise RuntimeError('网页引擎运行后改变了应用包，停止交付')
     signature = verify_final_signature(app)
-    if result.returncode:
+    if result.returncode or 'Traceback (most recent call last)' in result.stderr or '[PYI-' in result.stderr:
         raise RuntimeError('包内网页引擎验证失败：\n' + result.stderr[-3000:])
     return dict(json.loads(result.stdout.strip().splitlines()[-1]),
                 immutable_app_tree=after, signature_after_run=signature)

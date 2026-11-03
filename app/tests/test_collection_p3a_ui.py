@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 import urllib.request
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -357,7 +358,7 @@ class CollectionP3AUiTests(unittest.TestCase):
             def direct(source, destination, _progress, *, work_id):
                 direct_calls.append((source, Path(destination), work_id))
                 if len(direct_calls) == 1:
-                    raise RuntimeError("expired direct url")
+                    raise urllib.error.HTTPError(source, 403, "expired direct url", {}, None)
                 target = Path(destination) / "refreshed.mp4"
                 target.write_bytes(b"video")
                 return target
@@ -373,15 +374,16 @@ class CollectionP3AUiTests(unittest.TestCase):
                 ) as refresh,
                 patch("src.core.audio.extractor.resolve_source") as generic,
             ):
+                cancelled = lambda: False
                 fetched = collection_page._fetch_managed_media(
                     current,
                     "audio",
                     root,
-                    lambda: False,
+                    cancelled,
                 )
 
             self.assertEqual(fetched.read_bytes(), b"video")
-            refresh.assert_called_once_with(current.work_id)
+            refresh.assert_called_once_with(current.work_id, is_cancelled=cancelled)
             generic.assert_not_called()
             self.assertEqual(
                 direct_calls,

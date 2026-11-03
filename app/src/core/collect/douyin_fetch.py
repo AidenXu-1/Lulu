@@ -10,11 +10,16 @@ from __future__ import annotations
 import json
 import random
 import re
+import socket
 import ssl
 import string
+import threading
+import time
 import urllib.parse
+import urllib.error
 import urllib.request
 from http import cookiejar
+from http.client import IncompleteRead
 
 from ._abogus import ABogus
 from .models import CollectedItem, dedupe, from_aweme
@@ -33,6 +38,8 @@ _WORK_ID_RE = re.compile(r"^[0-9]{1,64}$")
 _URL_RE = re.compile(r"https?://[^\s'\"，。！？、）)】<>]+")
 _POST_API = "https://www.douyin.com/aweme/v1/web/aweme/post/"
 _DETAIL_API = "https://www.douyin.com/aweme/v1/web/aweme/detail/"
+_ANONYMOUS_REQUEST_TIMEOUT_S = 20
+_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
 _NEED_PROFILE_MSG = (
     "没识别到作者主页。\n"
@@ -46,9 +53,21 @@ _NEED_PROFILE_MSG = (
 class DouyinCollectError(RuntimeError):
     """对用户可见的采集错误(链接无效 / 网络 / 平台改版)。"""
 
-    def __init__(self, message, *, code="DOUYIN_FETCH_FAILED"):
+    def __init__(self, message, *, code="DOUYIN_FETCH_FAILED", items=()):
         super().__init__(message)
         self.code = code
+        self.items = tuple(items)
+
+
+def _http_failure(status: int) -> DouyinCollectError:
+    causes = {
+        401: ("抖音要求登录后访问。", "DOUYIN_LOGIN_REQUIRED"),
+        403: ("抖音拒绝了本次访问。", "DOUYIN_ACCESS_RESTRICTED"),
+        429: ("抖音暂时限制了访问频率，请稍后重试。", "DOUYIN_RATE_LIMITED"),
+    }
+    message, code = causes.get(status, (
+        "抖音服务暂时无法返回作品，请稍后重试。", "DOUYIN_SERVICE_ERROR"))
+    return DouyinCollectError(message, code=code)
 
 
 def _rand_mstoken(n: int = 126) -> str:
@@ -56,53 +75,130 @@ def _rand_mstoken(n: int = 126) -> str:
     return "".join(random.choice(al) for _ in range(n))
 
 
-def resolve_sec_uid(profile_url: str) -> str:
-    """从输入解析作者 sec_uid。
+def _check_cancelled(is_cancelled=None):
+    if is_cancelled and is_cancelled():
+        raise InterruptedError("采集已取消")
 
-    支持:① 含 MS4w… 的主页链接 ② 整段分享文案(自动抠 URL)③ 短链/视频链接
-    (跟踪重定向 + 扫页面里嵌的作者 sec_uid)。识别不到给可操作的指引。
+
+def _read_anonymous_response(response, limit, *, is_cancelled=None, deadline):
+    """Bound body reads and wake a blocked urllib socket on cancel or deadline.
+
+    Closing a buffered response in another thread can itself wait for read's
+    lock. Shut down only this response's socket, then let its owner close it.
+    The watcher is joined before returning; no request thread is abandoned.
     """
-    raw = (profile_url or "").strip()
-    # 直接含 sec_uid(douyin.com/user/MS4w...)
-    m = _SEC_UID_RE.search(raw)
-    if m:
-        return m.group(0)
-    # 从整段文案里抠出第一个 URL
-    um = _URL_RE.search(raw)
-    if not um:
-        raise DouyinCollectError("没识别到链接。请粘贴作者主页链接(douyin.com/user/... )。")
-    url = um.group(0)
-    m = _SEC_UID_RE.search(url)
-    if m:
-        return m.group(0)
+    _check_cancelled(is_cancelled)
+    done, expired = threading.Event(), threading.Event()
+    connection = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
 
-    # 短链/视频链接:跟踪重定向(含中间 Location),扫 sec_uid
-    mid: dict = {}
+    def watch():
+        while not done.wait(.05):
+            cancelled = is_cancelled is not None and is_cancelled()
+            timed_out = time.monotonic() >= deadline
+            if cancelled or timed_out:
+                if timed_out:
+                    expired.set()
+                try:
+                    connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass  # The reader or peer may already have closed it.
+                return
 
-    class _Track(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, req, fp, code, msg, headers, newurl):
-            mm = _SEC_UID_RE.search(newurl)
-            if mm:
-                mid.setdefault("sec", mm.group(0))
-            return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-    op = urllib.request.build_opener(_Track, urllib.request.HTTPSHandler(context=_SSL))
+    watcher = None
+    if isinstance(connection, socket.socket):
+        watcher = threading.Thread(target=watch, name="lulu-douyin-response", daemon=True)
+        watcher.start()
     try:
-        with op.open(urllib.request.Request(url, headers={"User-Agent": _MOBILE_UA}), timeout=15) as resp:
-            final = resp.geturl()
-            body = resp.read(300_000).decode("utf-8", "ignore")
-    except Exception as exc:  # noqa: BLE001
-        raise DouyinCollectError("打不开这个链接 —— 可能网络不稳定,请稍后重试。") from exc
-    m = _SEC_UID_RE.search(final) or _SEC_UID_RE.search(body)
-    if m:
-        return m.group(0)
-    if "sec" in mid:
-        return mid["sec"]
-    raise DouyinCollectError(_NEED_PROFILE_MSG)
+        try:
+            body = response.read(limit)
+        except Exception:
+            _check_cancelled(is_cancelled)
+            if expired.is_set():
+                raise TimeoutError("抖音响应读取超时。") from None
+            raise
+        _check_cancelled(is_cancelled)
+        if expired.is_set() or time.monotonic() >= deadline:
+            raise TimeoutError("抖音响应读取超时。")
+        return body
+    finally:
+        done.set()
+        if watcher is not None:
+            watcher.join()
 
 
-def _register_ttwid() -> str:
+def _trusted_douyin_url(url):
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = (parts.hostname or "").lower()
+        return (parts.scheme in {"https", "http"} and parts.port in (None, 80, 443)
+                and parts.username is None and parts.password is None
+                and any(host == root or host.endswith("." + root)
+                        for root in ("douyin.com", "iesdouyin.com")))
+    except (ValueError, AttributeError):
+        return False
+
+
+def _resolve_douyin_link(profile_url: str, *, is_cancelled=None):
+    """Expand a short link to an exact homepage/work without reading its author."""
+    from .router import detect_link
+    _check_cancelled(is_cancelled)
+    identity = detect_link(profile_url)
+    if identity.platform != "douyin":
+        raise DouyinCollectError(_NEED_PROFILE_MSG, code="DOUYIN_INVALID_PROFILE")
+    url = identity.canonical_url
+    if identity.kind == "unknown" and urllib.parse.urlsplit(url).hostname != "v.douyin.com":
+        raise DouyinCollectError(_NEED_PROFILE_MSG, code="DOUYIN_INVALID_PROFILE")
+    if identity.kind == "unknown":
+        class _Track(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                _check_cancelled(is_cancelled)
+                if not _trusted_douyin_url(newurl):
+                    raise DouyinCollectError(_NEED_PROFILE_MSG, code="DOUYIN_INVALID_PROFILE")
+                return super().redirect_request(req, fp, code, msg, headers, newurl)
+        op = urllib.request.build_opener(_Track, urllib.request.HTTPSHandler(context=_SSL))
+        try:
+            with op.open(urllib.request.Request(url, headers={"User-Agent": _MOBILE_UA}), timeout=15) as resp:
+                final = resp.geturl()
+            _check_cancelled(is_cancelled)
+        except urllib.error.HTTPError as exc:
+            raise _http_failure(exc.code) from exc
+        except InterruptedError:
+            raise
+        except (urllib.error.URLError, OSError) as exc:
+            raise DouyinCollectError("暂时无法连接抖音，请检查网络后重试。", code="DOUYIN_NETWORK_ERROR") from exc
+        if not _trusted_douyin_url(final):
+            raise DouyinCollectError(_NEED_PROFILE_MSG, code="DOUYIN_INVALID_PROFILE")
+        parts = urllib.parse.urlsplit(final)
+        # Mobile work redirects use the same stable numeric work ID.
+        mobile = re.fullmatch(r"/share/video/([0-9]{1,64})/?", parts.path)
+        mobile_author = re.fullmatch(r"/share/user/(MS4w[\w-]+)/?", parts.path)
+        if mobile_author:
+            final = "https://www.douyin.com/user/" + mobile_author[1]
+        identity = detect_link("https://www.douyin.com/video/" + mobile[1] if mobile else final)
+    if identity.kind == "homepage" and _SEC_UID_RE.fullmatch(identity.extracted_id):
+        return identity
+    if identity.kind == "work" and _WORK_ID_RE.fullmatch(identity.extracted_id):
+        return identity
+    raise DouyinCollectError(_NEED_PROFILE_MSG, code="DOUYIN_INVALID_PROFILE")
+
+
+def resolve_sec_uid(profile_url: str, *, is_cancelled=None) -> str:
+    """Bind the exact homepage path or anonymous work detail to its author."""
+    identity = _resolve_douyin_link(profile_url, is_cancelled=is_cancelled)
+    if identity.kind == "homepage":
+        return identity.extracted_id
+    if identity.kind == "work":
+        options = {"is_cancelled": is_cancelled} if is_cancelled is not None else {}
+        item = fetch_item(identity.extracted_id, **options)
+        _check_cancelled(is_cancelled)
+        if item.work_id == identity.extracted_id and _SEC_UID_RE.fullmatch(item.author_id):
+            return item.author_id
+    raise DouyinCollectError(_NEED_PROFILE_MSG, code="DOUYIN_INVALID_PROFILE")
+
+
+def _register_ttwid(*, is_cancelled=None) -> str:
     """匿名调字节公开 ttwid 注册接口换真 ttwid(无登录、无账号)。"""
+    _check_cancelled(is_cancelled)
     payload = json.dumps({
         "region": "cn", "aid": 6383, "needFid": False, "service": "www.douyin.com",
         "migrate_info": {"ticket": "", "source": "node"}, "cbUrlProtocol": "https", "union": True,
@@ -113,19 +209,27 @@ def _register_ttwid() -> str:
     try:
         # 公开网页与详情 API 属于同一个匿名会话。仅 ttwid 的旧请求会被
         # Argus 拒绝；保留服务器给此会话的第一方 Cookie，不借用浏览器登录态。
+        deadline = time.monotonic() + 15
         with op.open(urllib.request.Request(
             "https://www.douyin.com/",
             headers={"User-Agent": _DESKTOP_UA}), timeout=15) as resp:
-            resp.read(300_000)
+            _read_anonymous_response(resp, 300_000, is_cancelled=is_cancelled, deadline=deadline)
+        _check_cancelled(is_cancelled)
+        deadline = time.monotonic() + 15
         with op.open(urllib.request.Request(
             "https://ttwid.bytedance.com/ttwid/union/register/", data=payload,
             headers={"Content-Type": "application/json", "User-Agent": _DESKTOP_UA}), timeout=15) as resp:
-            resp.read(64_000)
-    except Exception as exc:  # noqa: BLE001
-        raise DouyinCollectError("网络不稳定,初始化采集会话失败,请稍后重试。") from exc
+            _read_anonymous_response(resp, 64_000, is_cancelled=is_cancelled, deadline=deadline)
+        _check_cancelled(is_cancelled)
+    except urllib.error.HTTPError as exc:
+        raise _http_failure(exc.code) from exc
+    except InterruptedError:
+        raise
+    except (urllib.error.URLError, OSError) as exc:
+        raise DouyinCollectError("暂时无法连接抖音，请检查网络后重试。", code="DOUYIN_NETWORK_ERROR") from exc
     cookie = "; ".join(f"{c.name}={c.value}" for c in cj)
     if "ttwid=" not in cookie:
-        raise DouyinCollectError("初始化采集会话失败(没拿到访问凭证),请稍后重试。")
+        raise DouyinCollectError("抖音未能建立匿名访问会话，请稍后重试。", code="DOUYIN_EMPTY_RESPONSE")
     return cookie
 
 
@@ -152,20 +256,50 @@ def parse_aweme_list(payload: dict) -> list[CollectedItem]:
     return dedupe(items)
 
 
+def parse_author_page(payload: object, sec_uid: str) -> list[CollectedItem]:
+    """Accept a successful first page only when every work proves its author."""
+    changed = "抖音返回的作品数据不完整或格式已变化，请更新 Lulu 后重试。"
+    if not isinstance(payload, dict) or type(payload.get("status_code")) is not int:
+        raise DouyinCollectError(changed, code="DOUYIN_PLATFORM_CHANGED")
+    if payload["status_code"] != 0:
+        raise DouyinCollectError("抖音服务未返回成功的作品结果，请稍后重试。", code="DOUYIN_SERVICE_ERROR")
+    works = payload.get("aweme_list")
+    if not isinstance(works, list):
+        raise DouyinCollectError(changed, code="DOUYIN_PLATFORM_CHANGED")
+    if not works:
+        raise DouyinCollectError("没有读取到作品，目前无法确认主页真实为空。", code="DOUYIN_EMPTY_LIST")
+    for work in works:
+        if not isinstance(work, dict):
+            raise DouyinCollectError(changed, code="DOUYIN_PLATFORM_CHANGED")
+        author = work.get("author")
+        if (not _WORK_ID_RE.fullmatch(str(work.get("aweme_id") or ""))
+                or not isinstance(author, dict) or author.get("sec_uid") != sec_uid):
+            raise DouyinCollectError(changed, code="DOUYIN_PLATFORM_CHANGED")
+    try:
+        return parse_aweme_list(payload)
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise DouyinCollectError(changed, code="DOUYIN_PLATFORM_CHANGED") from exc
+
+
 def parse_aweme_detail(payload: dict, expected_work_id: str) -> CollectedItem:
     """只接受状态成功且身份与请求完全一致的一条作品详情。"""
 
     work_id = str(expected_work_id or "")
     if _WORK_ID_RE.fullmatch(work_id) is None:
-        raise DouyinCollectError("作品身份无效，无法刷新音视频地址。")
-    if not isinstance(payload, dict) or payload.get("status_code") != 0:
-        raise DouyinCollectError("抖音没有返回可用的作品详情，请稍后重试。")
+        raise DouyinCollectError("作品身份无效，无法刷新音视频地址。", code="DOUYIN_INVALID_PROFILE")
+    if not isinstance(payload, dict) or type(payload.get("status_code")) is not int:
+        raise DouyinCollectError("作品详情格式无法识别，请重新采集主页。", code="DOUYIN_PLATFORM_CHANGED")
+    if payload["status_code"] != 0:
+        raise DouyinCollectError("抖音暂时没有返回成功的作品详情，请稍后重试。", code="DOUYIN_SERVICE_ERROR")
     detail = payload.get("aweme_detail")
     if not isinstance(detail, dict):
         raise DouyinCollectError("抖音没有返回可用的作品详情，请稍后重试。", code="DOUYIN_EMPTY_DETAIL")
-    item = from_aweme(detail)
+    try:
+        item = from_aweme(detail)
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise DouyinCollectError("作品详情格式无法识别，请重新采集主页。", code="DOUYIN_PLATFORM_CHANGED") from exc
     if item.work_id != work_id:
-        raise DouyinCollectError("作品详情身份不一致，已停止下载。")
+        raise DouyinCollectError("作品详情身份不一致，已停止下载。", code="DOUYIN_PLATFORM_CHANGED")
     return item
 
 
@@ -184,13 +318,16 @@ def _build_detail_params(work_id: str) -> str:
     })
 
 
-def fetch_item(work_id: str) -> CollectedItem:
+def fetch_item(work_id: str, *, is_cancelled=None) -> CollectedItem:
     """匿名按稳定作品 ID 刷新一条抖音详情与临时播放地址。"""
 
+    _check_cancelled(is_cancelled)
     identity = str(work_id or "")
     if _WORK_ID_RE.fullmatch(identity) is None:
-        raise DouyinCollectError("作品身份无效，无法刷新音视频地址。")
-    cookie = _register_ttwid()
+        raise DouyinCollectError("作品身份无效，无法刷新音视频地址。", code="DOUYIN_INVALID_PROFILE")
+    options = {"is_cancelled": is_cancelled} if is_cancelled is not None else {}
+    cookie = _register_ttwid(**options)
+    _check_cancelled(is_cancelled)
     params = _build_detail_params(identity)
     _, a_bogus, ua, _ = ABogus().generate_abogus(params)
     url = f"{_DETAIL_API}?{params}&a_bogus={urllib.parse.quote(a_bogus)}"
@@ -201,19 +338,25 @@ def fetch_item(work_id: str) -> CollectedItem:
             "Accept": "application/json, text/plain, */*",
             "Cookie": cookie,
         })
-        with urllib.request.urlopen(req, timeout=20, context=_SSL) as resp:
-            body = resp.read().decode("utf-8", "ignore")
+        deadline = time.monotonic() + _ANONYMOUS_REQUEST_TIMEOUT_S
+        with urllib.request.urlopen(req, timeout=_ANONYMOUS_REQUEST_TIMEOUT_S, context=_SSL) as resp:
+            body = _read_anonymous_response(resp, _MAX_RESPONSE_BYTES + 1,
+                                            is_cancelled=is_cancelled, deadline=deadline)
     except urllib.error.HTTPError as exc:
-        if exc.code in (401, 403, 429):
+        if exc.code in (401, 403):
             raise DouyinCollectError(f"抖音暂时拒绝匿名详情请求（HTTP {exc.code}）。", code="DOUYIN_ACCESS_RESTRICTED") from exc
-        raise DouyinCollectError(f"抖音详情请求失败（HTTP {exc.code}）。") from exc
-    except Exception as exc:  # noqa: BLE001
-        raise DouyinCollectError("网络不稳定，无法刷新音视频地址，请稍后重试。") from exc
+        raise _http_failure(exc.code) from exc
+    except InterruptedError:
+        raise
+    except (urllib.error.URLError, OSError, IncompleteRead) as exc:
+        raise DouyinCollectError("网络不稳定，无法刷新音视频地址，请稍后重试。", code="DOUYIN_NETWORK_ERROR") from exc
     if not body:
         raise DouyinCollectError("抖音没有返回作品详情，请稍后重试。", code="DOUYIN_EMPTY_DETAIL")
+    if len(body) > _MAX_RESPONSE_BYTES:
+        raise DouyinCollectError("抖音作品详情超出当前可读取范围。", code="DOUYIN_PLATFORM_CHANGED")
     try:
         payload = json.loads(body)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise DouyinCollectError("抖音作品详情格式已变化，请重新采集主页。", code="DOUYIN_EMPTY_DETAIL") from exc
     return parse_aweme_detail(payload, identity)
 
@@ -228,10 +371,12 @@ def fetch_item_with_page_fallback(work_id, progress):
         return fetch_rendered_item(work_id, progress)
 
 
-def fetch_latest(profile_url: str, count: int = 20) -> list[CollectedItem]:
+def fetch_latest(profile_url: str, count: int = 20, *, is_cancelled=None) -> list[CollectedItem]:
     """路 A:抓该作者最新一页作品(约 15~20 条,抖音返回数不定)+ 9 项数据。匿名、不登录。"""
-    sec_uid = resolve_sec_uid(profile_url)
-    cookie = _register_ttwid()
+    _check_cancelled(is_cancelled)
+    sec_uid = resolve_sec_uid(profile_url, is_cancelled=is_cancelled)
+    cookie = _register_ttwid(is_cancelled=is_cancelled)
+    _check_cancelled(is_cancelled)
     params = _build_params(sec_uid, count)
     _, a_bogus, ua, _ = ABogus().generate_abogus(params)
     url = f"{_POST_API}?{params}&a_bogus={urllib.parse.quote(a_bogus)}"
@@ -239,15 +384,23 @@ def fetch_latest(profile_url: str, count: int = 20) -> list[CollectedItem]:
         req = urllib.request.Request(url, headers={
             "User-Agent": ua, "Referer": f"https://www.douyin.com/user/{sec_uid}",
             "Accept": "application/json, text/plain, */*", "Cookie": cookie})
-        with urllib.request.urlopen(req, timeout=20, context=_SSL) as resp:
-            body = resp.read().decode("utf-8", "ignore")
-    except Exception as exc:  # noqa: BLE001
-        raise DouyinCollectError("网络不稳定,抓取失败,请稍后再试。") from exc
-    if not body:
-        raise DouyinCollectError(
-            "抖音没有返回数据 —— 可能是临时风控,稍等片刻再试;若反复失败,可能是抖音改版需更新。")
+        deadline = time.monotonic() + _ANONYMOUS_REQUEST_TIMEOUT_S
+        with urllib.request.urlopen(req, timeout=_ANONYMOUS_REQUEST_TIMEOUT_S, context=_SSL) as resp:
+            raw_body = _read_anonymous_response(resp, _MAX_RESPONSE_BYTES + 1,
+                                                is_cancelled=is_cancelled, deadline=deadline)
+        _check_cancelled(is_cancelled)
+    except urllib.error.HTTPError as exc:
+        raise _http_failure(exc.code) from exc
+    except InterruptedError:
+        raise
+    except (urllib.error.URLError, OSError, IncompleteRead) as exc:
+        raise DouyinCollectError("暂时无法连接抖音，请检查网络后重试。", code="DOUYIN_NETWORK_ERROR") from exc
+    if len(raw_body) > _MAX_RESPONSE_BYTES:
+        raise DouyinCollectError("抖音返回的数据超出当前可读取范围。", code="DOUYIN_PLATFORM_CHANGED")
+    if not raw_body.strip():
+        raise DouyinCollectError("抖音没有返回可读取的作品数据。", code="DOUYIN_EMPTY_RESPONSE")
     try:
-        payload = json.loads(body)
-    except json.JSONDecodeError as exc:
-        raise DouyinCollectError("抖音返回了无法解析的数据,可能是平台改版,请反馈给开发者。") from exc
-    return parse_aweme_list(payload)
+        payload = json.loads(raw_body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise DouyinCollectError("抖音返回的数据格式已变化，请更新 Lulu 后重试。", code="DOUYIN_PLATFORM_CHANGED") from exc
+    return parse_author_page(payload, sec_uid)

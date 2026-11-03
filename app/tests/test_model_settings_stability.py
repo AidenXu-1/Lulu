@@ -95,12 +95,12 @@ class ConnectionStabilityTests(unittest.TestCase):
 
     def test_asr_save_failure_restores_key_selection_and_public_state(self):
         old_engine = self.cfg.engine_name
-        self.keys['openai'] = '{"api_key":"original-temporary-asr-key"}'
+        self.keys['siliconflow'] = '{"api_key":"original-temporary-asr-key"}'
         keys_before = dict(self.keys)
         public_before = self.service.snapshot()['cloudConfigs']
         self.cfg.save.side_effect = [False, True]
         with self.assertRaisesRegex(RuntimeError, '已恢复原密钥和默认模型'):
-            self.service.execute('save_connection', dict(purpose='extract', provider='openai',
+            self.service.execute('save_connection', dict(purpose='extract', provider='siliconflow',
                 key='new-temporary-asr-key', mode='api', region=0))
         self.assertEqual(self.cfg.engine_name, old_engine)
         self.assertEqual(self.keys, keys_before)

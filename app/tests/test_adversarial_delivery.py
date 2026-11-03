@@ -1,6 +1,7 @@
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -247,9 +248,23 @@ class UpdateAdversarialTests(unittest.TestCase):
     def test_real_process_identity_preserves_long_executable_path_with_spaces(self):
         with tempfile.TemporaryDirectory() as folder:
             executable = Path(folder).resolve()/('long application name '*8)/'Lulu.app/Contents/MacOS/Lulu'
-            executable.parent.mkdir(parents=True); shutil.copy('/bin/sleep', executable)
-            child = subprocess.Popen([str(executable), '20'])
+            # Relocating a signed system binary can be killed by macOS before
+            # probing it. Build our own bounded helper at the exact tested path.
+            # Clang is already required by the candidate's native build tools.
+            executable.parent.mkdir(parents=True)
+            subprocess.run(['/usr/bin/clang', '-x', 'c', '-o', str(executable), '-'],
+                input='#include <stdio.h>\n#include <unistd.h>\n'
+                      'int main(void) { puts("ready"); fflush(stdout); sleep(20); return 0; }\n',
+                text=True, capture_output=True, check=True, timeout=30)
+            child = subprocess.Popen([str(executable), '20'], stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE)
             try:
+                from selectors import DefaultSelector, EVENT_READ
+                with DefaultSelector() as selector:
+                    selector.register(child.stdout, EVENT_READ)
+                    self.assertTrue(selector.select(timeout=5), 'Local helper did not become ready')
+                    self.assertEqual(child.stdout.readline(), b'ready\n')
+                self.assertIsNone(child.poll(), 'Local helper exited before identity probes')
                 started, actual = process_identity.process_identity(child.pid)
                 self.assertEqual(Path(actual).resolve(), executable)
                 self.assertTrue(process_identity.matches_process(child.pid, started, str(executable)))
@@ -257,6 +272,7 @@ class UpdateAdversarialTests(unittest.TestCase):
                 self.assertFalse(restart_recovery.running_app(executable.parents[2], exclude_pid=child.pid))
             finally:
                 child.terminate(); child.wait(timeout=5)
+                child.stdout.close(); child.stderr.close()
             self.assertIsNone(process_identity.process_identity(child.pid))
 
     def test_recovery_query_failure_preserves_app_lock_and_visible_error(self):

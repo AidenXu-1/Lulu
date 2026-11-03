@@ -28,6 +28,12 @@ from ..models import TranscriptCover, normalize_official_cover_url
 ProgressCallback = Callable[[str, float], None]
 
 
+class InvalidRemoteMediaError(RuntimeError):
+    """The downloaded response contains unusable media, not a local I/O fault."""
+
+    code = "MEDIA_REMOTE_CONTENT_INVALID"
+
+
 def _progress_bytes(value: int) -> str:
     clean = max(0, int(value))
     if clean < 1024 * 1024:
@@ -960,15 +966,16 @@ def _stream_download(
 
 def _ensure_downloaded_media_looks_valid(path: Path) -> None:
     """抖音直链偶发返回异常内容/半截 mp4;先挡住,别把 ffmpeg 内部日志直接甩给用户。"""
-    data = path.read_bytes()[:4096]
+    with path.open("rb") as source:
+        data = source.read(4096)
     if not data:
-        raise RuntimeError("媒体文件为空")
+        raise InvalidRemoteMediaError("媒体文件为空")
     stripped = data.lstrip()[:80].lower()
     if stripped.startswith((b"<html", b"<!doctype", b"{", b"[")):
-        raise RuntimeError("下载到的不是媒体文件")
+        raise InvalidRemoteMediaError("下载到的不是媒体文件")
     media_magic = data.startswith((b"ID3", b"OggS", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"))
     if b"ftyp" not in data[:256] and not media_magic:
-        raise RuntimeError("媒体文件头异常")
+        raise InvalidRemoteMediaError("媒体文件头异常")
 
 
 def _walk(obj, path: str = ""):

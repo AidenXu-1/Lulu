@@ -26,6 +26,7 @@ Run `~/.local/bin/lulu capabilities --output json` after verification and before
 - For direct-safe, confirmation, human handoff, GUI-only, job, partial, cancellation, or recovery flows, read [workflows.md](references/workflows.md).
 - For 下载链接视频、提取音频、保存封面、采集作品数据 requests, read [links.md](references/links.md). Use independent extraction; no transcription model is required. Check EXTRACT-01/02/03/04 availability, which is separate from TR-05.
 - For public URL transcription or subtitles, read the URL transcription section in [workflows.md](references/workflows.md) before calling `prepare`.
+- For cloud batch transcription (百炼、硅基流动、自定义、火山豆包语音), newer link/batch transcription, Douyin homepage, RSS, export/Obsidian, folders/trash, reference-voice management, models/settings/updates or live-recording commands, read [expansion.md](references/expansion.md). Discover each installed command first; older Apps do not acquire these functions from this Skill update.
 - When a CLI result is not successful, read [errors.md](references/errors.md) before deciding whether to stop, wait, or continue.
 
 ## Hard boundary

@@ -31,6 +31,7 @@ class Provider:
     signup_url: str = ""
     price_hint: str = ""
     experimental: bool = False
+    retired: bool = False
     fields: tuple[Field, ...] = ()
 
 
@@ -55,14 +56,16 @@ PRESETS: dict[str, Provider] = {
         price_hint="阿里原厂,中文最强",
         fields=(Field("api_key", "API Key", placeholder="sk-...(阿里云百炼 / DashScope)"),),
     ),
-    "openai": Provider(
-        id="openai", display_name="OpenAI · gpt-4o-transcribe(云端)",
-        kind="openai_compat", requires_network=True, needs_key=True,
-        base_url="https://api.openai.com/v1",
-        default_model="gpt-4o-transcribe",
-        signup_url="https://platform.openai.com/api-keys",
-        price_hint="质量高,约 $0.2/小时,需国际网络",
-        fields=(_KEY,),
+    # Minimal metadata keeps historical drafts and billing records readable.
+    "openai": Provider(id="openai", display_name="OpenAI（已移除）", kind="openai_compat",
+        requires_network=True, retired=True, default_model="gpt-4o-transcribe"),
+    "volcengine": Provider(
+        id="volcengine", display_name="火山引擎 · 豆包录音识别极速版(云端)",
+        kind="volcano", requires_network=True, needs_key=True,
+        default_model="volc.bigasr.auc_turbo",
+        signup_url="https://console.volcengine.com/speech/app",
+        price_hint="豆包语音录音文件识别极速版，需开通对应服务",
+        fields=(Field("api_key", "豆包语音 API Key", placeholder="豆包语音新版 API Key，需开通极速版"),),
     ),
     "siliconflow": Provider(
         id="siliconflow", display_name="硅基流动 · SenseVoice(云端)",
@@ -73,15 +76,8 @@ PRESETS: dict[str, Provider] = {
         price_hint="和本地同款模型,价格极低,中文稳",
         fields=(_KEY,),
     ),
-    "groq": Provider(
-        id="groq", display_name="Groq · Whisper-v3-turbo(云端)",
-        kind="openai_compat", requires_network=True, needs_key=True,
-        base_url="https://api.groq.com/openai/v1",
-        default_model="whisper-large-v3-turbo",
-        signup_url="https://console.groq.com/keys",
-        price_hint="超快,约 $0.04/小时,中文尚可",
-        fields=(_KEY,),
-    ),
+    "groq": Provider(id="groq", display_name="Groq（已移除）", kind="openai_compat",
+        requires_network=True, retired=True, default_model="whisper-large-v3-turbo"),
     "custom_openai": Provider(
         id="custom_openai", display_name="自定义 · OpenAI 兼容(云端)",
         kind="openai_compat", requires_network=True, needs_key=True,
@@ -111,17 +107,18 @@ PRESETS = {**_LOCAL_PRESETS, **PRESETS}
 
 
 def all_presets() -> list[Provider]:
-    return list(PRESETS.values())
+    return [p for p in PRESETS.values() if not p.retired]
 
 
 def get_preset(engine_id: str) -> Provider | None:
-    return PRESETS.get(engine_id)
+    provider = PRESETS.get(engine_id)
+    return provider if provider and not provider.retired else None
 
 
 def configuration_snapshot(engine_id: str) -> ProviderConfigSnapshot:
     """一次只读安全读取，返回是否配置及实际模型名，不暴露原始 Key。"""
     provider = PRESETS.get(engine_id)
-    if provider is None:
+    if provider is None or provider.retired:
         return ProviderConfigSnapshot(configured=False, model_name="")
     if not provider.needs_key:
         model_name = provider.default_model or provider.display_name.replace("本地 · ", "").strip()

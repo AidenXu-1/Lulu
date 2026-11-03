@@ -214,6 +214,7 @@ class TaskSyncRecoveryTests(TestCase):
         self.fixture.reject = None
         self.widget.dispatch("expanded", {"id": row["id"], "expanded": True})
         self.widget.publish(force=True)
+        self.js("setTaskFilter('batch')")
         selector = '[...document.querySelectorAll(".member button")].find(b=>b.textContent.trim()==="继续")'
         self.until(lambda: self.js(f'Boolean({selector})'))
         self.js(f'({selector}).click()')

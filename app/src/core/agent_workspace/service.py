@@ -10,18 +10,25 @@ from uuid import uuid4
 from .. import library
 from . import documents
 from .store import WorkspaceStore, encode, identity
+from .operations import ExpansionOperations
 
 
 OPERATIONS = frozenset({"list", "bootstrap", "library_view", "open", "create_document", "save", "receipt", "recover_draft", "view_state",
                        "conversations", "new_conversation", "open_conversation", "save_draft",
                        "proposal_plan", "proposal_apply", "proposal_discard", "history", "restore",
-                       "folders", "move", "rename_folder", "create_folder", "delete_folder", "delete", "trash", "restore_deleted", "purge_deleted", "trash_policy", "cleanup_trash",
+                       "folders", "move", "rename_folder", "create_folder", "delete_folder", "delete", "system_delete", "trash", "restore_deleted", "purge_deleted", "trash_policy", "cleanup_trash",
                        "reference", "messages", "presets", "save_preset", "delete_preset", "audio", "catalog", "connections",
                        "save_connection", "discover_models", "select_connection", "context", "send", "compact", "run_status", "cancel_run", "runs", "migrate", "templates", "snapshot", "conversation_snapshot", "tool_handoff", "voice_target", "storage_status", "backup", "restore_backup"})
 OPERATIONS = OPERATIONS | frozenset({'prepare_media', 'start_media', 'media_status', 'media_tasks', 'cancel_media', 'recover_media'})
 OPERATIONS = OPERATIONS | frozenset({'skills', 'rename_conversation', 'edit_document', 'undo_edit', 'archive_conversation', 'tool_catalog'})
 OPERATIONS = OPERATIONS | frozenset({'delete_conversation', 'skill_list', 'skill_details', 'skill_inspect', 'skill_install', 'skill_uninstall', 'skill_configure', 'skill_export', 'skill_drafts', 'skill_migrate_presets', 'skill_update'})
 OPERATIONS = OPERATIONS | frozenset({'recover_document'})
+OPERATIONS = OPERATIONS | frozenset({'order_folders', 'export_document', 'save_obsidian',
+    'voice_list', 'voice_create', 'voice_update', 'voice_delete', 'live',
+    'batch_prepare', 'batch_start', 'batch_show', 'batch_list', 'batch_cancel',
+    'rss_fetch', 'rss_feeds', 'rss_select', 'collect_prepare', 'collect_history', 'collect_select', 'collect_export'})
+OPERATIONS = OPERATIONS | frozenset({'control_poll', 'control_show', 'settings_show', 'settings_apply', 'models_list', 'models_action', 'updates', 'batch_download'})
+OPERATIONS = OPERATIONS | frozenset({'batch_stage', 'batch_configure', 'batch_control'})
 
 
 def _conversation_task_payloads(conversation_id, runner):
@@ -76,7 +83,7 @@ def _remove_conversation_task_payloads(paths):
         path.unlink()
 
 
-class WorkspaceService:
+class WorkspaceService(ExpansionOperations):
     def __init__(self, store=None, runtime=None, origin="gui"):
         self._store = store
         self.runtime = runtime
@@ -773,13 +780,33 @@ class WorkspaceService:
             library.delete(document_id)
         return {"document_id": document_id, "deleted": True}
 
+    def system_delete(self, document_id, confirmed=False):
+        if confirmed is not True:
+            raise ValueError('请先确认移入系统废纸篓')
+        from ..trash_cleanup import system_trash
+        with library._transaction():
+            documents.recover(document_id)
+            library.delete(document_id)
+            row = next((r for r in library.list_deleted() if r['id']==document_id), None)
+            if not row:
+                raise FileNotFoundError('资料不存在，请刷新列表')
+            try:
+                result = system_trash(row['token'], True)
+            except Exception:
+                receipt = library._dir()/'.trash'/(row['token']+'.json')
+                from ..trash_cleanup import _read
+                if receipt.exists():
+                    library.restore_deleted(row['token'])
+                raise
+            return {**result, 'document_id':document_id}
+
     def trash(self, token=None):
         return library.deleted_preview(token) if token is not None else library.list_deleted()
 
     def purge_deleted(self, token, confirmed=False):
-        from ..trash_cleanup import purge
+        from ..trash_cleanup import system_trash
         try:
-            return purge(token, confirmed=confirmed)
+            return system_trash(token, confirmed=confirmed)
         except OSError as exc:
             raise ValueError("部分文件未能删除，剩余内容已保留，请重试") from exc
 

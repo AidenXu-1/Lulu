@@ -177,7 +177,11 @@ class ExtractionWorkspaceTests(ExtractionWorkspaceFixture,unittest.TestCase):
         self.assertFalse(self.widget._deleting)
         self.assertEqual(task.state,TaskState.RUNNING)
 
+
+
+
     def test_native_actions_and_batch(self):
+        self.js("setTaskFilter('batch')")
         for i in range(7):(self.root/f'{i}.wav').write_bytes(b'fixture')
         self.widget.add_files([str(p) for p in self.root.glob('*.wav')]);self.widget.publish(force=True)
         self.until(lambda:self.js('document.querySelectorAll(".task-group").length')==1)
@@ -226,6 +230,7 @@ class ExtractionWorkspaceTests(ExtractionWorkspaceFixture,unittest.TestCase):
             self.widget.grab().save(str(Path(destination)/'native-paper-model-menu.png'))
         self.assertIn('prefers-reduced-motion', (Path(__file__).parents[1]/'src/ui/extraction/assets/host.css').read_text())
     def test_skipped_batch_members_remain_visible(self):
+        self.js("setTaskFilter('batch')")
         from src.core.task import TaskGroup,TaskGroupMember
         self.main.task_groups=[TaskGroup(id=1,name='无法加入的作品',members=[TaskGroupMember(stable_key='a',title='已下架',skipped_reason='作品已无法访问')])]
         self.widget.publish(force=True)
@@ -323,7 +328,10 @@ class ExtractionOverlayTests(ExtractionWorkspaceFixture,unittest.TestCase):
             self.assertNotIn('OpenAI',self.js('document.querySelector("#model-options").textContent'))
             height=self.js('document.querySelector("#model-menu").offsetHeight')
             self.js('document.querySelector("#model-tab-cloud").click()')
-            self.assertEqual(self.js('document.querySelectorAll(".model-option").length'),5)
+            self.assertEqual(self.js('document.querySelectorAll(".model-option").length'),4)
+            self.assertFalse(self.js('Boolean(document.querySelector(".model-option[data-model-id=openai]"))'))
+            self.assertFalse(self.js('Boolean(document.querySelector(".model-option[data-model-id=groq]"))'))
+            self.assertTrue(self.js('Boolean(document.querySelector(".model-option[data-model-id=volcengine]"))'))
             self.assertNotIn('SenseVoice-Small',self.js('document.querySelector("#model-options").textContent'))
             self.assertEqual(self.js('document.querySelector("#model-menu").offsetHeight'),height)
             self.assertEqual(self.js('document.querySelector("#model-options").clientHeight'),192)

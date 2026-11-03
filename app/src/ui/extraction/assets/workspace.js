@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-let skippedGroups=[],tasks=[],filter='all',page='extract',urlText='',recording=false,source='麦克风',recordFolder='',recSeconds=0;
+let skippedGroups=[],tasks=[],filter='single',page='extract',urlText='',recording=false,source='麦克风',recordFolder='',recSeconds=0;
 let modelOptions=[],chosenModel='',modelMenuOpen=false,modelTab='local',modalTaskTarget=null,folderTarget=null;
 let expanded=new Set(),bridge=null,sequence=0,pending=new Map(),toastTimer,previousFocus;
 paths.monitor='M3 4h18v12H3z M12 16v5 M8 21h8';paths.mix='M3 8h3l4 8h4l4-8h3 M3 16h3l4-8h4l4 8h3';
@@ -21,10 +21,26 @@ function targetsFor(target){const [kind,id]=target.split(':'),t=tasks.find(x=>x.
 const targetRepresentative=target=>targetsFor(target)[0];
 function pickFiles(){act('files')}
 function stageLink(text){urlText=text;const input=$('#url');input.value=text;$('#urlError').hidden=true;input.focus()}
-function grab(e){e.preventDefault();if(!/https?:\/\/[^\s]+/.test(urlText)){$('#urlError').textContent='请粘贴有效的作品链接';$('#urlError').hidden=false;return}call('link',{text:urlText}).then(()=>{urlText='';$('#url').value='';$('#urlError').hidden=true}).catch(e=>toast(e.message))}
+let linkSubmitting=false;
+function syncLinkSubmit(){const button=document.querySelector('.url-form button[type="submit"]');if(button){button.disabled=linkSubmitting;button.setAttribute('aria-busy',String(linkSubmitting));button.textContent=linkSubmitting?'正在加入…':'加入任务'}}
+function grab(e){
+ e.preventDefault();if(linkSubmitting)return;
+ if(!/https?:\/\/[^\s]+/.test(urlText)){$('#urlError').textContent='请粘贴有效的作品链接';$('#urlError').hidden=false;return}
+ const submitted=urlText;linkSubmitting=true;
+ syncLinkSubmit();
+ call('link',{text:submitted}).then(value=>{
+  if(value!==false&&urlText===submitted){urlText='';$('#url').value='';$('#urlError').hidden=true}
+ }).catch(e=>toast(e.message)).finally(()=>{
+  linkSubmitting=false;syncLinkSubmit();
+ });
+}
 function changeChoice(target,key,value){act('choice',{ids:targetsFor(target).map(t=>t.id),key,value})}
 function chooseFolder(kind){act('folder',{kind,ids:kind==='task'?targetsFor(folderTarget).map(t=>t.id):[]})}
-function setSource(value){act('record_source',{value})}
+function syncRecordSource(value){
+ const group=document.querySelector('.record-source');
+ if(group){group.dataset.source=value;group.querySelectorAll('button').forEach(button=>{const selected=button.textContent===value;button.classList.toggle('on',selected);button.setAttribute('aria-pressed',String(selected))})}
+}
+function setSource(value){syncRecordSource(value);act('record_source',{value})}
 function toggleRecord(){act('record')}
 function cancelRecord(){act('record_cancel')}
 function start(id){act('start',{ids:[id]})}
@@ -33,11 +49,19 @@ function startAll(group=null){
  act('start',{ids:scope.filter(t=>(resume?isRecoverable(t):isStartable(t))&&validOutput(t)).map(t=>t.id)});
 }
 function cancel(id){act('cancel',{ids:[id]})}
-function deleted(ids){call('delete',{ids}).then(()=>{toast('已移除任务');const b=document.createElement('button');b.textContent='撤销';b.onclick=()=>{act('undo_delete');$('#toast').hidden=true};$('#toast').append(b);clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,6000)}).catch(e=>toast(e.message))}
+function deleted(ids){call('delete',{ids}).then(()=>{toast('已移除任务');const b=document.createElement('button');b.textContent='撤销';b.onclick=()=>{act('undo_delete');hideToast()};$('#toast').append(b);clearTimeout(toastTimer);toastTimer=setTimeout(hideToast,6000)}).catch(e=>toast(e.message))}
+let clearingTasks=false;
+function clearTasks(){
+ if(clearingTasks)return;clearingTasks=true;
+ const scope=filter,label=scope==='batch'?'批量处理任务':'独立任务';
+ renderBoard();
+ call('clear_tasks',{scope}).then(value=>{if(value!==false)toast(label+'已清空，原文件和已有结果保留')}).catch(e=>toast(e.message)).finally(()=>{clearingTasks=false;renderBoard()});
+}
 function removeTask(id){deleted([id])}
 function removeTaskGroup(id){const t=tasks.find(x=>x.id===id);if(t)deleted(tasks.filter(x=>x.group===t.group).map(x=>x.id))}
 function toggleGroup(id){const g=tasks.find(t=>t.id===id)?.group;if(expanded.has(g))expanded.delete(g);else expanded.add(g);renderBoard();act('expanded',{id,expanded:expanded.has(g)})}
-function toast(text){clearTimeout(toastTimer);$('#toast').textContent=text;$('#toast').hidden=false;toastTimer=setTimeout(()=>$('#toast').hidden=true,4000)}
+function hideToast(){clearTimeout(toastTimer);const el=$('#toast');el.classList.remove('show');toastTimer=setTimeout(()=>{el.hidden=true},180)}
+function toast(text){clearTimeout(toastTimer);const el=$('#toast');el.textContent=text;el.hidden=false;requestAnimationFrame(()=>el.classList.add('show'));toastTimer=setTimeout(hideToast,4000)}
 function openModal(title,content,kind=''){
  if($('#modalback').hidden)previousFocus=document.activeElement;
  modelMenuOpen=false;renderModelPicker();
@@ -70,8 +94,8 @@ function showResult(id){
  const warning=t.error?`<section class="result-warning" role="status"><div>${icon('info')}<strong>部分内容未完成</strong></div><p>${esc(t.error)}</p>${t.state==='done'&&!t.readOnly?`<button class="textbtn" onclick="${command('retry_missing')}">${icon('refresh')}重试未完成的内容</button>`:''}</section>`:'';
  openModal(t.name,`<div class="result-assets"><div class="result-overview"><span class="result-state ${t.error?'partial':''}">${icon(t.error?'info':'check')}${t.error?'部分完成':'提取完成'}</span><span>${esc(platformName(t.platform))}</span>${t.elapsed?`<span>用时 ${clockText(t.elapsed)}</span>`:''}</div>${document}${files}${warning}${!document&&!files&&!warning?'<p class="result-empty">暂无可查看的结果</p>':''}</div>`,'result');
 }
-function positionWorkbench(){const w=$('#workbench'),h=$('.pagehead'),error=$('#startup-error'),space=h.offsetHeight+parseFloat(getComputedStyle(h).marginBottom)+(error.hidden?0:error.offsetHeight+parseFloat(getComputedStyle(error).marginBottom));const offset=!tasks.length&&!skippedGroups.length?Math.max(0,($('#main').clientHeight-w.offsetHeight)/2-parseFloat(getComputedStyle($('#workspace')).paddingTop)-space-14):0;w.style.transform=`translateY(${offset}px)`}
-function updateLayout(){$('#workspace').classList.toggle('empty-workspace',!tasks.length&&!skippedGroups.length);$('#board').hidden=!tasks.length&&!skippedGroups.length;requestAnimationFrame(positionWorkbench)}
+function positionWorkbench(){const w=$('#workbench'),h=$('.pagehead'),error=$('#startup-error'),space=h.offsetHeight+parseFloat(getComputedStyle(h).marginBottom)+(error.hidden?0:error.offsetHeight+parseFloat(getComputedStyle(error).marginBottom));const offset=!tasks.length&&!skippedGroups.length&&!workspaceBatches.length&&!legacyBatchCount&&!batchError?Math.max(0,($('#main').clientHeight-w.offsetHeight)/2-parseFloat(getComputedStyle($('#workspace')).paddingTop)-space-14):0;w.style.transform=`translateY(${offset}px)`}
+function updateLayout(){const exiting=document.querySelector('.task-exit'),present=tasks.length||skippedGroups.length||nativeVisibleBatches().length||batchError||exiting||boardCards.size;$('#workspace').classList.toggle('empty-workspace',!present);$('#board').hidden=!present;requestAnimationFrame(positionWorkbench)}
 function progressCard(t){const done=t.state==='done',running=t.state==='running',ahead=tasks.slice(0,tasks.indexOf(t)).filter(isInQueue).length;
 return `<article class="job task-card process-card ${t.state}" data-job="${t.id}" aria-label="${esc(t.name)}">${deleteButton(t)}<div class="process-source">${platformIcon(t)}<span>${taskDescription(t)}</span><span class="process-status ${t.state}"><i></i>${taskStatusLabel(t)}</span></div><div class="jobtitle" title="${esc(t.name)}">${esc(t.name)}</div><div class="process-outputs">${outputNames(t.outputs).map(n=>`<span>${n}</span>`).join('')}</div>${running?`<div class="live-progress"><div class="live-heading"><div><strong class="live-stage" role="status">${esc(t.message)}</strong><small class="live-detail">${t.outputs.text?'模型 · '+esc(modelLabel(t.model)):'获取所选素材'}</small></div><div class="live-number"><small>当前阶段</small><strong></strong><span></span></div></div><div class="live-track" role="progressbar" aria-label="处理进度"><i></i></div><div class="phase-rail">${['获取',...(t.outputs.text?['转录']:[]),'保存'].map(n=>`<div class="phase"><div class="phase-caption"><i></i><span>${n}</span></div><div class="phase-track"><span></span></div></div>`).join('')}</div></div><div class="process-footer"><span class="elapsed">已用时 <b>${clockText(t.elapsed)}</b></span><button class="textbtn" onclick="cancel(${t.id})">取消</button></div>`:done?`<div class="finished-result"><span class="finish-stamp">${icon('check')}</span><div><strong>${t.error?'已保留完成的内容':t.documentId?'文案已存入文稿库':t.hasDocument?'文案已完成':'素材已保存'}</strong><small>${[t.assets?.video?'视频已保存':'',t.assets?.cover?'封面已保存':''].filter(Boolean).join(' · ')||'可以查看与整理文稿'}</small></div></div><div class="process-footer"><span class="elapsed">${t.elapsed?'用时 <b>'+clockText(t.elapsed)+'</b>':''}</span><button class="btn secondary" onclick="showResult(${t.id})">查看结果${icon('arrow')}</button></div>`:`<div class="queue-body">${t.recovered?'':`<span class="queue-number">${ahead}<small>个任务在前</small></span>`}<span class="queue-hint">${t.recovered?esc(t.message||'上次排队未完成，点击继续'):'轮到后自动开始'}</span></div><div class="process-footer queue-footer">${t.recovered?`<button class="textbtn" onclick="start(${t.id})">继续</button>`:''}<button class="textbtn" onclick="cancel(${t.id})">取消排队</button></div>`}</article>`}
 function updateProgressView(t){const el=document.querySelector(`[data-job="${t.id}"]`);if(!el)return;const label=el.querySelector('.live-stage');if(label){label.textContent=t.message;const known=t.progress>=0,n=el.querySelector('.live-number'),track=el.querySelector('.live-track');n.classList.toggle('unknown',!known);n.querySelector('strong').textContent=known?Math.round(t.progress*100):'处理中';n.querySelector('span').textContent=known?'%':'';track.classList.toggle('unknown',!known);if(known)track.setAttribute('aria-valuenow',Math.round(t.progress*100));else track.removeAttribute('aria-valuenow');track.querySelector('i').style.width=(known?t.progress*100:30)+'%';const phase=/transcription|local_service/.test(t.stage)?'转录':/result|saving/.test(t.stage)?'保存':'获取';let passed=true;el.querySelectorAll('.phase').forEach((p,i)=>{const name=p.querySelector('.phase-caption span').textContent,current=name===phase;if(current)passed=false;p.className='phase '+(current?'current':passed?'finished':'');p.querySelector('i').innerHTML=passed?icon('check'):i+1;p.querySelector('.phase-track span').style.width=passed?'100%':current?'30%':'0%'});el.querySelector('.elapsed b').textContent=clockText(t.elapsed)}el.querySelectorAll('.member-state,.member-state-inline').forEach(n=>n.textContent=t.message||taskStatusLabel(t))}
@@ -95,7 +119,7 @@ function toggleModelMenu(){modelMenuOpen=!modelMenuOpen;if(modelMenuOpen)modelTa
 function switchModelTab(tab){modelTab=tab;renderModelPicker();$('#model-options').scrollTop=0;$(`#model-tab-${tab}`).focus({preventScroll:true})}
 function selectModel(id){call('model',{id}).then(()=>closeModelMenu(true)).catch(e=>toast(e.message))}
 let structure='',intakeState='',modelsState='',receivedSnapshot=false;
-const seenTaskIds=new Set();
+const seenTaskIds=new Set(),seenNativeBatchIds=new Set();
 function renderQueueSync(s){
  const notice=$('#queue-sync'),pending=Boolean(s.queueSyncPending),hidden=!s.queueSyncError&&!pending;
  const text=pending?'正在核对保存记录…':'任务记录尚未同步，输入和已生成内容已保留在本机。';
@@ -104,7 +128,59 @@ function renderQueueSync(s){
  const button=notice.querySelector('button');button.disabled=pending;button.textContent=pending?'正在同步…':'重新同步';
  if(changed)requestAnimationFrame(positionWorkbench);
 }
-function receive(s){renderQueueSync(s);const error=$('#startup-error'),reason=s.startupError||'';if(error.textContent!==reason){error.textContent=reason;error.hidden=!reason;requestAnimationFrame(positionWorkbench)}const added=new Set(receivedSnapshot?s.tasks.filter(t=>t.animateNew!==false&&!seenTaskIds.has(t.id)).map(t=>t.id):[]);s.tasks.forEach(t=>seenTaskIds.add(t.id));receivedSnapshot=true;expanded=new Set(s.expanded||[]);skippedGroups=s.skippedGroups||[];const next=JSON.stringify(skippedGroups)+JSON.stringify(s.tasks.map(t=>[t.id,t.state,t.name,t.outputs,t.subs,t.folder,t.group,t.groupName,t.error,t.documentId,t.assets,t.recovered,t.recovered?t.message:null,t.readOnly,t.editableOutputs,t.savePending,t.skipped,t.displayOrder,(s.expanded||[]).includes(t.group)]));tasks=s.tasks;const rec=JSON.stringify([s.recording,s.source,s.recordFolder]);recording=s.recording;source=s.source;recordFolder=s.recordFolder;recSeconds=s.recSeconds;if(rec!==intakeState){intakeState=rec;renderIntake()}else if($('#recTime'))$('#recTime').textContent='● '+recordTime();const mods=JSON.stringify([s.models,s.model]);modelOptions=s.models;chosenModel=s.model;if(mods!==modelsState){modelsState=mods;renderModelPicker()}if(next!==structure){structure=next;const active=document.activeElement,target=active?.closest('[data-choice-target]')?.dataset.choiceTarget,label=active?.getAttribute('aria-label'),scrolls=[...document.querySelectorAll('[data-group] .members')].map(x=>[x.closest('[data-group]').dataset.group,x.scrollTop]);renderBoard(added);for(const [id,top] of scrolls){const el=document.querySelector(`[data-group="${id}"] .members`);if(el)el.scrollTop=top}if(target&&label)document.querySelector(`[data-choice-target="${target}"] [aria-label="${label}"]`)?.focus({preventScroll:true});if(modalTaskTarget&&!$('#modalback').hidden)renderTaskEditor(modalTaskTarget)}tasks.filter(t=>t.state==='running').forEach(updateProgressView)}
+let unifiedWorkspaceEstablished=false;
+function receive(s){
+ legacyBatchCount=s.legacyBatchCount||0;
+ workspaceBatches=(s.batches||[]).filter(b=>b.visible_total>0);
+ for(const batch of workspaceBatches){
+  const intake=pendingIntakes.get(batch._intakeToken);if(!intake)continue;
+  const before='native:'+intake.batch_id,after='native:'+batch.batch_id,cached=boardCards.get(before);
+  if(cached&&!boardCards.has(after)){boardCards.delete(before);boardCards.set(after,cached);cached.node._boardKey=after;cached.signature=null}
+  pendingIntakes.delete(batch._intakeToken);
+ }
+ nativeUndoNotice(s.batchUndo);batchError=s.batchError||'';
+ // Once established, a temporary service failure is a notice in this workspace,
+ // rather than a switch to a different page layout.
+ const workspace=$('#workspace');
+ unifiedWorkspaceEstablished=unifiedWorkspaceEstablished||!!s.batchesSupported||!!s.batchesEnabled;
+ workspace.classList.toggle('unified-transcription',unifiedWorkspaceEstablished);
+ for(const b of workspaceBatches){
+  if(b.focus_token&&nativeLastFocus!==b.focus_token){filter='batch';nativeExpanded.delete(b.batch_id)}
+  if(nativeRequestedPages.get(b.batch_id)===b.offset)nativeRequestedPages.delete(b.batch_id);
+ }
+ renderQueueSync(s);
+ const error=$('#startup-error'),reason=s.startupError||'';
+ if(error.textContent!==reason){error.textContent=reason;error.hidden=!reason;requestAnimationFrame(positionWorkbench)}
+ const added=new Set(receivedSnapshot?s.tasks.filter(t=>t.animateNew!==false&&!seenTaskIds.has(t.id)).map(t=>t.id):[]);
+ for(const b of workspaceBatches){
+  if(receivedSnapshot&&b._animateNew&&!seenNativeBatchIds.has(b.batch_id))added.add('native:'+b.batch_id);
+  seenNativeBatchIds.add(b.batch_id);
+ }
+ s.tasks.forEach(t=>seenTaskIds.add(t.id));receivedSnapshot=true;
+ expanded=new Set(s.expanded||[]);skippedGroups=s.skippedGroups||[];
+ const next=batchError+legacyBatchCount+JSON.stringify(workspaceBatches)+JSON.stringify(skippedGroups)+JSON.stringify(s.tasks.map(t=>[...taskStructure(t),(s.expanded||[]).includes(t.group)]));
+ tasks=s.tasks;
+ const rec=JSON.stringify([s.recording,s.recordFolder]);
+ recording=s.recording;source=s.source;recordFolder=s.recordFolder;recSeconds=s.recSeconds;
+ if(rec!==intakeState){intakeState=rec;renderIntake()}
+ else{
+  syncRecordSource(source);
+  if($('#recTime')){$('#recTime').textContent=recordTime();document.querySelector('.record-trigger')?.setAttribute('aria-label',`结束录音，已录制${recordTime()}`)}
+ }
+ const mods=JSON.stringify([s.models,s.model]);modelOptions=s.models;chosenModel=s.model;
+ if(mods!==modelsState){modelsState=mods;renderModelPicker()}
+ if(next!==structure){
+  structure=next;
+  const active=document.activeElement,target=active?.closest('[data-choice-target]')?.dataset.choiceTarget,label=active?.getAttribute('aria-label');
+  const scrolls=[...document.querySelectorAll('[data-group] .members')].map(x=>[x.closest('[data-group]').dataset.group,x.scrollTop]);
+  renderBoard(added);
+  for(const [id,top] of scrolls){const el=document.querySelector(`[data-group="${id}"] .members`);if(el)el.scrollTop=top}
+  if(target&&label)document.querySelector(`[data-choice-target="${target}"] [aria-label="${label}"]`)?.focus({preventScroll:true});
+  if(modalTaskTarget&&!$('#modalback').hidden)renderTaskEditor(modalTaskTarget);
+ }
+ tasks.filter(t=>t.state==='running').forEach(updateProgressView);
+}
+
 let backdropPress=null;
 $('#modalback').addEventListener('pointerdown',e=>{backdropPress=e.target===$('#modalback')});
 $('#modalback').addEventListener('click',e=>{if(e.target===$('#modalback')&&backdropPress!==false)closeModal();backdropPress=null});
@@ -128,5 +204,5 @@ document.addEventListener('keydown',e=>{
 });
 new ResizeObserver(positionWorkbench).observe($('#main'));new ResizeObserver(positionWorkbench).observe($('#workbench'));
 requestAnimationFrame(()=>requestAnimationFrame(()=>$('#workspace').classList.add('motion-ready')));
-new QWebChannel(qt.webChannelTransport,channel=>{bridge=channel.objects.extraction;bridge.reply.connect((id,raw)=>{const p=pending.get(id);pending.delete(id);if(!p)return;const r=JSON.parse(raw);r.ok?p.resolve(r.value):p.reject(new Error(r.message))});bridge.snapshot.connect(raw=>receive(JSON.parse(raw)));bridge.notice.connect(toast);bridge.linkInput.connect(stageLink);bridge.ready()});
+new QWebChannel(qt.webChannelTransport,channel=>{bridge=channel.objects.extraction;bridge.reply.connect((id,raw)=>{const p=pending.get(id);pending.delete(id);if(!p)return;const r=JSON.parse(raw);r.ok?p.resolve(r.value):p.reject(new Error(r.message))});bridge.intake.connect(receiveIntake);bridge.snapshot.connect(raw=>receive(JSON.parse(raw)));bridge.notice.connect(toast);bridge.linkInput.connect(stageLink);bridge.ready()});
 window.extraction={receive};

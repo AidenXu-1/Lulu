@@ -58,6 +58,15 @@ def _parse_candidate(url: str) -> LinkIdentity:
 
     if host == "v.douyin.com":
         return LinkIdentity("douyin", "unknown", canonical, "", "probable")
+    if _host_is(host, "douyin.com") or _host_is(host, "iesdouyin.com"):
+        homepage = re.fullmatch(r"/share/user/(MS4w[\w-]+)/?", path)
+        if homepage:
+            return LinkIdentity("douyin", "homepage",
+                                "https://www.douyin.com/user/" + homepage[1], homepage[1], "exact")
+        work = re.fullmatch(r"/share/video/([0-9]{1,64})/?", path)
+        if work:
+            return LinkIdentity("douyin", "work",
+                                "https://www.douyin.com/video/" + work[1], work[1], "exact")
     if _host_is(host, "douyin.com"):
         homepage = re.fullmatch(rf"/user/({_DOUYIN_ID})/?", path, re.IGNORECASE)
         if homepage:

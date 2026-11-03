@@ -403,6 +403,24 @@ class LocalTranscriptionCliRuntime:
                     historical_recordings=(self._historical_context or {}).get('live_recordings', {}))
             return self._live_recording
 
+    def expansion_batches(self):
+        from ..core import library
+        with self._workspace_application_lock:
+            if not hasattr(self, '_expansion_batches'):
+                self._expansion_batches = {}
+            root = str(library._dir())
+            if root not in self._expansion_batches:
+                from ..core.agent_workspace.batches import BatchService
+                self._expansion_batches[root] = BatchService(self)
+            return self._expansion_batches[root]
+
+    def expansion_control(self):
+        with self._workspace_application_lock:
+            if not hasattr(self, '_expansion_control'):
+                from ..core.agent_workspace.control import ControlService
+                self._expansion_control = ControlService()
+            return self._expansion_control
+
 
     @staticmethod
     def _job_summary(job: JobV1) -> dict[str, object]:

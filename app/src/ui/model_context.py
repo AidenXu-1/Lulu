@@ -154,7 +154,7 @@ def _custom_openai_unconfigured_context() -> ModelContext:
 
 def asr_model_context(cfg) -> ModelContext:
     provider = providers.PRESETS.get(getattr(cfg, "engine_name", ""))
-    if provider is None:
+    if provider is None or provider.retired:
         return ModelContext('内容提取', 'local', 'broken', '原模型已退役，请重新选择',
                             '请选择本地模型', purpose_index=0, sub_index=0, status_kind='warning')
     if provider.kind == "local":

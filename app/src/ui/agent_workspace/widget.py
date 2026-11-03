@@ -552,11 +552,21 @@ class AgentWorkspace(QWidget):
                 self.audio_state()
             return None
         eid=identity(args.get('document_id'))
+        archive_token=args.get('archive_token')
         if action == 'audio_status':
+            if archive_token is not None:
+                archived=library.deleted_preview(archive_token, include_audio=True)
+                if archived['id'] != eid or archived['kind'] != 'voice':
+                    raise ValueError('归档音频凭据不匹配')
             return self.audio_state_value(eid)
-        voice=library.load_voice(eid)
+        if archive_token is not None:
+            voice=library.deleted_preview(archive_token, include_audio=True)
+            if voice['id'] != eid or voice['kind'] != 'voice':
+                raise ValueError('归档音频凭据不匹配')
+        else:
+            voice=library.load_voice(eid)
         if action == 'audio_waveform':
-            if set(args) != {'document_id'} or not voice:
+            if set(args) != {'document_id', *(['archive_token'] if archive_token is not None else [])} or not voice:
                 raise ValueError('请选择音频库中的音频')
             self.waveform_id = eid
             self.waveform.load_file(voice.get('audio_path'))

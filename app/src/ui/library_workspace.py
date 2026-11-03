@@ -339,7 +339,7 @@ class LibraryWorkspace(_LibraryActions):
         storage.setToolTip(str(library.LIBRARY_DIR))
         storage.clicked.connect(self._open_storage)
         footer.addWidget(storage)
-        deleted = QPushButton("最近删除")
+        deleted = QPushButton("归档")
         deleted.clicked.connect(self._restore_deleted)
         footer.addWidget(deleted)
         root.addLayout(footer)
@@ -529,7 +529,7 @@ class LibraryWorkspace(_LibraryActions):
         menu.addAction("存入 Obsidian", self._batch_obsidian)
         menu.addAction("存入飞书", self._batch_feishu)
         menu.addSeparator()
-        menu.addAction("删除所选素材", self._batch_delete)
+        menu.addAction("归档所选素材", self._batch_delete)
         menu.exec(self.toolbar.mapToGlobal(self.toolbar.rect().bottomRight()))
 
     def _context_menu(self, position):
@@ -553,7 +553,7 @@ class LibraryWorkspace(_LibraryActions):
             from PySide6.QtCore import QUrl
             menu.addAction("打开原链接", lambda: QDesktopServices.openUrl(QUrl(row["source_url"])))
         menu.addSeparator()
-        menu.addAction("删除", lambda: self._delete(eid))
+        menu.addAction("归档", lambda: self._delete(eid))
         menu.exec(self.list_view.viewport().mapToGlobal(position) if position is not None
                   else self.list_view.mapToGlobal(self.list_view.rect().center()))
 
@@ -628,9 +628,9 @@ class LibraryWorkspace(_LibraryActions):
     def _restore_deleted(self):
         records = library.list_deleted()
         if not records:
-            self.status_label.setText("最近删除为空")
+            self.status_label.setText("归档为空")
             return
-        choice = dialogs.choose(self, "最近删除", "选择要恢复的素材（音频原文件始终保留）",
+        choice = dialogs.choose(self, "归档", "选择要恢复的素材（音频原文件始终保留）",
                                 [f'{r["title"]} · {_fmt_date(r["deleted_at"])}' for r in records], current=0)
         if choice is not None:
             try:
@@ -669,8 +669,8 @@ class LibraryWorkspace(_LibraryActions):
         self.refresh()
 
     def _batch_delete(self):
-        if self._sel_entries and dialogs.confirm(self, "移入最近删除",
-                f"将 {len(self._sel_entries)} 项移入最近删除？可以恢复，原音视频保留。"):
+        if self._sel_entries and dialogs.confirm(self, "归档",
+                f"将 {len(self._sel_entries)} 项归档？可以恢复，原音视频保留。"):
             self._start_batch(library.delete)
 
     def _batch_move(self):

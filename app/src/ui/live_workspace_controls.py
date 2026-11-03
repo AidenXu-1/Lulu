@@ -1,9 +1,10 @@
 """Compact native controls for the approved live workspace."""
-from PySide6.QtCore import QEvent, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtCore import QEasingCurve, QEvent, QRectF, Qt, QTimer, QVariantAnimation
+from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPen
+from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from .control_foundation import PaperTextureFrame
+from .indextts2_settings import reduced_motion
 
 
 class CommentsSwitch(QCheckBox):
@@ -53,9 +54,10 @@ class CommentsSwitch(QCheckBox):
 class WorkspaceTab(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
+        self.setToolTip(text.replace('  ', '：', 1))
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(104, 56)
+        self.setFixedSize(104, 34)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
     def enterEvent(self, event):
@@ -72,31 +74,86 @@ class WorkspaceTab(QPushButton):
         painter.setOpacity(1 if self.isEnabled() else .6)
         if self.isEnabled() and (self.underMouse() or self.isDown()):
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor('#e3eceb' if self.isDown() else '#f5f0e6'))
-            painter.drawRoundedRect(QRectF(self.rect()).adjusted(0, 5, -1, -5), 5, 5)
+            painter.setBrush(QColor('#dce8e5' if self.isDown() else '#edf1ec' if self.isChecked() else '#f3f0e8'))
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 6, 6)
         label, _, number = self.text().rpartition('  ')
-        color = '#437f96' if self.isChecked() else '#948a7d'
+        color = '#437f96' if self.isChecked() else '#857b6d'
         painter.setPen(QColor(color))
         font = self.font()
-        font.setPixelSize(14)
+        font.setPixelSize(13)
         font.setBold(self.isChecked())
         painter.setFont(font)
-        painter.drawText(self.rect().adjusted(1, 0, -32, 0), Qt.AlignmentFlag.AlignVCenter, label)
-        badge = QRectF(painter.fontMetrics().horizontalAdvance(label)+9, 19, max(21, len(number)*7+10), 18)
+        label_width = QFontMetricsF(font).horizontalAdvance(label)
+        number_font = self.font()
+        number_font.setPixelSize(10)
+        number_font.setBold(False)
+        number_metrics = QFontMetricsF(number_font)
+        gap = 8
+        badge_limit = max(21, self.width()-14-label_width-gap)
+        shown_number = number_metrics.elidedText(number, Qt.TextElideMode.ElideRight, badge_limit-10)
+        badge_width = max(21, number_metrics.horizontalAdvance(shown_number)+10)
+        start = (self.width()-label_width-gap-badge_width)/2
+        painter.drawText(QRectF(start, 0, label_width, self.height()), Qt.AlignmentFlag.AlignCenter, label)
+        badge = QRectF(start+label_width+gap, (self.height()-18)/2, badge_width, 18)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor('#e4efee' if self.isChecked() else '#eee9df'))
-        painter.drawRoundedRect(badge, 4, 4)
+        painter.setBrush(QColor('#e4efee' if self.isChecked() else '#e8e2d7'))
+        painter.drawRoundedRect(badge, 5, 5)
         painter.setPen(QColor(color))
-        font.setPixelSize(10)
-        font.setBold(False)
-        painter.setFont(font)
-        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, number)
-        if self.isChecked():
-            painter.fillRect(0, self.height()-2, int(badge.right())+3, 2, QColor('#437f96'))
+        painter.setFont(number_font)
+        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, shown_number)
         if self.hasFocus():
             painter.setPen(QPen(QColor('#77aab7'), 1))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(QRectF(self.rect()).adjusted(1, 5, -2, -5), 4, 4)
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 6, 6)
+
+    def setText(self, text):
+        super().setText(text)
+        self.setToolTip(text.replace('  ', '：', 1))
+
+
+class WorkspaceTabBar(QFrame):
+    def __init__(self, buttons, parent=None):
+        super().__init__(parent)
+        self.buttons = tuple(buttons)
+        self.setFixedSize(212, 38)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(0)
+        for button in self.buttons:
+            layout.addWidget(button)
+            button.toggled.connect(lambda checked, b=button: checked and self.slide_to(b))
+        self.indicator_x = 2.0
+        self.animation = QVariantAnimation(self)
+        self.animation.setDuration(200)
+        self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.animation.valueChanged.connect(self._set_indicator_x)
+
+    def _set_indicator_x(self, value):
+        self.indicator_x = float(value)
+        self.update()
+
+    def slide_to(self, button):
+        target = float(button.x())
+        self.animation.stop()
+        if reduced_motion() or self.indicator_x == target:
+            self._set_indicator_x(target)
+            return
+        self.animation.setStartValue(self.indicator_x)
+        self.animation.setEndValue(target)
+        self.animation.start()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor('#ded5c7'), 1))
+        painter.setBrush(QColor('#e8e2d7'))
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 8, 8)
+        selected = QRectF(self.indicator_x, 2, 104, 34)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(64, 53, 38, 10))
+        painter.drawRoundedRect(selected.translated(0, 1), 7, 7)
+        painter.setBrush(QColor('#fffdf8'))
+        painter.drawRoundedRect(selected, 7, 7)
 
 
 class WorkspaceDialog(QDialog):

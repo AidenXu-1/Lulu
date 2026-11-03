@@ -501,14 +501,14 @@ class EntryCard(PaperTextureFrame):
                 ("详情", "list", self.viewRequested),
                 ("导出", "export", self.exportRequested),
                 ("Finder", "folder", self.revealRequested),
-                ("删除", "x", self.deleteRequested),
+                ("归档", "folder", self.deleteRequested),
             )
         else:
             actions = (
                 ("查看", "list", self.viewRequested),
                 ("导出", "export", self.exportRequested),
                 ("Finder", "folder", self.revealRequested),
-                ("删除", "x", self.deleteRequested),
+                ("归档", "folder", self.deleteRequested),
             )
         self.action_buttons = [self.rename_btn]
         action_widgets = []
@@ -1517,17 +1517,17 @@ class _LibraryActions(QWidget):
     def _delete(self, entry_id: str) -> None:
         voice = library.load_voice(entry_id)
         if voice is not None:
-            title = "删除配音素材"
-            msg = "将这条配音记录移入最近删除？可以恢复，原音频文件保留。"
+            title = "归档配音素材"
+            msg = "将这条配音记录归档？可以恢复，原音频文件保留。"
         else:
-            title = "删除文稿"
-            msg = "将这篇文稿移入最近删除？可以恢复，原音视频保留。"
+            title = "归档文稿"
+            msg = "将这篇文稿归档？可以恢复，原音视频保留。"
         if not dialogs.confirm(self, title, msg):
             return
         try:
             library.delete(entry_id)
         except (OSError, ValueError, RuntimeError) as exc:
-            dialogs.alert(self, "删除未完成", str(exc))
+            dialogs.alert(self, "归档未完成", str(exc))
         self.refresh()
 
 

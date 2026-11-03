@@ -325,7 +325,12 @@ def to_csv_string(items: Iterable[CollectedItem], transcripts: dict | None = Non
     w = csv.writer(buf)
     w.writerow(HEADERS)
     for it in items:
-        w.writerow(_row(it, transcripts))
+        values = _row(it, transcripts)
+        # CSV has no cell types. Keep public text from becoming a spreadsheet
+        # formula when opened, while leaving numeric fields and source data intact.
+        w.writerow(["'" + value if isinstance(value, str) and
+                    value.lstrip(' \t\r\n\ufeff').startswith(('=', '+', '-', '@')) else value
+                    for value in values])
     return buf.getvalue()
 
 
@@ -537,7 +542,13 @@ def write_xlsx(items: Iterable[CollectedItem], dst: str | Path,
     for cell in ws[1]:
         cell.font = Font(bold=True)
     for it in items:
-        ws.append(_row(it, transcripts))
+        values = _row(it, transcripts)
+        if any(isinstance(value, str) and len(value) > 32767 for value in values):
+            raise ValueError('文字超过 Excel 单格 32767 字符上限，请改用 CSV 导出；未生成截断文件')
+        ws.append(values)
+        for cell, value in zip(ws[ws.max_row], values):
+            if isinstance(value, str):
+                cell.data_type = 's'
     widths = [14, 40, 12, 8, 8, 8, 8, 8, 36, 36, 60, 24, 48]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w

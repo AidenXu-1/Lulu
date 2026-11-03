@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import json
+import errno
+from contextlib import contextmanager
+from functools import wraps
+import os
 import shutil
+import stat
+import threading
 import uuid
 from dataclasses import asdict, fields
 from datetime import datetime
@@ -25,6 +31,44 @@ def _voice_from_dict(d: dict) -> VoiceProfile | None:
 
 VOICES_DIR = app_data_dir() / "voices"
 INDEX = VOICES_DIR / "voices.json"
+_mutation_lock = threading.RLock()
+
+
+@contextmanager
+def _voice_transaction():
+    """GUI and Core serialize read/modify/write against the same voice directory."""
+    import fcntl
+    with _mutation_lock:
+        _ensure()
+        folder = os.open(VOICES_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            fd = os.open('.voices.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=folder)
+        finally:
+            os.close(folder)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid():
+                raise ValueError('音色目录锁无法安全读取，原资料保留')
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                if exc.errno not in {errno.EAGAIN, errno.EACCES}:
+                    raise
+                from ..resource_control.contracts import resource_busy
+                busy = resource_busy('VOICE_LIBRARY_BUSY')
+                busy.args = ('音色库正在被另一个操作修改，请稍后重试；原音色保留',)
+                raise busy from None
+            yield
+        finally:
+            os.close(fd)
+
+
+def _serialized_change(function):
+    @wraps(function)
+    def call(*args, **kwargs):
+        with _voice_transaction():
+            return function(*args, **kwargs)
+    return call
 
 
 def _default_voices_dir() -> Path:
@@ -37,10 +81,11 @@ def current_voice_library_dir() -> Path:
 
 def configure_voice_library_dir(path: str | Path | None) -> Path:
     global VOICES_DIR, INDEX
-    root = Path(path).expanduser() if path else _default_voices_dir()
-    VOICES_DIR = root
-    INDEX = VOICES_DIR / "voices.json"
-    return VOICES_DIR
+    with _mutation_lock:
+        root = Path(path).expanduser() if path else _default_voices_dir()
+        VOICES_DIR = root
+        INDEX = VOICES_DIR / "voices.json"
+        return VOICES_DIR
 
 
 def _is_empty_dir(path: Path) -> bool:
@@ -104,7 +149,8 @@ def _read() -> list[dict]:
 
 def _write(items: list[dict]) -> None:
     _ensure()
-    INDEX.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    from ..library import _write_atomic_text
+    _write_atomic_text(INDEX, json.dumps(items, ensure_ascii=False, indent=2))
 
 
 def list_voices() -> list[VoiceProfile]:
@@ -115,6 +161,7 @@ def get_voice(voice_id: str) -> VoiceProfile | None:
     return next((v for v in list_voices() if v.id == voice_id), None)
 
 
+@_serialized_change
 def add_voice(name: str, reference_audio: str, reference_text: str = "", *, engine: str = "local_voxcpm2", meta: dict | None = None) -> VoiceProfile:
     src = Path(reference_audio).expanduser()
     if not src.exists():
@@ -143,6 +190,7 @@ def add_voice(name: str, reference_audio: str, reference_text: str = "", *, engi
     return voice
 
 
+@_serialized_change
 def delete_voice(voice_id: str) -> None:
     items = [d for d in _read() if d.get("id") != voice_id]
     _write(items)
@@ -156,6 +204,7 @@ def update_reference_text(voice_id: str, text: str) -> VoiceProfile:
     return update_voice(voice_id, reference_text=text)
 
 
+@_serialized_change
 def update_voice(voice_id: str, *, name: str | None = None, reference_text: str | None = None) -> VoiceProfile:
     """Atomically edit metadata; leave the original audio and other fields intact."""
     from dataclasses import replace

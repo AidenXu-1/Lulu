@@ -261,6 +261,7 @@ class TaskResumeTests(unittest.TestCase):
         try:
             wait(lambda: widget.ready)
             widget.publish(force=True)
+            js("setTaskFilter('batch')")
             wait(lambda: js('Boolean(document.querySelector(".group-actions .primary"))'))
             self.assertEqual(js('document.querySelector(".group-status").textContent'), "2 条已暂停")
             with patch("src.ui.worker.transcribe_source", return_value=Transcript(text="整组恢复正文", segments=[])) as run:
@@ -283,6 +284,7 @@ class ResumeRenderingTests(ExtractionWorkspaceFixture, unittest.TestCase):
         paths = [self.root / f"{i}.wav" for i in range(4)]
         for path in paths: path.write_bytes(b"fixture")
         self.widget.add_files([str(p) for p in paths])
+        self.js("setTaskFilter('batch')")
         for task in self.main.tasks:
             task.state = TaskState.QUEUED; task._core_recovered_queue = True
         self.main.tasks[2]._core_view_only = True

@@ -94,48 +94,77 @@ def publish_asset(path, destination):
 
 def acquire_source(source, *, execution_policy, engine_name, enable_link_download=True,
                    progress=lambda *_:None, is_cancelled=lambda:False,
-                   cover_workflow=None, stage_changed=lambda *_:None, **unused):
+                   cover_workflow=None, stage_changed=lambda *_:None,
+                   bounded_cloud=False, engine_override=None, cloud_observer=None,
+                   cloud_force_cancel=None, max_input_bytes=None,
+                   asset_changed=None, result_checkpoint=None, stop_new_work=None,
+                   stage_progress=None, **unused):
     policy = execution_policy
     chosen = outputs(policy)
     if not chosen:
         raise ValueError('请至少选择一项内容')
+    # The cloud result may need saving after ordinary cancellation. Keep that
+    # protection separate from admission of subsequent cover network work.
+    stop_new_work = stop_new_work or (lambda:False)
+    cancelled_cover = '已取消后续封面提取，已有内容保留'
+    def cover_cancelled():
+        return is_cancelled() or stop_new_work()
     def check():
         if is_cancelled(): raise pipeline._Cancelled()
     def report(message, fraction=-1):
         check(); progress(message, fraction)
     def stage(name):
         check(); stage_changed(name)
+    def measured_report(message, fraction=-1):
+        if stage_progress is not None:
+            stage_progress(message, fraction)
+        report(message, fraction)
     check()
     is_link = extractor.extract_url(source) is not None
     if not is_link:
         if chosen != ('text',): raise ValueError('本地文件只支持提取文案')
         return pipeline.transcribe_source(source, engine_name=engine_name,
             execution_policy=policy,
-            progress=progress, is_cancelled=is_cancelled, stage_changed=stage_changed)
+            progress=progress, is_cancelled=is_cancelled, stage_changed=stage_changed,
+            stage_progress=stage_progress,
+            bounded_cloud=bounded_cloud, engine_override=engine_override,
+            cloud_observer=cloud_observer, cloud_force_cancel=cloud_force_cancel,
+            max_input_bytes=max_input_bytes)
     if not enable_link_download: raise ValueError('链接下载功能已关闭')
     if ('video' in chosen or 'cover' in chosen) and not policy.media_directory:
         raise ValueError('请先选择素材保存位置')
     transcript = None
     meta = {}
     assets, failures = {}, []
+    def asset(key, state, path=None):
+        if asset_changed is not None:
+            asset_changed(key, state, path)
+    def checkpoint():
+        if result_checkpoint is not None and transcript is not None:
+            result_checkpoint(replace(transcript, source=source,
+                meta={**meta, 'extraction_assets':dict(assets),
+                      'extraction_outputs':list(chosen), 'extraction_errors':list(failures)}))
     with pipeline._transcription_tempdir() as directory:
         media = None
         if 'video' in chosen:
+            asset('video', 'running')
             stage('download'); report('正在下载视频')
             try:
-                media = download_video(source, directory, report, meta, is_cancelled)
+                media = download_video(source, directory, measured_report, meta, is_cancelled)
             except Exception as exc:
                 check()
                 failures.append(f'视频获取失败：{exc}')
+                asset('video', 'failed')
             check()
         if 'text' in chosen:
+            asset('text', 'running')
             # Subtitles and selected video are independent products. A subtitle hit
             # cannot short-circuit the video acquisition or its final publication.
             if media is not None and policy.prefer_subtitles:
                 from .subtitles import fetch_from_link
                 stage('subtitles'); report('读取平台字幕')
                 try:
-                    transcript = fetch_from_link(source, report)
+                    transcript = fetch_from_link(source, measured_report)
                 except Exception:
                     check()
                     report('字幕暂不可用，继续转录音视频')
@@ -145,52 +174,82 @@ def acquire_source(source, *, execution_policy, engine_name, enable_link_downloa
                     material_snapshot=MaterialPreferenceSnapshot('audio', False, False),
                     media_destination='none', media_directory=None,
                     prefer_subtitles=bool(policy.prefer_subtitles and media is None))
+                if policy.stable_key and media is None:
+                    # Keep homepage identity, authenticated input recovery and
+                    # already downloaded media reuse from the existing pipeline.
+                    text_policy=replace(text_policy,origin='homepage_batch_transcribe',
+                                        mode='transcription_only',media_destination='temporary_only')
                 try:
                     transcript = pipeline.transcribe_source(str(media) if media else source,
                         engine_name=engine_name, execution_policy=text_policy,
-                        progress=report, is_cancelled=is_cancelled, stage_changed=stage_changed)
+                        progress=report, is_cancelled=is_cancelled, stage_changed=stage_changed,
+                        stage_progress=stage_progress,
+                        bounded_cloud=bounded_cloud, engine_override=engine_override,
+                        cloud_observer=cloud_observer, cloud_force_cancel=cloud_force_cancel,
+                        max_input_bytes=max_input_bytes)
                 except Exception as exc:
                     check()
+                    from .engines.cloud_http import CloudFailure
+                    if isinstance(exc, CloudFailure):
+                        meta['extraction_text_failure'] = exc.public()
                     failures.append(f'文字提取失败：{exc}')
             if transcript is None:
                 transcript = Transcript(text='', source=source)
 
             meta = {**(transcript.meta or {}), **meta}
+            if transcript.text.strip():
+                asset('text', 'pending_save')
+                checkpoint()
+            else:
+                # Other outputs can continue; report this failure before their
+                # next phase so the UI never marks missing text as completed.
+                asset('text', 'unknown' if meta.get('extraction_text_failure', {}).get('kind') == 'unknown' else 'failed')
         if transcript is None:
             transcript = Transcript(source=source, engine='', segments=[], text='')
-        if 'cover' in chosen:
-            stage('result'); report('获取封面')
+        if 'cover' in chosen and stop_new_work():
+            failures.append(cancelled_cover)
+        elif 'cover' in chosen:
+            asset('cover', 'running')
+            stage('cover'); report('获取封面')
             if not TranscriptCover.from_meta(meta).url:
-                try: meta.update(metadata(source, directory, report, is_cancelled))
+                try: meta.update(metadata(source, directory, report, cover_cancelled))
                 except Exception:
                     check()
-                    failures.append('封面信息获取失败，请重试')
+                    if not stop_new_work():
+                        failures.append('封面信息获取失败，请重试')
             check()
             cover = TranscriptCover.from_meta(meta)
-            if not cover.eligible or cover_workflow is None:
+            if stop_new_work():
+                failures.append(cancelled_cover)
+            elif not cover.eligible or cover_workflow is None:
                 failures.append('此作品没有可获取的封面')
             else:
                 try:
                     receipt = cover_workflow.localize(platform=cover.platform,
-                        work_id=cover.work_id, url=cover.url, is_cancelled=is_cancelled)
+                        work_id=cover.work_id, url=cover.url, is_cancelled=cover_cancelled)
                 except Exception:
                     check()
                     receipt = None
                 check()
                 if receipt is None or not pipeline._valid_cover_receipt(cover, receipt):
-                    failures.append('封面保存失败，请重试')
+                    failures.append(cancelled_cover if stop_new_work() else '封面保存失败，请重试')
                 else:
                     try:
                         local = Path(cover_workflow.root) / receipt.relative_path
                         assets['cover'] = publish_asset(local, policy.media_directory)
+                        asset('cover', 'ready', assets['cover'])
                         meta = TranscriptCover(platform=cover.platform, work_id=cover.work_id,
                             url=cover.url, status='downloaded', local_path=receipt.relative_path).merge_meta(meta)
                     except OSError:
                         failures.append('封面无法保存到所选目录')
+            checkpoint()
         if media is not None:
             stage('result'); report('保存视频')
-            try: assets['video'] = publish_asset(media, policy.media_directory)
+            try:
+                assets['video'] = publish_asset(media, policy.media_directory)
+                asset('video', 'ready', assets['video'])
             except OSError: failures.append('视频无法保存到所选目录')
+            checkpoint()
         check()
         transcript.source = source
         transcript.title = meta.get('title') or transcript.title

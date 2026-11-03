@@ -61,6 +61,42 @@ class ManagedMediaTests(unittest.TestCase):
             media_destination="managed_collection",
         )
 
+    def service(self, *, error=None):
+        self.calls = []
+        def fetch(current, mode, temporary, cancel):
+            self.calls.append(current.stable_key)
+            if error:
+                raise error
+            target = temporary / "fixture.mp4"
+            target.write_bytes(b"local synthetic media")
+            return target
+        return CollectionMediaAssociationService(self.repo, self.store, fetch)
+
+    def test_commit_reopen_and_reuse_do_not_download_again(self):
+        current = item("douyin", "1", work_url="https://www.douyin.com/video/1")
+        self.repo.upsert([current])
+        service = self.service()
+        first = service.run([current], policy=self.policy(mode="video"))
+        second = service.run([current], policy=self.policy(mode="video"))
+        self.assertEqual(first.outcomes[0].status, "downloaded")
+        self.assertTrue(second.outcomes[0].reused)
+        self.assertEqual(self.calls, ["douyin:1"])
+        saved = CollectionRepository(self.repo.path).load().items[0]
+        valid = self.store.validate(saved.media_local_path, expected_stable_key=saved.stable_key)
+        self.assertTrue(valid.valid)
+
+    def test_cancel_never_downloads_or_changes_saved_record(self):
+        current = item("douyin", "1")
+        self.repo.upsert([current])
+        before = self.repo.path.read_bytes()
+        service = self.service()
+        result = service.run([current], policy=self.policy(), is_cancelled=lambda: True)
+        self.assertEqual(result.outcomes[0].status, "cancelled")
+        self.assertEqual(self.calls, [])
+        self.assertEqual(before, self.repo.path.read_bytes())
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

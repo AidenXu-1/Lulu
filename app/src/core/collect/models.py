@@ -11,8 +11,10 @@ from datetime import datetime, timezone, timedelta
 import re
 from urllib.parse import urlsplit
 
-# 抖音 aweme_type=68 是图文帖(无视频/无音频),时长为 0,只保留元数据并标注。
+# 图文与文章可能携带背景音乐；不把歌词转成作者的口述文稿。
 AWEME_TYPE_IMAGE = 68
+AWEME_TYPE_ARTICLE = 163
+DOUYIN_NON_VIDEO_TYPES = frozenset({AWEME_TYPE_IMAGE, AWEME_TYPE_ARTICLE})
 
 # 东八区(抖音 create_time 为 unix 秒,按北京时间展示发布日期)
 _CST = timezone(timedelta(hours=8))
@@ -169,8 +171,9 @@ class CollectedItem:
 
     @property
     def is_image(self) -> bool:
-        """图文帖(无音频,不可转录)。"""
-        return self.aweme_type == AWEME_TYPE_IMAGE or self.content_kind == "image"
+        """非口述图文/文章；兼容旧记录只携带作品类型的情况。"""
+        return (self.content_kind == "image" or self.aweme_type == AWEME_TYPE_IMAGE
+                or (self.platform == "douyin" and self.aweme_type == AWEME_TYPE_ARTICLE))
 
     def has_field_state(self, name: str) -> bool:
         """记录是否显式携带六类字段之一的真实性状态。"""
@@ -204,7 +207,10 @@ class CollectedItem:
         """发布日期 YYYY-MM-DD(北京时间);无有效时间返回空串。"""
         if not self.create_time:
             return ""
-        return datetime.fromtimestamp(self.create_time, _CST).strftime("%Y-%m-%d")
+        try:
+            return datetime.fromtimestamp(self.create_time, _CST).strftime("%Y-%m-%d")
+        except (OverflowError, OSError, ValueError):
+            return ""
 
     @property
     def duration_text(self) -> str:
@@ -213,7 +219,10 @@ class CollectedItem:
             return "图文"
         if self.duration_ms <= 0:
             return ""
-        total = round(self.duration_ms / 1000)
+        total, remainder = divmod(self.duration_ms, 1000)
+        # Keep round-to-even without converting an untrusted integer to float.
+        if remainder > 500 or (remainder == 500 and total % 2):
+            total += 1
         return f"{total // 60}:{total % 60:02d}"
 
     def to_dict(self) -> dict:
@@ -258,7 +267,7 @@ def from_aweme(aweme: dict) -> CollectedItem:
         work_id=aweme_id,
         author_id=str(author.get("sec_uid") or author.get("uid") or ""),
         work_url=work_url,
-        content_kind=("image" if _int(aweme.get("aweme_type")) == AWEME_TYPE_IMAGE
+        content_kind=("image" if _int(aweme.get("aweme_type")) in DOUYIN_NON_VIDEO_TYPES
                       else "video"),
         cover_url=cover_url,
         cover_status="url_only" if cover_url else "not_requested",
