@@ -260,6 +260,33 @@ class CloudAutoTests(unittest.TestCase):
         with patch('src.core.engines.cloud_limits.memory_available',return_value=(16*1024**2,1024**3)):
             with self.assertRaises(ValueError):
                 with r.payload(5*1024**2,'siliconflow',lambda:False,lambda *_:None):self.fail('insufficient memory must not admit upload')
+        entered, release, cancelled, waiting = (threading.Event() for _ in range(4))
+        active = []
+        lock = threading.Lock()
+        def hold_preparation():
+            with r.preparation(lambda:False):
+                with lock:
+                    active.append(True)
+                    if len(active)==5:entered.set()
+                self.assertTrue(release.wait(5))
+        def wait_for_preparation():
+            waiting.set()
+            with r.preparation(cancelled.is_set):
+                self.fail('sixth preparation must wait for one of the five slots')
+        with patch.object(r,'check_disk'), ThreadPoolExecutor(max_workers=6) as pool:
+            holders=[pool.submit(hold_preparation) for _ in range(5)]
+            try:
+                self.assertTrue(entered.wait(3),'five preparations must enter together')
+                sixth=pool.submit(wait_for_preparation)
+                self.assertTrue(waiting.wait(1))
+                time.sleep(.15)
+                self.assertFalse(sixth.done())
+                cancelled.set()
+                with self.assertRaises(InterruptedError):sixth.result(2)
+            finally:
+                release.set()
+            for holder in holders:holder.result(2)
+            with r.preparation(lambda:False):pass
         clock=[0.];gate=RateGate(clock=lambda:clock[0]);gate.attach(CloudPolicy(audio_seconds_per_hour=2,audio_seconds_per_day=5))
         with gate.audio_budget(2,lambda:False,lambda *_:None) as record:gate.audio_sent(record)
         cancelled=threading.Event();messages=[]

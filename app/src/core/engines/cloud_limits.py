@@ -61,7 +61,7 @@ class ResourceAdmission:
     def __init__(self):
         self.condition = threading.Condition()
         self.reserved = 0
-        self.preparing = threading.BoundedSemaphore(2)
+        self.preparing = threading.BoundedSemaphore(5)
 
     def budget(self):
         available, total = memory_available()
