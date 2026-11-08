@@ -4,7 +4,9 @@
 
 [下载完整 Skill 包（ZIP）](https://github.com/AidenXu-1/lulu-agent/archive/refs/heads/main.zip) · [安装方法](#安装) · [Lulu 产品主页与 App 下载](https://github.com/AidenXu-1/Lulu)
 
-本次源码适配 Lulu 4.3.3：支持逐作品提取任务、本地与云端批量转录，以及当前开放的采集、导出、素材与直播管理入口。对应正式版本及下载见 [Lulu 4.3.3](https://github.com/AidenXu-1/Lulu/releases/tag/v4.3.3)。CLI 已包含在 Lulu App 内；此仓库提供 AI 助手调用它所需的说明与校验脚本，无需另外下载 CLI。
+当前说明已按 **Lulu 4.3.3 / 20261108.5** 核对：支持逐作品提取任务、本地与云端批量转录，以及当前开放的采集、导出、素材与直播管理入口。对应正式版本及下载见 [Lulu 4.3.3](https://github.com/AidenXu-1/Lulu/releases/tag/v4.3.3)。CLI 已包含在 Lulu App 内；此仓库提供 AI 助手调用它所需的说明与校验脚本，无需另外下载 CLI。
+
+**Skill 与 App 独立更新。** 本次只同步调用说明，继续使用原有安装检查工具和 CLI 1.0.0 协议，无需重新打包或下载 App。不会替换 App 内的受管 Skill，也不改动文稿、模型、音色或任务。已单独安装的 Skill 需要按下方方法更新；更新 App 不会自动覆盖这个独立副本。
 
 ## 可以做什么
 
@@ -20,6 +22,8 @@
 | 任务与技能 | 查询任务进度和回执，管理 Lulu 内部技能 |
 
 **可用范围以本机 Lulu 返回的功能清单为准。** Skill 可以比 App 更新；旧版 Lulu 未接通的功能不能通过下载 Skill 获得。模型需要在 Lulu 中准备，Skill 不附带模型。
+
+主页采集使用 Lulu 专用浏览器登录，与日常浏览器资料分开。CLI 通过采集模式明确选择匿名读取、使用专用登录读取最新一页或全量读取；需要扫码或验证时由使用者本人操作。具体模式、受限后的处理和结果保留见 [采集调用说明](lulu-agent/references/expansion.md#douyin-collection-and-rss)。
 
 当前支持 macOS、`/Applications/Lulu.app` 中的 Lulu generation 9 安装，以及 CLI 1.x 中已验证的 1.0.0 协议。同时识别旧版 DMG 安装和新版 App 自包含安装，按当前 App 精确核对对应安装记录。需要 Python 3 标准库运行只读安装检查。首次使用须正常打开 Lulu 完成安装准备；新版无需激活码。系统授权窗口若实际出现，由用户本人处理。此仓库不包含 Lulu 主程序或模型。
 
@@ -65,6 +69,8 @@ python3 -B manage.py install --skills-dir "$HOME/.codex/skills"
 ```
 
 仅卸载时只运行第一行。脚本只删除本安装器记录的 `lulu-agent` 副本；如果内容被你修改过，保留文件并停止。手动安装的副本请使用 Agent 自己的技能管理功能卸载。不要手动删除 Lulu 管理的 `~/.agents/skills/lulu-agent` 或 `~/.local/bin/lulu`。
+
+如果检查提示旧副本有修改，先完整备份并核对差异，再使用原安装方式更新；保留需要的本地补充，不直接删除目录或篡改安装记录来绕过检查。更新完成后，按 `SKILL.md` 重新验证 App 并查询功能清单，这两项检查不会下载模型或执行业务任务。
 
 更新后重新检查技能启用状态。卸载独立版不会自动重新启用旧受管项；只有旧项本身已适配并验证通过，才通过 Agent 的技能开关重新启用它。
 

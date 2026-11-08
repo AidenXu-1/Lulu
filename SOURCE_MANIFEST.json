@@ -43,14 +43,14 @@
     },
     {
       "path": "agent-skill/README.md",
-      "size": 6027,
-      "sha256": "04b0f431fb89227d2743db9099f464841122d01443410e482f29d3b163164236",
+      "size": 7103,
+      "sha256": "5660fcc55c598beee03e4f39380aacdcce21b15d2f97bc81d9cabd497888855f",
       "mode": "100644"
     },
     {
       "path": "agent-skill/lulu-agent/SKILL.md",
-      "size": 4541,
-      "sha256": "c4b7b888ff549b689fc70337ef8d55f0e4f85885d5ed3698ee61e58fa20bf636",
+      "size": 4868,
+      "sha256": "b9e02bd2490089fc76d071f298fe90ce605eee6ee9843bdb9f91006a0307ff3f",
       "mode": "100644"
     },
     {
@@ -61,8 +61,8 @@
     },
     {
       "path": "agent-skill/lulu-agent/references/expansion.md",
-      "size": 13765,
-      "sha256": "30188deba86f0d23d2fc88df5fe4be5f8eab7223c655ede79d73c557b999a6c4",
+      "size": 15235,
+      "sha256": "321f0140e0d015a1506e7a6f96b42cecce6960e54ef3d4ac47da7369adb8f257",
       "mode": "100644"
     },
     {
@@ -73,8 +73,8 @@
     },
     {
       "path": "agent-skill/lulu-agent/references/protocol.md",
-      "size": 7058,
-      "sha256": "2b2493627d8a0b09a15dcfe5f47c4caff225ea9dab0f7ce0137f239f2cb05181",
+      "size": 7173,
+      "sha256": "bd96a515d2f3c474e906b6c88e102e1062cc65046f3fae0168729e1caaa4eaae",
       "mode": "100644"
     },
     {
