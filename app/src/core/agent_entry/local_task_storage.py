@@ -4,6 +4,8 @@ Normal preparation never constructs a system credential backend. Legacy source
 files are authenticated read-only and kept in place; each imported job retains
 its complete events, attempts, receipts, policy and result references.
 """
+
+from src.edition import product_data_root
 import hashlib
 import json
 import os
@@ -560,7 +562,7 @@ def migration_entry(arguments, *, automatic=False):
     threading.Thread(target=watch_parent, daemon=True).start()
     from .bundle_lifetime import watch_app_replacement
     watch_app_replacement(app, lambda: os._exit(1))
-    product = Path.home()/'Library/Application Support/Lulu'
+    product = product_data_root()
     try:
         from .effects import CurrentUserLaunchctlService
         def reconnect():

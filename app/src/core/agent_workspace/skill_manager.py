@@ -318,7 +318,9 @@ def listing():
                     value = package(active / identity)
                     if value['name'] != identity:
                         raise ValueError('技能名称与目录不一致')
-                    row.update(description=value['description'], digest=value['digest'], automatic=value['automatic'],
+                    row.update(description=value['description'], digest=value['digest'],
+                               allow_automatic=value['automatic'],
+                               automatic=value['automatic'] and saved.get('automatic', True),
                                modified=bool(saved.get('installed_digest') and saved['installed_digest'] != value['digest']))
                 elif saved.get('status') == 'uninstalled' and saved.get('restore_digest'):
                     cached = restore_source(state, saved)
@@ -337,11 +339,11 @@ def listing():
         return dict(entries=entries, issues=issues, directory=str(active))
 
 
-def configure(identity, enabled=None, config=None):
+def configure(identity, enabled=None, config=None, automatic=None):
     identity = name(identity)
     with locked() as (active, state, registry):
         initialize(active, state, registry)
-        package(active / identity)
+        current = package(active / identity)
         saved = registry['items'].setdefault(identity, dict(status='installed', origin='user'))
         if enabled is not None:
             if type(enabled) is not bool:
@@ -354,6 +356,10 @@ def configure(identity, enabled=None, config=None):
             from .processing import validate_options
             validate_options(config)
             saved['config'] = config
+        if automatic is not None:
+            if type(automatic) is not bool or (automatic and not current['automatic']):
+                raise ValueError('此技能不允许自动调用')
+            saved['automatic'] = automatic
         saved['generation'] = uuid.uuid4().hex
         atomic(state / 'registry.json', registry)
     return dict(name=identity, state='completed')
@@ -510,7 +516,8 @@ def install(identity=None, token=None, *, validate=None):
         previous = registry['items'].get(identity, {})
         registry['items'][identity] = dict(status='installed', enabled=True, origin=meta['origin'],
             version=meta.get('version', ''), source=meta.get('source', ''), title=meta.get('title', identity),
-            installed_digest=value['digest'], config=previous.get('config', {}), generation=uuid.uuid4().hex, install_token=token)
+            installed_digest=value['digest'], config=previous.get('config', {}),
+            automatic=previous.get('automatic', True), generation=uuid.uuid4().hex, install_token=token)
         commit(active, state, registry, identity, 'install', source)
         if token:
             shutil.rmtree(source)
@@ -548,7 +555,8 @@ def update(identity, rollback=False):
                 raise ValueError('随包新版本校验失败')
             target = dict(previous, version=meta['version'], source=meta['source'], installed_digest=meta['digest'])
             target.pop('rollback', None)
-        target.update(enabled=previous.get('enabled', True), config=previous.get('config', {}))
+        target.update(enabled=previous.get('enabled', True), config=previous.get('config', {}),
+                      automatic=previous.get('automatic', True))
         target['generation'] = uuid.uuid4().hex
         registry['items'][identity] = target
         commit(active, state, registry, identity, 'install', source, previous=previous if not rollback else None)

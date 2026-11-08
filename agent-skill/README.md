@@ -4,7 +4,7 @@
 
 [下载完整 Skill 包（ZIP）](https://github.com/AidenXu-1/lulu-agent/archive/refs/heads/main.zip) · [安装方法](#安装) · [Lulu 产品主页与 App 下载](https://github.com/AidenXu-1/Lulu)
 
-本次源码适配 Lulu 4.3.2：支持逐作品提取任务、本地与云端批量转录，以及当前开放的采集、导出、素材与直播管理入口。对应正式版本及下载见 [Lulu 4.3.2](https://github.com/AidenXu-1/Lulu/releases/tag/v4.3.2)。CLI 已包含在 Lulu App 内；此仓库提供 AI 助手调用它所需的说明与校验脚本，无需另外下载 CLI。
+本次源码适配 Lulu 4.3.3：支持逐作品提取任务、本地与云端批量转录，以及当前开放的采集、导出、素材与直播管理入口。对应正式版本及下载见 [Lulu 4.3.3](https://github.com/AidenXu-1/Lulu/releases/tag/v4.3.3)。CLI 已包含在 Lulu App 内；此仓库提供 AI 助手调用它所需的说明与校验脚本，无需另外下载 CLI。
 
 ## 可以做什么
 

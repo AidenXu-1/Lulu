@@ -6,8 +6,9 @@ from PySide6.QtCore import QThread, Signal, Qt, QUrl, QRectF, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QIcon
 from PySide6.QtMultimedia import QMediaPlayer
 from .audio_output import create_audio_output as QAudioOutput
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QDoubleSpinBox, QAbstractSpinBox, QPlainTextEdit, QFileDialog, QScrollArea, QWidget, QFrame, QMessageBox)
+from .theme import TextScaledDialog as QDialog
 
 from ..core import library
 from ..core.synthesis.local_adjustment import LocalAdjustment

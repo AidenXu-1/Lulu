@@ -7,7 +7,7 @@ from queue import SimpleQueue, Empty
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QTimer, QUrl, Signal, Slot, Qt
+from PySide6.QtCore import QCoreApplication, QObject, QTimer, QUrl, Signal, Slot, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QFileDialog
 from PySide6.QtWebChannel import QWebChannel
@@ -136,10 +136,11 @@ class ExtractionWorkspace(QWidget):
         from .batches import WorkspaceBatches
         self.batches = WorkspaceBatches(self)
         prepare_webengine_runtime()
-        self.view=View(self);self.profile=QWebEngineProfile(self)
+        self.view=View(self);self.profile=QWebEngineProfile(QCoreApplication.instance())
         self.interceptor=Resources(self.profile);self.profile.setUrlRequestInterceptor(self.interceptor)
         # Let the native canvas paint one continuous paper surface under the titlebar.
         self.page=Page(self.profile,self.view);self.page.setBackgroundColor(QColor(Qt.GlobalColor.transparent))
+        self.page.destroyed.connect(self.profile.deleteLater)
         self.page.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls,False)
         self.page.settings().setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows,False)
         self.view.setPage(self.page);self.channel=QWebChannel(self.page);self.bridge=Bridge(self)
@@ -175,7 +176,11 @@ class ExtractionWorkspace(QWidget):
         self.closing=True
         if self._model_pending is not None:
             self._model_pending.set()
-        self.timer.stop();self.page.setWebChannel(None)
+        self.timer.stop()
+        # Chromium may still deliver frame/transport callbacks after close.
+        # Detaching a live channel during that interval can crash Qt 6.11.1.
+        # Keep the page-owned channel until page destruction; all bridge entry
+        # points and result callbacks already reject work while closing.
 
     def invalidate_model_status(self):
         self._models_at=0
@@ -239,11 +244,10 @@ class ExtractionWorkspace(QWidget):
 
     def initial_policy(self, source, kind):
         cfg=self.main.cfg
-        chosen=('text',) if kind!='link' else ('text',)+(('video',) if cfg.keep_media and cfg.link_media_mode=='video' else ())+ (('cover',) if self.main._material_snapshot().save_cover else ())
         return TaskExecutionPolicy(origin='single_link',mode='materialize',stable_key='',
-            material_snapshot=MaterialPreferenceSnapshot('video' if 'video' in chosen else 'audio','video' in chosen,'cover' in chosen),
+            material_snapshot=MaterialPreferenceSnapshot('audio',False,False),
             media_destination='user_directory' if kind=='link' else 'none',media_directory=cfg.media_dir,
-            prefer_subtitles=bool(cfg.prefer_subtitles),engine_name=None,requested_outputs=chosen)
+            prefer_subtitles=bool(cfg.prefer_subtitles),engine_name=None,requested_outputs=('text',))
 
     def add_files(self, paths):
         batches=getattr(self,'batches',None)
@@ -372,7 +376,8 @@ class ExtractionWorkspace(QWidget):
         self._refresh_models()
         main=self.main
         recorder=getattr(main,'_recorder_obj',None)
-        active_record=main._rec_elapsed_timer.isActive() or bool(recorder and recorder.is_recording()) or bool(getattr(main,'_mixed_pending_stop',False))
+        recording_busy=getattr(main,'_recording_busy','')
+        active_record=bool(recording_busy) or main._rec_elapsed_timer.isActive() or bool(recorder and recorder.is_recording()) or bool(getattr(main,'_mixed_pending_stop',False))
         task_ids={t.id for t in main.tasks}
         skipped_groups=[dict(id=str(g.id),name=g.name,
             members=[dict(name=m.title,reason=m.skipped_reason) for m in g.members if m.is_skipped])
@@ -387,7 +392,7 @@ class ExtractionWorkspace(QWidget):
             queueSyncError=bool(getattr(main,'_task_queue_store_failed',False)),
             queueSyncPending=bool(getattr(main,'_task_queue_sync_retry_pending',False)),
             skippedGroups=skipped_groups,
-            recording=active_record,expanded=[str(g.id) for g in main.task_groups if g.expanded],
+            recording=active_record,recordBusy=recording_busy,expanded=[str(g.id) for g in main.task_groups if g.expanded],
             source={'microphone':'麦克风','system_audio':'系统声音','mixed':'混录'}[main._rec_source],
             recordFolder=main.cfg.recording_dir,recSeconds=main._rec_elapsed),ensure_ascii=False)
         if raw!=self._last or force:self._last=raw;self.bridge.snapshot.emit(raw)

@@ -147,6 +147,18 @@ class TrashActionsUiTests(unittest.TestCase):
         self.assertGreaterEqual(self.js('document.getElementById("batch-more").getBoundingClientRect().height'),32)
         self.assertGreaterEqual(self.js('parseFloat(getComputedStyle(document.getElementById("batch-export")).fontSize)'),13)
 
+    def test_context_menu_survives_other_pane_scroll_but_closes_with_its_anchor(self):
+        self.widget.open_entry(self.eid)
+        self.until(lambda:self.js('Boolean(document.querySelector("#prompt")) && !window.lulu.state.loading'))
+        self.js('document.querySelector("#document-scroll").insertAdjacentHTML("beforeend", "<div style=height:4000px></div>")')
+        self.js('document.querySelector("[data-entry]").dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,clientX:100,clientY:300}))')
+        self.until(lambda:self.js('Boolean(document.querySelector(".lulu-menu"))'))
+        self.js('document.querySelector("#document-scroll").scrollTop=100;requestAnimationFrame(()=>requestAnimationFrame(()=>window.scrollDelivered=true))')
+        self.until(lambda:self.js('Boolean(window.scrollDelivered)'))
+        self.assertTrue(self.js('Boolean(document.querySelector(".lulu-menu"))'))
+        self.js('document.querySelector("#list").dispatchEvent(new Event("scroll"))')
+        self.assertFalse(self.js('Boolean(document.querySelector(".lulu-menu"))'))
+
     def test_audio_context_menu_has_correct_open_archive_and_delete_actions(self):
         import wave
         audio=self.root/'sample.wav'

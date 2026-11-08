@@ -187,7 +187,7 @@ class AnonymousReadReviewTests(unittest.TestCase):
         signer = SimpleNamespace(generate_abogus=lambda _: ("", "fixture", "fixture", ""))
         from contextlib import ExitStack
         with ExitStack() as stack:
-            stack.enter_context(patch.object(fetch, "_register_ttwid", return_value="ttwid=fixture"))
+            stack.enter_context(patch.object(fetch, "_register_ttwid", return_value=fetch._AnonymousSession("ttwid=fixture", "fixture-visitor")))
             stack.enter_context(patch.object(fetch, "ABogus", return_value=signer))
             stack.enter_context(patch.object(fetch.urllib.request, "urlopen", return_value=response))
             if deadline is not None:
@@ -236,7 +236,7 @@ class AnonymousReadReviewTests(unittest.TestCase):
         response = http.client.HTTPResponse(client)
         response.begin()
         try:
-            with patch.object(fetch, "_register_ttwid", return_value="ttwid=fixture"), \
+            with patch.object(fetch, "_register_ttwid", return_value=fetch._AnonymousSession("ttwid=fixture", "fixture-visitor")), \
                     patch.object(fetch.urllib.request, "urlopen", return_value=response):
                 items = fetch.fetch_latest(URL, is_cancelled=lambda: False)
             self.assertEqual([item.author_id for item in items], [AUTHOR])

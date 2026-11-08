@@ -7,8 +7,8 @@ from pathlib import Path
 import stat
 import sys
 
-__version__ = "4.3.2"
-__build__ = "20261104.4"
+__version__ = "4.3.3"
+__build__ = "20261108.5"
 __channel__ = "production"
 
 _PROFILE_CHANNELS_BY_PARTS = {
@@ -64,6 +64,9 @@ def runtime_channel() -> str:
         raise RuntimeError("构建身份缺失或损坏") from exc
     if type(payload) is not dict or payload.get("schema") != 1:
         raise RuntimeError("构建身份缺失或损坏")
+    from .edition import profile_is_experience
+    if profile_is_experience(payload):
+        return "development-experience"
     profile = payload.get("profile")
     channel = channel_for_profile(profile)
     expected = _PROFILE_IDENTITIES.get(profile)

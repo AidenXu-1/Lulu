@@ -207,7 +207,7 @@ class ExtractionWindowAdversarialTests(unittest.TestCase):
         core = WorkspaceService(runtime=runtime)
         entered, release = threading.Event(), threading.Event()
         def dispatch(operation, **arguments):
-            if operation == 'batch_list':
+            if operation == 'batch_poll':
                 entered.set(); release.wait(4)
             return getattr(core, operation)(**arguments)
         main._workspace_batch_dispatcher = dispatch

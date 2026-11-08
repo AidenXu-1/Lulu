@@ -41,6 +41,10 @@ def verify_assets(resources: Path, source_app: Path) -> dict:
         _file(source_app, 'src/ui/model_settings/assets/' + name)
     files += ['src/ui/model_settings/public.json', 'src/ui/model_settings/information.json']
     files += [path.relative_to(source_app).as_posix() for path in sorted(model_root.rglob('*')) if path.is_file()]
+    approved = source_app / 'src/ui/assets/approved_workspaces'
+    for name in ('settings', 'collection', 'live'):
+        _file(source_app, f'src/ui/assets/approved_workspaces/{name}/index.html')
+    files += [path.relative_to(source_app).as_posix() for path in sorted(approved.rglob('*')) if path.is_file()]
     for name, expected in assets.items():
         if Path(name).name != name or name in {'.', '..'}:
             raise WorkspacePackageError('编辑器资产清单包含非法路径')

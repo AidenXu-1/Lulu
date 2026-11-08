@@ -37,6 +37,8 @@ except ModuleNotFoundError:
     canonical_app_tree_identity = None
 
 
+from src.edition import profile_metadata
+
 PROFILES = {
     "internal_test": {
         "app_name": "Lulu Internal Test",
@@ -270,6 +272,7 @@ _MACHO_MAGICS = {
 _ALLOWED_FRAMEWORK_TOOLS = (
     re.compile(r"^Contents/Frameworks/(?:PySide6/Qt/lib/)?QtWebEngineCore\.framework/Versions/A/Helpers/QtWebEngineProcess\.app/Contents/MacOS/QtWebEngineProcess$"),
     re.compile(r"^Contents/Frameworks/download_runtime/deno$"),
+    re.compile(r"^Contents/Frameworks/recording_runtime/SystemAudioCapture$"),
     re.compile(r"^Contents/Frameworks/imageio_ffmpeg/binaries/ffmpeg-[^/]+$"),
     re.compile(r"^Contents/Frameworks/torch/bin/(?:protoc(?:-[0-9.]+)?|torch_shm_manager)$"),
 )
@@ -672,6 +675,7 @@ def profile_payload(
     source_commit: str,
     source_tree: str,
     product_source_sha256: str = "0" * 64,
+    edition: str | None = None,
 ) -> dict:
     if profile not in PROFILES:
         raise ValueError("build profile 必须显式为 internal_test、trusted_test、trusted_test_safe_e2e 或 external_candidate")
@@ -682,6 +686,7 @@ def profile_payload(
     )
     return {
         "schema": 1,
+        **({"edition": edition} if edition is not None else {}),
         "profile": profile,
         "version": version,
         "build": build,
@@ -690,7 +695,7 @@ def profile_payload(
         "product_source_sha256": source_digest,
         **{
             key: value
-            for key, value in PROFILES[profile].items()
+            for key, value in profile_metadata(PROFILES[profile], profile=profile, edition=edition).items()
             if key != "required_modules"
         },
     }
@@ -705,6 +710,7 @@ def write_profile(
     source_commit: str,
     source_tree: str,
     product_source_sha256: str = "0" * 64,
+    edition: str | None = None,
 ) -> dict:
     payload = profile_payload(
         profile,
@@ -713,6 +719,7 @@ def write_profile(
         source_commit=source_commit,
         source_tree=source_tree,
         product_source_sha256=product_source_sha256,
+        edition=edition,
     )
     path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
     os.chmod(path, 0o600)
@@ -1613,6 +1620,7 @@ def _verify_app_with_reader(
     product_source_path = resources / _PRODUCT_SOURCE_RESOURCE
     info_path = contents / "Info.plist"
     payload = _read_regular_json(profile_path, "build_profile.json")
+    expected = profile_metadata(expected, profile=profile, edition=payload.get("edition"))
     profile_sha = _sha256(profile_path)
     analysis, analysis_sha = _load_analysis(analysis_receipt, profile, profile_sha)
     authorship = _read_regular_json(authorship_path, "AUTHORSHIP.json")
@@ -1753,6 +1761,7 @@ def _verify_app_with_reader(
             source_commit=str(source_commit),
             source_tree=str(source_tree),
             product_source_sha256=str(payload.get("product_source_sha256")),
+            edition=payload.get("edition"),
         )
         source_identity_valid = True
     except ValueError:
@@ -2021,6 +2030,7 @@ def read_app_profile(app: Path) -> dict:
             source_commit=str(payload.get("source_commit")),
             source_tree=str(payload.get("source_tree")),
             product_source_sha256=str(payload.get("product_source_sha256")),
+            edition=payload.get("edition"),
         )
     except ValueError as exc:
         raise SystemExit("App 构建来源缺失或损坏") from exc
@@ -2034,6 +2044,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     create = sub.add_parser("create")
     create.add_argument("--profile", required=True)
+    create.add_argument("--edition", choices=["development-experience"])
     create.add_argument("--version", required=True)
     create.add_argument("--build", required=True)
     create.add_argument("--build-venv-root", required=True)
@@ -2080,6 +2091,7 @@ def main() -> int:
             source_commit=source_commit,
             source_tree=source_tree,
             product_source_sha256=product_source_digest,
+            edition=args.edition,
         )
     elif args.command == "create-managed-venv-link":
         print(create_managed_build_venv_link(args.build_venv_root))

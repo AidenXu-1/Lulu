@@ -4,9 +4,10 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, QUrl
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
+    QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
     QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
+from .theme import TextScaledDialog as QDialog
 
 from . import dialogs, icons
 from .control_foundation import adopt_button, adopt_dialog, adopt_scroll_area
@@ -66,8 +67,10 @@ class VoiceLibraryController(QObject):
         toolbar = QHBoxLayout()
         self.count = self.label('', 'libraryMeta')
         toolbar.addWidget(self.count, 1)
-        toolbar.addWidget(self.button('录制音色', lambda: self.child(self.add, True), icon='mic'))
-        toolbar.addWidget(self.button('添加音色', lambda: self.child(self.add, False), primary=True, icon='plus'))
+        self.record_button = self.button('录制音色', lambda: self.child(self.add, True), icon='mic')
+        self.add_button = self.button('添加音色', lambda: self.child(self.add, False), primary=True, icon='plus')
+        toolbar.addWidget(self.record_button)
+        toolbar.addWidget(self.add_button)
         lay.addLayout(toolbar)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -132,17 +135,22 @@ class VoiceLibraryController(QObject):
                 item.widget().hide()
                 item.widget().deleteLater()
         all_voices = voices.list_voices()
+        issue = voices.library_issue()
+        self.error.setText(issue)
+        self.error.setVisible(bool(issue))
+        self.record_button.setEnabled(not issue)
+        self.add_button.setEnabled(not issue)
         query = self.search.text().strip().casefold()
         shown = [v for v in all_voices if query in v.name.casefold()]
-        self.count.setText(f'{len(shown)} 个音色' if not query else f'找到 {len(shown)} 个音色')
+        self.count.setText('音色库待恢复' if issue else f'{len(shown)} 个音色' if not query else f'找到 {len(shown)} 个音色')
         if not shown:
             empty = QFrame()
             box = QVBoxLayout(empty)
             box.setContentsMargins(16, 24, 16, 24)
-            title = self.label('没有找到相关音色' if all_voices else '添加你的第一个音色', 'libraryName')
+            title = self.label('音色库暂时无法读取' if issue else '没有找到相关音色' if all_voices else '添加你的第一个音色', 'libraryName')
             title.setAlignment(Qt.AlignCenter)
             box.addWidget(title)
-            hint = self.label('试试其他名称，或清空搜索' if all_voices else '导入一段录音，或直接录制')
+            hint = self.label('原参考音频与记录已保留，请核对下方提示。' if issue else '试试其他名称，或清空搜索' if all_voices else '导入一段录音，或直接录制')
             hint.setAlignment(Qt.AlignCenter)
             hint.setWordWrap(True)
             box.addWidget(hint)
@@ -183,10 +191,11 @@ class VoiceLibraryController(QObject):
             edit = self.button('编辑', lambda _=False, v=voice: self.child(self.edit, v))
             edit.setAccessibleName(f'编辑音色 {voice.name}')
             edit.setObjectName('libraryText')
+            edit.setEnabled(not issue)
             rh.addWidget(edit)
             use = self.button('使用中' if current else '使用', lambda _=False, vid=voice.id: self.use(vid))
             use.setAccessibleName(f'使用音色 {voice.name}')
-            use.setEnabled(available and not current)
+            use.setEnabled(available and not current and not issue)
             rh.addWidget(use)
             self.rows[voice.id] = row
             self.list_layout.addWidget(row)
@@ -313,6 +322,9 @@ class VoiceLibraryController(QObject):
             try:
                 voices.delete_voice(voice.id)
             except (ValueError, OSError) as exc:
+                self.player.stop()
+                self.refresh_page()
+                self.rebuild()
                 error.setText(str(exc))
                 return
             self.refresh_page()

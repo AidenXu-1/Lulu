@@ -1,9 +1,10 @@
 """Real-window execution of authenticated CLI management requests."""
 from copy import deepcopy
 import sys
+import time
 from uuid import uuid4
 
-from PySide6.QtCore import QObject, QThread, QTimer, Signal
+from PySide6.QtCore import QFileSystemWatcher, QObject, QThread, QTimer, Signal
 
 from ..core.agent_workspace.control import SETTINGS, validate_settings
 from ..core.agent_workspace.documents import digest
@@ -39,6 +40,12 @@ class CliControl(QObject):
         self.worker = None
         self.closing = False
         self.model_controller = None
+        self._poll_dirty = True
+        self._last_poll = 0
+        self._last_snapshot = None
+        self._poll_watch = QFileSystemWatcher(self)
+        self._poll_watch.directoryChanged.connect(self._invalidate_poll)
+        self._poll_watch.fileChanged.connect(self._invalidate_poll)
         self.timer = QTimer(self)
         self.timer.setInterval(1500)
         self.timer.timeout.connect(self.poll)
@@ -48,6 +55,33 @@ class CliControl(QObject):
     def snapshot(self):
         return dict(settings={key: getattr(self.window.cfg, key) for key in SETTINGS},
                     updates=self.window.update_controller.snapshot.to_dict())
+
+    def _invalidate_poll(self, *_):
+        self._poll_dirty = True
+
+    def _watch_control_paths(self):
+        # Notifications are scheduling hints only. Every actual request still
+        # authenticates the complete bundle and reads authoritative Core state.
+        from ..core import library, models_manager
+        from ..core.local_integrity import TASK_DIRECTORY
+        try:
+            workspace = library._dir() / '.workspace'
+            ledger = models_manager.app_data_dir() / TASK_DIRECTORY / 'jobs/job-ledger-v1'
+            database = workspace / 'conversations.sqlite3'
+            if not all(path.is_dir() for path in (workspace, ledger)) or not database.is_file():
+                return False
+            wanted = {str(workspace), str(ledger), str(database)}
+            watching = set(self._poll_watch.directories()) | set(self._poll_watch.files())
+            stale = watching - wanted
+            if stale:
+                self._poll_watch.removePaths(list(stale))
+            missing = wanted - watching
+            if missing:
+                self._poll_dirty = True
+                self._poll_watch.addPaths(list(missing))
+            return wanted <= set(self._poll_watch.directories()) | set(self._poll_watch.files())
+        except (OSError, ValueError):
+            return False
 
     def _report(self, request_id, state, result=None, message=''):
         self.report_sequence += 1
@@ -62,11 +96,24 @@ class CliControl(QObject):
             return
         self._track_updates()
         self._track_models()
+        snapshot = self.snapshot()
+        watched = self._watch_control_paths()
+        now = time.monotonic()
+        # The Core lease lasts 15 seconds. Idle renewal remains well within
+        # it; commands, new jobs, changed settings and active work retain the
+        # existing 1.5-second cadence. Missing watches use that cadence too.
+        if (watched and not self._poll_dirty and not self.reports and not self.active
+                and not getattr(self.window, '_external_core_busy', False)
+                and snapshot == self._last_snapshot and now - self._last_poll < 7):
+            return
+        self._poll_dirty = False  # A later filesystem event survives this reply.
+        self._last_poll, self._last_snapshot = now, snapshot
         reports = deepcopy(self.reports[:50])
-        worker = _PollWorker(self.nonce, [{k:v for k,v in r.items() if k != '_sequence'} for r in reports], self.snapshot())
+        worker = _PollWorker(self.nonce, [{k:v for k,v in r.items() if k != '_sequence'} for r in reports], snapshot)
         self.worker = worker
         def done(reply, error):
             if error or self.closing:
+                self._poll_dirty = True
                 return
             sent = {r['_sequence'] for r in reports}
             self.reports = [r for r in self.reports if r['_sequence'] not in sent]

@@ -147,6 +147,8 @@ def _system_chrome() -> ChromeInstallation | None:
     version = payload.get("CFBundleShortVersionString")
     if not isinstance(version, str):
         return None
+    team_identifier = ""
+    signature_valid = False
     try:
         verify = subprocess.run(
             [
@@ -159,7 +161,7 @@ def _system_chrome() -> ChromeInstallation | None:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=5.0,
+            timeout=15.0,
             check=False,
         )
         details = subprocess.run(
@@ -177,14 +179,15 @@ def _system_chrome() -> ChromeInstallation | None:
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return None
-    match = re.search(r"(?m)^TeamIdentifier=(\S+)\s*$", details.stderr or "")
-    team_identifier = match.group(1) if match is not None else ""
-    signature_valid = (
-        verify.returncode == 0
-        and details.returncode == 0
-        and team_identifier == _GOOGLE_CHROME_TEAM_ID
-    )
+        pass
+    else:
+        match = re.search(r"(?m)^TeamIdentifier=(\S+)\s*$", details.stderr or "")
+        team_identifier = match.group(1) if match is not None else ""
+        signature_valid = (
+            verify.returncode == 0
+            and details.returncode == 0
+            and team_identifier == _GOOGLE_CHROME_TEAM_ID
+        )
     return ChromeInstallation(
         _CHROME_EXECUTABLE,
         version,

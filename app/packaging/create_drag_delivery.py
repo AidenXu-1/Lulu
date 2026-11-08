@@ -15,15 +15,16 @@ def prepare_payload(app, destination):
     app, destination = Path(app), Path(destination)
     source = inspect_install_source(app)
     destination.mkdir()
-    shutil.copytree(app, destination/'Lulu.app', symlinks=True)
+    shutil.copytree(app, destination/app.name, symlinks=True)
     os.symlink('/Applications', destination/'Applications')
-    if inspect_install_source(destination/'Lulu.app') != source:
+    if inspect_install_source(destination/app.name) != source:
         raise RuntimeError('PACKAGE_PAYLOAD_MISMATCH')
     return source
 
 
 def verify_drag_dmg(dmg, *, expected_app):
     source = inspect_install_source(Path(expected_app))
+    app_name = Path(expected_app).name
     digest, _ = _read(dmg, digest_only=True)
     if _run(['/usr/bin/hdiutil', 'verify', str(dmg)], 300).returncode:
         raise RuntimeError('PACKAGE_HASH_MISMATCH')
@@ -44,10 +45,10 @@ def verify_drag_dmg(dmg, *, expected_app):
             marker = f' on {mount} ('.encode()
             if mounted.returncode or not any(marker in line and b'read-only' in line for line in mounted.stdout.splitlines()):
                 raise RuntimeError('PACKAGE_MOUNT_NOT_READONLY')
-            if ({p.name for p in mount.iterdir()} - {'.DS_Store', '.Trashes', '.fseventsd'} != {'Lulu.app', 'Applications'}
+            if ({p.name for p in mount.iterdir()} - {'.DS_Store', '.Trashes', '.fseventsd'} != {app_name, 'Applications'}
                     or not (mount/'Applications').is_symlink()
                     or os.readlink(mount/'Applications') != '/Applications'
-                    or inspect_install_source(mount/'Lulu.app') != source):
+                    or inspect_install_source(mount/app_name) != source):
                 raise RuntimeError('PACKAGE_PAYLOAD_MISMATCH')
             if _read(dmg, digest_only=True)[0] != digest:
                 raise RuntimeError('PACKAGE_FILE_IDENTITY_DRIFT')
@@ -67,7 +68,7 @@ def create_delivery(app, output):
     work.mkdir()
     prepare_payload(app, work/'payload')
     subprocess.run(['/usr/bin/hdiutil', 'create', '-srcfolder', str(work/'payload'),
-        '-volname', 'Lulu', '-fs', 'HFS+', '-format', 'UDZO', str(output)], check=True)
+        '-volname', app.stem, '-fs', 'HFS+', '-format', 'UDZO', str(output)], check=True)
     receipt = verify_drag_dmg(output, expected_app=app)
     (work/'receipt.json').write_text(json.dumps(receipt, indent=2)+'\n')
     # Hashes remain release evidence; users only need the DMG itself.

@@ -13,7 +13,7 @@ import stat
 _OWNER = "lulu.phase10-build-root/v1"
 _MARKER = ".lulu-phase10-root.json"
 _IDENTITIES = frozenset(
-    {"candidate", "trusted-test", "trusted-test-safe-e2e", "production"}
+    {"candidate", "experience", "trusted-test", "trusted-test-safe-e2e", "production"}
 )
 
 

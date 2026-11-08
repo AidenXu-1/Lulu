@@ -8,12 +8,16 @@ class LiveLoginRequest(QThread):
     received = Signal(str)
     notice = Signal(str)
 
+    def __init__(self, parent=None, *, browser_path=None):
+        super().__init__(parent)
+        self.browser_path = browser_path
+
     def run(self):
         try:
             from ..core.live_recording.browser_login import login_cookie
             from ..core.models_manager import app_data_dir
             value = login_cookie(app_data_dir(), is_cancelled=self.isInterruptionRequested,
-                                 progress=self.notice.emit)
+                                 progress=self.notice.emit, browser_path=self.browser_path)
             if value and not self.isInterruptionRequested():
                 self.received.emit(value)
         except LiveError as exc:

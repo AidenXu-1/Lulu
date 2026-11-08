@@ -209,8 +209,8 @@ class NonTranscriptionWorkspaceReview(unittest.TestCase):
         entered, release, cli_done = threading.Event(), threading.Event(), threading.Event()
         original_read = voices._read
         errors = []
-        def blocked_gui_read():
-            value = original_read()
+        def blocked_gui_read(*, strict=False):
+            value = original_read(strict=strict)
             if threading.current_thread().name == 'isolated-gui':
                 entered.set()
                 if not release.wait(4):
@@ -280,8 +280,8 @@ from src.core.synthesis import voices
 root,source,signals=map(Path,sys.argv[1:])
 voices.configure_voice_library_dir(root)
 read=voices._read
-def hold():
-    result=read()
+def hold(*, strict=False):
+    result=read(strict=strict)
     (signals/'entered').touch()
     deadline=time.monotonic()+5
     while not (signals/'release').exists():

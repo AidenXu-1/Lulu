@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 import platform
 import queue
 import shutil
-import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
-import wave
 from pathlib import Path
+
+from .audio_tools import _wav_stats
 
 from .base import (
     ProgressCallback,
@@ -71,9 +73,16 @@ final class AudioCaptureDelegate: NSObject, SCStreamOutput {
         guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
 
         if !started {
+            let firstPTS = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
             writer.startWriting()
-            writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+            writer.startSession(atSourceTime: firstPTS)
             started = true
+            let origin = CMTimeGetSeconds(firstPTS)
+            let hostNow = CMTimeGetSeconds(CMClockGetTime(CMClockGetHostTimeClock()))
+            if origin.isFinite && abs(hostNow - origin) < 5 {
+                print("capture_started_monotonic=\(origin)")
+                fflush(stdout)
+            }
         }
 
         if input.isReadyForMoreMediaData, input.append(sampleBuffer) {
@@ -102,7 +111,10 @@ struct SystemAudioCapture {
         do {
             try await run()
         } catch {
-            fputs("capture_error: \(error.localizedDescription)\n", stderr)
+            let native = error as NSError
+            let data = try? JSONSerialization.data(withJSONObject: ["domain": native.domain, "code": native.code])
+            let detail = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            fputs("capture_error: \(detail)\n", stderr)
             exit(1)
         }
     }
@@ -173,15 +185,25 @@ def _helper_paths() -> tuple[Path, Path, Path]:
     return root / "SystemAudioCapture.swift", root / "SystemAudioCapture", root / "module-cache"
 
 
+def _bundled_helper() -> Path | None:
+    root = getattr(sys, "_MEIPASS", None)
+    return Path(root) / "recording_runtime" / "SystemAudioCapture" if root else None
+
+
 def ensure_macos_system_audio_helper(progress: ProgressCallback | None = None) -> Path:
     progress = progress or _noop
-    swiftc = shutil.which("swiftc")
-    if not swiftc:
-        raise RecordingBackendError("系统声音录制组件不可用")
+    bundled = _bundled_helper()
+    if bundled is not None and bundled.is_file() and os.access(bundled, os.X_OK):
+        return bundled
+    if getattr(sys, "frozen", False):
+        raise RecordingBackendError("系统声音录制组件缺失，请重新安装完整的 Lulu。")
 
     source_path, binary_path, module_cache = _helper_paths()
-    if binary_path.exists():
+    if binary_path.is_file() and os.access(binary_path, os.X_OK):
         return binary_path
+    swiftc = shutil.which("swiftc")
+    if not swiftc:
+        raise RecordingBackendError("系统声音录制组件不可用，请使用完整安装版 Lulu。")
 
     source_path.parent.mkdir(parents=True, exist_ok=True)
     source_path.write_text(_SWIFT_HELPER, encoding="utf-8")
@@ -229,6 +251,32 @@ def _reader_thread(stream, out: "queue.Queue[str]") -> None:
             pass
 
 
+def _capture_failure(stderr_queue: "queue.Queue[str]", stage: str) -> RecordingBackendError:
+    domain, code = "", None
+    while True:
+        try:
+            line = stderr_queue.get_nowait()
+        except queue.Empty:
+            break
+        if not line.startswith("capture_error: "):
+            continue
+        try:
+            error = json.loads(line.removeprefix("capture_error: "))
+            domain, code = error.get("domain", ""), error.get("code")
+        except (ValueError, AttributeError):
+            continue
+    if not isinstance(domain, str) or not isinstance(code, int):
+        domain, code = "", None
+    if domain == "com.apple.ScreenCaptureKit.SCStreamErrorDomain" and code == -3801:
+        return RecordingBackendError("系统拒绝了 Lulu 的录屏与系统录音权限。请在系统设置中允许；若开关已开启，请关闭后重新开启，并重开 Lulu。")
+    if (domain, code) in {("NSPOSIXErrorDomain", 28), ("NSCocoaErrorDomain", 640)}:
+        return RecordingBackendError("磁盘空间不足，系统声音录音未保存。请腾出空间后重试。")
+    if (domain, code) in {("NSPOSIXErrorDomain", 13), ("NSCocoaErrorDomain", 513)}:
+        return RecordingBackendError("录音保存目录不可写，请重新选择保存位置。")
+    suffix = f"（错误码 {code}）" if isinstance(code, int) else ""
+    return RecordingBackendError(f"系统声音录制{stage}失败{suffix}。请重试或重新打开 Lulu。")
+
+
 def _decode_to_wav(path: Path, wav_path: Path) -> bool:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -262,26 +310,6 @@ def _decode_to_wav(path: Path, wav_path: Path) -> bool:
     return completed.returncode == 0 and wav_path.exists() and wav_path.stat().st_size > 44
 
 
-def _wav_stats(path: Path) -> dict[str, float]:
-    with wave.open(str(path), "rb") as wav:
-        sample_rate = wav.getframerate()
-        frames = wav.getnframes()
-        data = wav.readframes(frames)
-    if not data:
-        return {"sample_rate": float(sample_rate), "duration": 0.0, "rms": 0.0, "peak": 0.0}
-    samples = struct.unpack("<" + "h" * (len(data) // 2), data)
-    if not samples:
-        return {"sample_rate": float(sample_rate), "duration": 0.0, "rms": 0.0, "peak": 0.0}
-    rms = math.sqrt(sum(v * v for v in samples) / len(samples))
-    peak = max(abs(v) for v in samples)
-    return {
-        "sample_rate": float(sample_rate),
-        "duration": float(frames) / float(sample_rate or 1),
-        "rms": float(rms),
-        "peak": float(peak),
-    }
-
-
 class MacOSSystemAudioSession:
     def __init__(
         self,
@@ -289,12 +317,27 @@ class MacOSSystemAudioSession:
         process: subprocess.Popen,
         stop_file: Path,
         stdout_queue: "queue.Queue[str]",
+        stderr_queue: "queue.Queue[str] | None" = None,
+        readers: tuple[threading.Thread, ...] = (),
     ):
         self._request = request
         self._process = process
         self._stop_file = stop_file
         self._stdout_queue = stdout_queue
+        self._stderr_queue = stderr_queue if stderr_queue is not None else queue.Queue()
+        self._readers = readers
         self._cancelled = False
+        self._capture_started_monotonic: float | None = None
+
+    def _observe_timing(self, line: str) -> None:
+        prefix = "capture_started_monotonic="
+        if line.startswith(prefix):
+            try:
+                value = float(line[len(prefix):])
+            except ValueError:
+                return
+            if math.isfinite(value) and value >= 0 and self._capture_started_monotonic is None:
+                self._capture_started_monotonic = value
 
     @property
     def request(self) -> RecordingRequest:
@@ -328,9 +371,11 @@ class MacOSSystemAudioSession:
             raise RecordingBackendError("系统声音录制超时,已清理临时文件") from exc
 
         if self._process.returncode != 0:
+            for reader in self._readers:
+                reader.join(timeout=0.5)
             self._cleanup_stop_file()
             self._cleanup_output()
-            raise RecordingBackendError("系统声音录制失败,请检查系统声音权限后重试")
+            raise _capture_failure(self._stderr_queue, "保存")
 
         output_path = self._request.output_path
         if not output_path.exists() or output_path.stat().st_size == 0:
@@ -338,11 +383,21 @@ class MacOSSystemAudioSession:
             self._cleanup_output()
             raise RecordingBackendError("没有生成可用的系统声音录音")
 
-        metadata: dict[str, object] = {"stdout": list(self._drain_stdout())}
+        for reader in self._readers:
+            reader.join(timeout=0.5)
+        lines = list(self._drain_stdout())
+        for line in lines:
+            self._observe_timing(line)
+        metadata: dict[str, object] = {"stdout": lines,
+            "capture_started_monotonic": self._capture_started_monotonic}
         wav_path = output_path.with_suffix(".analysis.wav")
         is_silent: bool | None = None
         duration: float | None = None
-        if _decode_to_wav(output_path, wav_path):
+        try:
+            decoded = _decode_to_wav(output_path, wav_path)
+        except (OSError, subprocess.TimeoutExpired):
+            decoded = False
+        if decoded:
             stats = _wav_stats(wav_path)
             metadata["analysis"] = stats
             duration = stats.get("duration")
@@ -351,6 +406,10 @@ class MacOSSystemAudioSession:
                 wav_path.unlink()
             except OSError:
                 pass
+        else:
+            self._cleanup_stop_file()
+            self._cleanup_output()
+            raise RecordingBackendError("系统声音录音无法读取，未加入转录队列。请重新录制。")
         if is_silent is True:
             self._cleanup_stop_file()
             self._cleanup_output()
@@ -433,30 +492,40 @@ class MacOSSystemAudioBackend:
         )
         stdout_queue: "queue.Queue[str]" = queue.Queue()
         stderr_queue: "queue.Queue[str]" = queue.Queue()
-        threading.Thread(target=_reader_thread, args=(process.stdout, stdout_queue), daemon=True).start()
-        threading.Thread(target=_reader_thread, args=(process.stderr, stderr_queue), daemon=True).start()
+        readers = (
+            threading.Thread(target=_reader_thread, args=(process.stdout, stdout_queue), daemon=True),
+            threading.Thread(target=_reader_thread, args=(process.stderr, stderr_queue), daemon=True),
+        )
+        for reader in readers:
+            reader.start()
+        session = MacOSSystemAudioSession(request, process, stop_file, stdout_queue, stderr_queue, readers)
 
         deadline = time.monotonic() + 12
         while time.monotonic() < deadline:
             if process.poll() is not None:
-                raise RecordingBackendError("系统声音录制启动失败,请检查系统声音权限")
+                for reader in readers:
+                    reader.join(timeout=0.5)
+                session.cancel()
+                raise _capture_failure(stderr_queue, "启动")
             try:
                 line = stdout_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
             if line == "started":
                 progress("正在录制电脑播放的声音", -1)
-                return MacOSSystemAudioSession(request, process, stop_file, stdout_queue)
-        process.terminate()
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            process.kill()
-        raise RecordingBackendError("系统声音录制启动超时,请检查系统声音权限")
+                return session
+            session._observe_timing(line)
+        session.cancel()
+        raise RecordingBackendError("系统声音录制启动超时，已停止本次尝试。请重试或重新打开 Lulu。")
 
 
 def is_macos_system_audio_available() -> bool:
-    return platform.system() == "Darwin" and shutil.which("swiftc") is not None
+    if platform.system() != "Darwin":
+        return False
+    bundled = _bundled_helper()
+    if bundled is not None and bundled.is_file() and os.access(bundled, os.X_OK):
+        return True
+    return not getattr(sys, "frozen", False) and (os.access(_helper_paths()[1], os.X_OK) or shutil.which("swiftc") is not None)
 
 
 __all__ = [

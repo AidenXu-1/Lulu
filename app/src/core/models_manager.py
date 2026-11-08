@@ -52,14 +52,8 @@ _MACOS_WHEEL_TAG = re.compile(r"macosx_(\d+)_(\d+)(?:_[^\s]+)?_arm64\Z")
 
 
 def _app_data_dir() -> Path:
-    home = Path.home()
-    sysname = platform.system()
-    if sysname == "Darwin":
-        return home / "Library" / "Application Support" / "Lulu"
-    if sysname == "Windows":
-        import os
-        return Path(os.environ.get("APPDATA", home)) / "Lulu"
-    return home / ".local" / "share" / "Lulu"
+    from src.edition import product_data_root
+    return product_data_root()
 
 
 def app_data_dir() -> Path:
@@ -120,6 +114,8 @@ def relocate_models(new_root, progress=None, is_cancelled=None, *, source_root=N
             progress(f"移动 {sub} 到新位置…", -1.0)
             shutil.move(str(src), str(dst))
             moved.append(sub)
+        if is_cancelled():
+            raise RuntimeError("已取消")
         rebind_install_receipts(captured_receipts, new_root, receipts)
     except Exception:
         # 第二个目录失败时把已移动的第一个目录退回，避免 ASR/TTS 被拆在两处。

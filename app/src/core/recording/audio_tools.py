@@ -52,17 +52,19 @@ def _decode_to_wav(path: Path, wav_path: Path) -> None:
 
 
 def _wav_stats(path: Path) -> dict[str, float]:
+    count = square_sum = peak = 0
     with wave.open(str(path), "rb") as wav:
         sample_rate = wav.getframerate()
         frames = wav.getnframes()
-        data = wav.readframes(frames)
-    if not data:
+        # A long recording must not create a tuple for every sample at once.
+        while data := wav.readframes(65536):
+            samples = struct.unpack(f"<{len(data) // 2}h", data)
+            count += len(samples)
+            square_sum += sum(value * value for value in samples)
+            peak = max(peak, max((abs(value) for value in samples), default=0))
+    if not count:
         return {"sample_rate": float(sample_rate), "duration": 0.0, "rms": 0.0, "peak": 0.0}
-    samples = struct.unpack("<" + "h" * (len(data) // 2), data)
-    if not samples:
-        return {"sample_rate": float(sample_rate), "duration": 0.0, "rms": 0.0, "peak": 0.0}
-    rms = math.sqrt(sum(v * v for v in samples) / len(samples))
-    peak = max(abs(v) for v in samples)
+    rms = math.sqrt(square_sum / count)
     return {
         "sample_rate": float(sample_rate),
         "duration": float(frames) / float(sample_rate or 1),
@@ -84,14 +86,19 @@ def analyze_recording_file(path: Path, *, silence_rms: float = 80.0, silence_pea
     return stats
 
 
-def mix_recording_tracks(microphone_path: Path, system_path: Path, output_path: Path) -> dict[str, object]:
-    """Mix microphone and system-audio tracks into one user-facing M4A file.
+def mix_recording_tracks(microphone_path: Path, system_path: Path, output_path: Path, *,
+                         microphone_started_at: float | None, system_started_at: float | None) -> dict[str, object]:
+    """Place both media origins on their common monotonic capture timeline."""
 
-    ffmpeg aligns both inputs at their file start, resamples to 48 kHz and lets
-    amix use the longest track. This keeps the first product slice simple:
-    clock drift or sub-second manual stop skew is not corrected beyond ffmpeg's
-    resampling, so long-form professional sync remains a later refinement.
-    """
+    clocks = (microphone_started_at, system_started_at)
+    if any(isinstance(value, bool) or not isinstance(value, (int, float))
+           or not math.isfinite(value) or value < 0 for value in clocks):
+        raise RecordingAudioError("无法确认两路录音时间，未保存可能错位的混录。请重新录制。")
+    origin = min(clocks)
+    mic_delay = round((microphone_started_at - origin) * 48000)
+    sys_delay = round((system_started_at - origin) * 48000)
+    if max(mic_delay, sys_delay) > 7200 * 48000:
+        raise RecordingAudioError("两路录音时间异常，请重新录制。")
 
     if not microphone_path.exists() or microphone_path.stat().st_size == 0:
         raise RecordingAudioError("麦克风音轨为空")
@@ -99,8 +106,8 @@ def mix_recording_tracks(microphone_path: Path, system_path: Path, output_path: 
         raise RecordingAudioError("系统声音音轨为空")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     filter_graph = (
-        "[0:a]aresample=48000,asetpts=PTS-STARTPTS[mic];"
-        "[1:a]aresample=48000,asetpts=PTS-STARTPTS[sys];"
+        f"[0:a]aresample=48000,asetpts=PTS-STARTPTS,adelay={mic_delay}S:all=1[mic];"
+        f"[1:a]aresample=48000,asetpts=PTS-STARTPTS,adelay={sys_delay}S:all=1[sys];"
         "[mic][sys]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[mix]"
     )
     completed = subprocess.run(

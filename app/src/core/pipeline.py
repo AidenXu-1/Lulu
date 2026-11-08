@@ -181,8 +181,11 @@ def transcribe_source(
             engine_override.check_disk()
 
     def _check_size(path):
-        if max_input_bytes is not None and not 0 < Path(path).stat().st_size <= max_input_bytes:
-            raise ValueError('本次转录仅支持 2 GB 以内的非空音视频文件；原文件保留')
+        if max_input_bytes is not None:
+            size = Path(path).stat().st_size
+            if not 0 < size <= max_input_bytes:
+                from .audio.converter import InputMediaError
+                raise InputMediaError('LOCAL_MEDIA_EMPTY' if size == 0 else 'LOCAL_MEDIA_TOO_LARGE')
 
     with ExitStack() as input_lease:
         if bounded_cloud and hasattr(engine_override,'preparation'):

@@ -7,11 +7,10 @@ from pathlib import Path
 import uuid
 
 from PySide6.QtCore import QEvent, QThread, QTimer, QUrl, Signal, Slot, Qt
-from PySide6.QtGui import QDesktopServices, QGuiApplication, QIcon, QPixmap
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QBoxLayout,
-    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -20,10 +19,12 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSlider,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
+from .theme import TextScaledDialog as QDialog
 
 from ..version import __version__
 from ..core import models_manager
@@ -31,22 +32,41 @@ from ..core.synthesis import voices
 from . import dialogs, icons, theme as T
 from .consumer_select import ConsumerSelect
 from .control_foundation import (
+    LuluCheckBox,
     PaperTextureFrame,
+    adopt_text_field,
     adopt_button,
     adopt_consumer_theme_scope,
     adopt_scroll_area,
     adopt_surface,
-    build_consumer_page_header,
 )
 
 _CATEGORY_OPTIONS = (
     ("general", "通用", "提醒、任务与系统行为"),
     ("storage", "文件与存储", "导出下载、资源位置与本地资料"),
     ("skills", "技能", "安装、启停和管理 Lulu 技能"),
-    ("cli", "CLI", "让其他 Agent 调用 Lulu"),
+    ("cli", "CLI 与 Agent", "让其他 Agent 调用 Lulu"),
     ("feishu", "飞书知识库", "连接、新建位置与表格预设"),
     ("about", "关于", "版本、更新与产品信息"),
 )
+_CATEGORY_GROUPS = (
+    ("日常偏好", ("general", "storage")),
+    ("扩展与连接", ("skills", "cli", "feishu")),
+    ("LULU", ("about",)),
+)
+_CATEGORY_ICONS = {
+    "general": "gear", "storage": "folder", "skills": "layers",
+    "cli": "code", "feishu": "link", "about": "workspace_doc",
+}
+_SEARCH_TERMS = {
+    "general": "通知 提醒 权限 麦克风 字号 字体 唤醒 休眠 声音",
+    "storage": "导出 下载 模型 音色 路径 文件 目录 录音 主页采集 文稿",
+    "skills": "本地技能 启用 停用 安装 卸载 导入",
+    "cli": "命令行 Agent Skill Codex 安装 连接",
+    "feishu": "飞书 权限 回调 知识库 凭据",
+    "about": "版本 更新 下载 作者 微信",
+}
+
 _PATH_OPTIONS = (
     ("last_output_dir", "文稿导出", "从文稿库或提取结果导出文稿时，默认打开此文件夹。", "storage_document"),
     (
@@ -64,7 +84,7 @@ REPOSITORY_URL = "https://github.com/AidenXu-1/Lulu"
 AUTHOR_URL = "https://github.com/AidenXu-1"
 PRODUCT_BOUNDARY = (
     "Lulu坚持本地优先，本地模式下音频与逐字稿只留在本机，不会自动上传内容。\n"
-    "只有主动使用云端模型或软件更新时，相关功能才会联网。"
+    "链接下载、主页采集、直播、模型下载、检查更新，以及主动选择的云端模型和飞书保存会联网。"
 )
 
 
@@ -82,7 +102,11 @@ def _settings_workspace_qss(consumer: T.ConsumerTheme) -> str:
     }}
     {scope} QFrame#settingsCategoryNav {{
         background: {consumer.surface_work}; border: none;
-        border-radius: {consumer.radius_surface}px;
+        border-right: 1px solid {consumer.line};
+    }}
+    {scope} QLabel#settingsNavGroup {{
+        color: {consumer.ink_muted}; font-size: 10px; font-weight: 600;
+        padding: 6px 8px 0;
     }}
     {scope} QFrame#settingsCategoryNav QPushButton {{
         color: {consumer.ink_soft}; background: transparent;
@@ -94,7 +118,10 @@ def _settings_workspace_qss(consumer: T.ConsumerTheme) -> str:
     }}
     {scope} QFrame#settingsCategoryNav QPushButton:checked {{
         background: {consumer.accent_wash}; color: {consumer.accent};
-        border-color: {consumer.accent_hairline}; font-weight: 600;
+        font-weight: 600;
+    }}
+    {scope} QFrame#settingsCategoryNav QPushButton:focus {{
+        border-color: {consumer.accent_hairline};
     }}
     {scope} QFrame#settingsPanel {{
         background: {consumer.surface_focal}; border: 1px solid {consumer.line};
@@ -125,6 +152,20 @@ def _settings_workspace_qss(consumer: T.ConsumerTheme) -> str:
     {scope} QLineEdit[feishuField="true"]:focus {{
         border: 2px solid {consumer.accent}; padding: 0 11px;
     }}
+    {scope} QSlider#settingsFontSlider::groove:horizontal {{
+        height: 4px; border-radius: 2px; background: {consumer.line};
+    }}
+    {scope} QSlider#settingsFontSlider::sub-page:horizontal {{
+        background: {consumer.accent}; border-radius: 2px;
+    }}
+    {scope} QSlider#settingsFontSlider::handle:horizontal {{
+        background: {consumer.surface_floating}; border: 1px solid {consumer.accent_hairline};
+        border-radius: 9px; width: 16px; margin: -7px 0;
+    }}
+    {scope} QSlider#settingsFontSlider::handle:focus,
+    {scope} QSlider#settingsFontSlider::handle:hover {{
+        border: 1px solid {consumer.accent};
+    }}
     {scope} QScrollArea, {scope} QScrollArea > QWidget > QWidget {{
         background: transparent; border: none;
     }}
@@ -136,6 +177,7 @@ class StorageRelocateWorker(QThread):
 
     succeeded = Signal(str, str)
     failed = Signal(str, str, bool, str, str)
+    progress = Signal(str, float)
 
     def __init__(self, field: str, old_root: Path, new_root: Path, cfg, parent=None):
         super().__init__(parent)
@@ -157,12 +199,14 @@ class StorageRelocateWorker(QThread):
                 models_manager.relocate_models(
                     self.new_root,
                     source_root=self.old_root,
-                    progress=lambda _message, _fraction: None,
+                    progress=self.progress.emit,
+                    is_cancelled=self.isInterruptionRequested,
                 )
                 model_relocation_completed = True
                 resolved = self.new_root
             else:
-                resolved = Path(voices.relocate_voice_library(self.new_root))
+                resolved = Path(voices.relocate_voice_library(
+                    self.new_root, progress=self.progress.emit, is_cancelled=self.isInterruptionRequested))
             setattr(self.cfg, self.field, str(resolved))
             if not bool(self.cfg.save()):
                 raise RuntimeError("新位置没有写入本机配置")
@@ -295,6 +339,7 @@ class SettingsPage(QWidget):
     """独立设置中心；业务页单次选择仍由业务页优先。"""
 
     preferences_changed = Signal(str)
+    font_preview = Signal(int)
     notification_permission_finished = Signal(object)
     storage_activity_changed = Signal(bool)
     install_requested = Signal()
@@ -363,6 +408,7 @@ class SettingsPage(QWidget):
         self.path_titles: dict[str, str] = {}
         self.path_description_labels: dict[str, QLabel] = {}
         self.path_action_layouts: list[QBoxLayout] = []
+        self.general_control_layouts: list[QBoxLayout] = []
         self.cli_feature_layouts: list[tuple[QBoxLayout, QLabel]] = []
         self.cli_action_layouts: list[QBoxLayout] = []
         self.feishu_auth_badge: QLabel | None = None
@@ -391,6 +437,8 @@ class SettingsPage(QWidget):
         # SettingsPage 也会被隔离预览和测试直接创建；显式带上成熟 Lulu
         # 控件基础，避免离开 MainWindow 父级后退化为系统原生矩形。
         self.setStyleSheet(T.QSS + _settings_workspace_qss(self._consumer))
+        self._font_timer = QTimer(self, singleShot=True, interval=180)
+        self._font_timer.timeout.connect(self._persist_font)
         self._build()
 
     def _build(self) -> None:
@@ -404,16 +452,9 @@ class SettingsPage(QWidget):
         )
         canvas.setObjectName("coreCanvas")
         canvas_lay = QVBoxLayout(canvas)
-        canvas_lay.setContentsMargins(14, 0, 14, 28)
+        canvas_lay.setContentsMargins(14, 14, 14, 20)
         canvas_lay.setSpacing(0)
         root.addWidget(canvas)
-
-        header, self.title_label, self.meta_label = build_consumer_page_header(
-            "设置",
-            "管理 Lulu 的全局偏好。业务页里的单次选择仍以当次为准。",
-        )
-        canvas_lay.addWidget(header)
-        canvas_lay.addSpacing(24)
 
         body = PaperTextureFrame(
             strength=self._consumer.paper_texture_opacity,
@@ -423,14 +464,15 @@ class SettingsPage(QWidget):
         body.setObjectName("settingsWorkbench")
         self.settings_workbench = body
         body_lay = QHBoxLayout(body)
-        body_lay.setContentsMargins(12, 12, 12, 12)
-        body_lay.setSpacing(24)
+        body_lay.setContentsMargins(1, 1, 12, 1)
+        body_lay.setSpacing(27)
         self.category_nav = self._build_navigation()
-        body_lay.addWidget(self.category_nav, 0, Qt.AlignTop)
+        body_lay.addWidget(self.category_nav)
 
         self.category_stack = QStackedWidget()
         self.category_stack.setObjectName("settingsCategoryStack")
         self.category_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.category_stack.setContentsMargins(0, 24, 0, 0)
         body_lay.addWidget(self.category_stack, 1)
         canvas_lay.addWidget(body, 1)
 
@@ -453,14 +495,49 @@ class SettingsPage(QWidget):
     def _build_navigation(self) -> QFrame:
         nav = QFrame()
         nav.setObjectName("settingsCategoryNav")
-        nav.setFixedWidth(180)
+        nav.setFixedWidth(182)
         lay = QVBoxLayout(nav)
-        lay.setContentsMargins(8, 8, 8, 8)
+        lay.setContentsMargins(12, 24, 12, 16)
         lay.setSpacing(5)
+        brand = QHBoxLayout()
+        brand.setSpacing(8)
+        brand.addWidget(icons.image_label(T.asset("logo_mascot_transparent.png"), 33))
+        brand_copy = QVBoxLayout()
+        brand_copy.setSpacing(0)
+        title = QLabel("Lulu")
+        title.setStyleSheet(f'font-family:"{T.SERIF}";font-size:24px;font-weight:600;')
+        brand_copy.addWidget(title)
+        subtitle = QLabel("偏好设置")
+        subtitle.setObjectName("pageMeta")
+        brand_copy.addWidget(subtitle)
+        brand.addLayout(brand_copy, 1)
+        lay.addLayout(brand)
+        lay.addSpacing(14)
+        self.category_search = QLineEdit()
+        self.category_search.setPlaceholderText("查找设置")
+        self.category_search.setClearButtonEnabled(True)
+        adopt_text_field(self.category_search, accessible_name="查找设置")
+        self.category_search.textChanged.connect(self._filter_categories)
+        self.category_search.returnPressed.connect(self._open_first_match)
+        lay.addWidget(self.category_search)
+        find = QShortcut(QKeySequence.StandardKey.Find, self)
+        find.setContext(Qt.WidgetWithChildrenShortcut)
+        find.activated.connect(self.category_search.setFocus)
+        self.category_no_match = QLabel("没有匹配的设置")
+        self.category_no_match.setWordWrap(True)
+        self.category_no_match.hide()
         self._category_group = QButtonGroup(self)
         self._category_group.setExclusive(True)
+        group_titles = {keys[0]: title for title, keys in _CATEGORY_GROUPS}
+        self.category_group_labels = {}
         for key, label, description in _CATEGORY_OPTIONS:
+            if key in group_titles:
+                heading = QLabel(group_titles[key])
+                heading.setObjectName("settingsNavGroup")
+                self.category_group_labels[key] = heading
+                lay.addWidget(heading)
             button = QPushButton(label)
+            button.setIcon(QIcon(icons.consumer_pixmap(_CATEGORY_ICONS[key], self._consumer.ink_soft)))
             button.setCheckable(True)
             button.setFixedHeight(40)
             button.setAccessibleName(f"设置分类：{label}")
@@ -474,8 +551,33 @@ class SettingsPage(QWidget):
             self._category_group.addButton(button)
             self.category_buttons[key] = button
             lay.addWidget(button)
+        lay.addWidget(self.category_no_match)
         lay.addStretch(1)
+        local_note = QLabel("●  本地优先，安心创作")
+        local_note.setObjectName("pageMeta")
+        local_note.setWordWrap(True)
+        lay.addWidget(local_note)
         return nav
+
+    def _filter_categories(self, text: str) -> None:
+        words = text.strip().casefold().split()
+        matches = []
+        for key, title, description in _CATEGORY_OPTIONS:
+            haystack = f"{title} {description} {_SEARCH_TERMS[key]}".casefold()
+            visible = all(word in haystack for word in words)
+            self.category_buttons[key].setVisible(visible)
+            if visible:
+                matches.append(key)
+        self._category_matches = matches
+        for _, keys in _CATEGORY_GROUPS:
+            self.category_group_labels[keys[0]].setVisible(any(key in matches for key in keys))
+        self.category_no_match.setVisible(not matches)
+
+    def _open_first_match(self) -> None:
+        if self.category_search.text().strip() and self._category_matches:
+            key = self._category_matches[0]
+            self.set_category(key)
+            self.category_buttons[key].setFocus(Qt.OtherFocusReason)
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
         category = watched.property("settingsCategory") if isinstance(watched, QPushButton) else None
@@ -491,15 +593,16 @@ class SettingsPage(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(event)
-        # 窄窗口仍保留左侧分类，但收紧导航宽度，把纸面空间让给正文；
-        # 620px 级别下四个分类也不会挤出横向滚动。
         narrow = self.width() < 720
-        self.category_nav.setFixedWidth(124 if narrow else 180)
+        self.category_nav.setFixedWidth(148 if self.width() <= 820 else 182 if self.width() <= 1100 else 216)
         direction = (
             QBoxLayout.Direction.TopToBottom
             if narrow
             else QBoxLayout.Direction.LeftToRight
         )
+        for controls in self.general_control_layouts:
+            controls.setDirection(direction)
+            controls.setSpacing(6 if narrow else 18)
         for actions in self.path_action_layouts:
             actions.setDirection(direction)
         for actions in self.cli_action_layouts:
@@ -534,11 +637,13 @@ class SettingsPage(QWidget):
             self._refresh_feishu_settings()
         if key == "skills":
             self.skills_page.refresh()
+        self._apply_font_preview(self.font_slider.value())
         self.category_changed.emit(key)
 
     def _skills_page(self):
         from .skills_page import SkillsPage
         self.skills_page = SkillsPage(self)
+        self.skills_page.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         return self.skills_page
 
     def _cli_page(self):
@@ -546,11 +651,14 @@ class SettingsPage(QWidget):
         page, col = self._detail_page(
             "cli", "CLI", "让你常用的 Agent 连接 Lulu，使用本机已有的内容和工具。",
         )
-        card, lay = self._card("可以调用什么", "共用 Lulu 的文稿、任务与结果。连接时会检查当前版本实际开放的能力。")
+        card, lay = self._card(
+            "可以调用什么",
+            f"当前程序为 Lulu {__version__}。CLI 功能随 Lulu 更新，Skill 提供调用指引；连接时会核对本机实际开放的能力。",
+        )
         self._cli_feature_rows(lay, CLI_FEATURES)
         col.addWidget(card)
 
-        card, lay = self._card("尚未向 CLI 开放", "以下功能仍可在 Lulu 应用内使用。")
+        card, lay = self._card("尚未向 CLI 开放", "以下项目尚无对应 CLI 入口。")
         self._cli_feature_rows(lay, CLI_UNAVAILABLE)
         col.addWidget(card)
 
@@ -569,7 +677,7 @@ class SettingsPage(QWidget):
         actions.addStretch(1)
         self.cli_action_layouts.append(actions)
         lay.addLayout(actions)
-        self.cli_install_note = QLabel("复制后发给 Agent 即可；安装前会检查与本机 Lulu 的兼容性。" if self.cli_repository_url else "Skill 的公开仓库尚未配置，配置后即可复制安装提示词。")
+        self.cli_install_note = QLabel("复制后发给 Agent 即可；安装前会检查与本机 Lulu 的兼容性。Skill 更新会同步调用指引，程序功能以本机 Lulu 版本为准。" if self.cli_repository_url else "Skill 的公开仓库尚未配置，配置后即可复制安装提示词。")
         self.cli_install_note.setObjectName("settingsInlineNote")
         self.cli_install_note.setWordWrap(True)
         lay.addWidget(self.cli_install_note)
@@ -897,7 +1005,10 @@ class SettingsPage(QWidget):
         detail = QLabel(description)
         detail.setObjectName("pageMeta")
         detail.setWordWrap(True)
-        text.addWidget(detail)
+        if description:
+            text.addWidget(detail)
+        else:
+            detail.deleteLater()
         row_lay.addLayout(text, 1)
         if status:
             badge = QLabel(status)
@@ -910,132 +1021,155 @@ class SettingsPage(QWidget):
         lay.addWidget(row)
 
     def _general_page(self) -> QWidget:
-        page, col = self._detail_page(
-            "general", "通用", "决定任务何时提醒你、完成后去哪里，以及处理期间如何保护任务。"
+        from .update_ui import UpdateSwitch
+
+        page, col = self._detail_page("general", "通用", "调整任务运行、字号和结果提醒。")
+        task_card, task_lay = self._card("任务运行")
+        self.prevent_sleep_switch = UpdateSwitch()
+        self.prevent_sleep_switch.setObjectName("preventSleepSwitch")
+        self.prevent_sleep_switch.setAccessibleName("任务期间保持 Mac 唤醒")
+        self.prevent_sleep_switch.setChecked(bool(getattr(self.cfg, "prevent_sleep_during_tasks", False)))
+        self.prevent_sleep_switch.toggled.connect(self._pick_prevent_sleep)
+        self._setting_row(
+            task_lay, "任务期间保持 Mac 唤醒",
+            "正在处理任务时防止自动休眠，任务结束后恢复系统设置。",
+            self.prevent_sleep_switch,
         )
-        task_card, task_lay = self._card("任务与系统")
+        col.addWidget(task_card)
+
+        reading_card, reading_lay = self._card("阅读与操作")
+        heading = QHBoxLayout()
+        heading.addWidget(QLabel("界面字号"))
+        heading.addStretch(1)
+        self.font_percent = QLabel()
+        heading.addWidget(self.font_percent)
+        reset = QPushButton("恢复默认")
+        adopt_button(reset, role="tertiary", size="sm")
+        reset.clicked.connect(lambda: self.font_slider.setValue(100))
+        heading.addWidget(reset)
+        reading_lay.addLayout(heading)
+        self.font_slider = QSlider(Qt.Horizontal)
+        self.font_slider.setObjectName("settingsFontSlider")
+        self.font_slider.setMinimumHeight(32)
+        self.font_slider.setAccessibleName("界面字号（百分比）")
+        self.font_slider.setRange(90, 130)
+        self.font_slider.setSingleStep(1)
+        self.font_slider.setPageStep(5)
+        self.font_slider.setValue(getattr(self.cfg, "interface_font_percent", 100))
+        self.font_percent.setText(f"{self.font_slider.value()}%")
+        self.font_slider.valueChanged.connect(self._preview_font)
+        self.font_slider.sliderReleased.connect(self._persist_font)
+        reading_lay.addWidget(self.font_slider)
+        limits = QHBoxLayout()
+        for caption, alignment in (("90%", Qt.AlignLeft), ("130%", Qt.AlignRight)):
+            label = QLabel(caption)
+            label.setObjectName("pageMeta")
+            limits.addWidget(label, 1, alignment)
+        reading_lay.addLayout(limits)
+        col.addWidget(reading_card)
+
+        notice_card, notice_lay = self._card("结果提醒")
         current_policy = str(getattr(self.cfg, "notification_policy", "never"))
         self.notification_select = ConsumerSelect(
-            (
-                ("always", "始终提醒"),
-                ("inactive", "仅 Lulu 不在前台时提醒"),
-                ("never", "从不提醒"),
-            ),
+            (("always", "始终提醒"), ("inactive", "仅 Lulu 不在前台时提醒"), ("never", "从不提醒")),
             value=current_policy,
             accessible_name="任务完成提醒",
             consumer_theme_scope="coreWorkspace",
             consumer_theme_name=T.ACTIVE.name,
+            paper_popup=True,
         )
-        self.notification_select.setMinimumWidth(220)
         self.notification_select.value_changed.connect(self._pick_notification_policy)
-        self._setting_row(
-            task_lay,
-            "任务完成提醒",
-            "使用 macOS 系统通知；只显示固定隐私文案。",
-            self.notification_select,
-        )
-        self.notification_status_label = QLabel(
-            "通知只会写“任务已完成”，不会包含文件名、文案或其他内容。"
-        )
+        self._setting_row(notice_lay, "何时通知", "由 macOS 发送提醒。", self.notification_select)
+        self.notification_status_label = QLabel("提醒不会包含文件名、文案或其他内容。")
         self.notification_status_label.setObjectName("settingsInlineNote")
         self.notification_status_label.setWordWrap(True)
-        self.notification_status_label.setStyleSheet(
-            f"color:{T.INK_FAINT};font-size:11px;padding:0 2px;background:transparent;"
-        )
-        task_lay.addWidget(self.notification_status_label)
-        self._setting_divider(task_lay)
-
-        from .update_ui import UpdateSwitch
-
-        self.failure_notification_switch = UpdateSwitch()
-        self.failure_notification_switch.setObjectName("failureNotificationSwitch")
-        self.failure_notification_switch.setAccessibleName("失败任务也提醒")
-        self.failure_notification_switch.setChecked(
-            bool(getattr(self.cfg, "notify_on_failure", True))
-        )
-        self.failure_notification_switch.toggled.connect(
-            lambda checked: self._save_value("notify_on_failure", bool(checked))
-        )
-        self._setting_row(
-            task_lay,
-            "失败任务也提醒",
-            "沿用上方通知时机，只显示“任务处理失败”，不包含错误详情。",
-            self.failure_notification_switch,
-        )
-        self._setting_divider(task_lay)
+        notice_lay.addWidget(self.notification_status_label)
+        self._setting_divider(notice_lay)
+        notice_lay.addWidget(QLabel("通知哪些情况"))
+        choices = QHBoxLayout()
+        choices.setSpacing(8)
+        self.notification_events = {}
+        for field, label, default in (
+            ("notify_on_completion", "完成", True),
+            ("notify_on_failure", "失败", True),
+            ("notify_on_attention", "需要你处理", False),
+        ):
+            choice = LuluCheckBox(label)
+            choice.set_consumer_accent(self._consumer.accent)
+            choice.setProperty("outlineCheck", True)
+            choice.setFixedHeight(44)
+            choice.setChecked(bool(getattr(self.cfg, field, default)))
+            choice.toggled.connect(lambda checked, key=field: self._save_value(key, checked))
+            self.notification_events[field] = choice
+            choices.addWidget(choice)
+        self.failure_notification_switch = self.notification_events["notify_on_failure"]
+        choices.addStretch(1)
+        notice_lay.addLayout(choices)
 
         self.notification_sound_switch = UpdateSwitch()
         self.notification_sound_switch.setObjectName("notificationSoundSwitch")
-        self.notification_sound_switch.setAccessibleName("任务完成提示音")
-        self.notification_sound_switch.setChecked(
-            bool(getattr(self.cfg, "notification_sound_enabled", True))
-        )
+        self.notification_sound_switch.setAccessibleName("通知声音")
+        self.notification_sound_switch.setChecked(bool(getattr(self.cfg, "notification_sound_enabled", True)))
         self.notification_sound_switch.toggled.connect(
             lambda checked: self._save_value("notification_sound_enabled", bool(checked))
         )
-        self._setting_row(
-            task_lay,
-            "任务完成提示音",
-            "关闭后仍保留通知横幅，只是不播放系统提示音。",
-            self.notification_sound_switch,
-        )
-        self._setting_divider(task_lay)
+        self._setting_row(notice_lay, "通知声音", "开关控制任务通知的提示音。", self.notification_sound_switch)
+        self._sync_notice_choices()
+        col.addWidget(notice_card)
 
-        self.prevent_sleep_switch = UpdateSwitch()
-        self.prevent_sleep_switch.setObjectName("preventSleepSwitch")
-        self.prevent_sleep_switch.setAccessibleName("处理任务时防止 Mac 自动休眠")
-        self.prevent_sleep_switch.setAccessibleDescription(
-            "开启后，只在 Lulu 正在处理任务时阻止 Mac 自动休眠，任务结束立即释放。"
-        )
-        self.prevent_sleep_switch.setChecked(
-            bool(getattr(self.cfg, "prevent_sleep_during_tasks", False))
-        )
-        self.prevent_sleep_switch.toggled.connect(self._pick_prevent_sleep)
-        self._setting_row(
-            task_lay,
-            "处理任务时防止 Mac 自动休眠",
-            "仅在任务进行期间生效；最后一个任务结束后立即恢复系统原本行为。",
-            self.prevent_sleep_switch,
-        )
-        self._setting_divider(task_lay)
-
-        self.exit_protection_switch = UpdateSwitch()
-        self.exit_protection_switch.setObjectName("exitProtectionSwitch")
-        self.exit_protection_switch.setAccessibleName("运行中退出保护")
-        self.exit_protection_switch.setChecked(
-            bool(getattr(self.cfg, "confirm_exit_during_tasks", True))
-        )
-        self.exit_protection_switch.toggled.connect(
-            lambda checked: self._save_value("confirm_exit_during_tasks", bool(checked))
-        )
-        self._setting_row(
-            task_lay,
-            "运行中退出保护",
-            "仍有任务处理时，退出 Lulu 前先询问，避免误操作中断任务。",
-            self.exit_protection_switch,
-        )
-        self._setting_divider(task_lay)
-
-        self.completion_action_select = ConsumerSelect(
-            (("stay", "停留当前页面"), ("open_result", "打开对应结果")),
-            value=str(getattr(self.cfg, "completion_action", "stay")),
-            accessible_name="任务完成后的行为",
-            consumer_theme_scope="coreWorkspace",
-            consumer_theme_name=T.ACTIVE.name,
-        )
-        self.completion_action_select.setMinimumWidth(220)
-        self.completion_action_select.value_changed.connect(
-            lambda value: self._save_value("completion_action", value)
-        )
-        self._setting_row(
-            task_lay,
-            "任务完成后的行为",
-            "打开结果只切换 Lulu 内部页面，不会把 App 强行抢到前台。",
-            self.completion_action_select,
-        )
-        col.addWidget(task_card)
+        permission_card, permission_lay = self._card("系统权限", "在 macOS 系统设置中查看当前权限。")
+        for label, pane in (
+            ("通知", "com.apple.Notifications-Settings.extension"),
+            ("麦克风", "com.apple.preference.security?Privacy_Microphone"),
+            ("屏幕与系统声音录制", "com.apple.preference.security?Privacy_ScreenCapture"),
+        ):
+            target = (pane if pane.endswith(".extension") else f"com.apple.preference.security?{pane}")
+            action = QPushButton("打开系统设置")
+            adopt_button(action, role="secondary", size="sm", accessible_name=f"打开{label}设置")
+            action.clicked.connect(lambda _checked=False, path=target: self._open_permission(path))
+            self._setting_row(permission_lay, label, "", action)
+        col.addWidget(permission_card)
         col.addStretch(1)
         return page
+
+    def _open_permission(self, target: str) -> None:
+        if not QDesktopServices.openUrl(QUrl(f"x-apple.systempreferences:{target}")):
+            dialogs.alert(self, "未打开系统设置", "请从苹果菜单打开系统设置，查看通知或隐私与安全性。")
+
+    def _sync_notice_choices(self) -> None:
+        enabled = str(getattr(self.cfg, "notification_policy", "never")) != "never"
+        for choice in self.notification_events.values():
+            choice.setEnabled(enabled)
+            choice.setToolTip("" if enabled else "通知关闭时保留选择，重新开启后生效。")
+        self.notification_sound_switch.setEnabled(
+            enabled and any(choice.isChecked() for choice in self.notification_events.values())
+        )
+
+    def _apply_font_preview(self, percent: int) -> None:
+        # Scale typography only. Keep control geometry, padding and icon sizes stable.
+        for widget in (self, *self.findChildren(QWidget)):
+            current = widget.styleSheet()
+            source, previous = widget.property("luluFontStyle") or ("", "")
+            if current != previous:
+                source = current
+            if "font-size" not in source:
+                continue
+            scaled = T.scale_text_style(source, percent)
+            if current != scaled:
+                widget.setStyleSheet(scaled)
+            widget.setProperty("luluFontStyle", [source, scaled])
+
+    def _preview_font(self, value: int) -> None:
+        self.font_percent.setText(f"{value}%")
+        self._apply_font_preview(value)
+        self.font_preview.emit(value)
+        if not self.font_slider.isSliderDown():
+            self._font_timer.start()
+
+    def _persist_font(self) -> None:
+        self._font_timer.stop()
+        if hasattr(self.cfg, "interface_font_percent"):
+            self._save_value("interface_font_percent", self.font_slider.value())
 
     @staticmethod
     def _setting_divider(lay: QVBoxLayout) -> None:
@@ -1053,8 +1187,11 @@ class SettingsPage(QWidget):
     ) -> None:
         row = QFrame()
         row.setObjectName("settingsControlRow")
-        row_lay = QHBoxLayout(row)
-        row_lay.setContentsMargins(0, 10, 0, 10)
+        row_lay = QBoxLayout(
+            QBoxLayout.TopToBottom if self.width() < 720 else QBoxLayout.LeftToRight, row
+        )
+        self.general_control_layouts.append(row_lay)
+        row_lay.setContentsMargins(0, 8, 0, 8)
         row_lay.setSpacing(18)
         text = QVBoxLayout()
         text.setSpacing(3)
@@ -1068,7 +1205,10 @@ class SettingsPage(QWidget):
         detail = QLabel(description)
         detail.setObjectName("pageMeta")
         detail.setWordWrap(True)
-        text.addWidget(detail)
+        if description:
+            text.addWidget(detail)
+        else:
+            detail.deleteLater()
         row_lay.addLayout(text, 1)
         row_lay.addWidget(control, 0, Qt.AlignVCenter)
         lay.addWidget(row)
@@ -1297,6 +1437,7 @@ class SettingsPage(QWidget):
             self.update_panel.install_requested.connect(self.install_requested.emit)
             self.update_panel.manual_download.connect(self.manual_download.emit)
             col.addWidget(self.update_panel)
+            self.update_panel.boundary_group.hide()
             self.about_text = self.update_panel.product_boundary
         else:
             fallback, _fallback_lay = self._card("软件更新", "更新服务尚未准备好。")
@@ -1323,7 +1464,6 @@ class SettingsPage(QWidget):
     def _save_value(self, field: str, value) -> bool:
         old_value = getattr(self.cfg, field)
         if old_value == value:
-            self._sync_control(field)
             return True
         setattr(self.cfg, field, value)
         try:
@@ -1343,19 +1483,16 @@ class SettingsPage(QWidget):
         if field == "notification_policy":
             current = str(getattr(self.cfg, "notification_policy", "never"))
             self.notification_select.set_value(current if current in ("always", "inactive", "never") else "never")
-        elif field == "notify_on_failure":
-            self._sync_switch(self.failure_notification_switch, bool(getattr(self.cfg, field, True)))
+            self._sync_notice_choices()
+        elif field in self.notification_events:
+            self._sync_switch(self.notification_events[field], bool(getattr(self.cfg, field)))
+            self._sync_notice_choices()
         elif field == "notification_sound_enabled":
             self._sync_switch(self.notification_sound_switch, bool(getattr(self.cfg, field, True)))
         elif field == "prevent_sleep_during_tasks":
             self._sync_switch(self.prevent_sleep_switch, bool(getattr(self.cfg, field, False)))
-        elif field == "confirm_exit_during_tasks":
-            self._sync_switch(self.exit_protection_switch, bool(getattr(self.cfg, field, True)))
-        elif field == "completion_action":
-            current = str(getattr(self.cfg, field, "stay"))
-            self.completion_action_select.set_value(
-                current if current in ("stay", "open_result") else "stay"
-            )
+        elif field == "interface_font_percent":
+            self.font_slider.setValue(self.cfg.interface_font_percent)
         elif field in self.path_labels:
             self._sync_path(field)
 
@@ -1370,10 +1507,8 @@ class SettingsPage(QWidget):
 
     def _rollback_control(self, field: str) -> None:
         switches = {
-            "notify_on_failure": (self.failure_notification_switch, True),
             "notification_sound_enabled": (self.notification_sound_switch, True),
             "prevent_sleep_during_tasks": (self.prevent_sleep_switch, False),
-            "confirm_exit_during_tasks": (self.exit_protection_switch, True),
         }
         entry = switches.get(field)
         if entry is None:
@@ -1408,7 +1543,7 @@ class SettingsPage(QWidget):
         if requested == "never":
             if self._save_value("notification_policy", "never"):
                 self.notification_status_label.setText(
-                    "通知只会写“任务已完成”，不会包含文件名、文案或其他内容。"
+                    "提醒不会包含文件名、文案或其他内容。"
                 )
             return
         if requested not in ("always", "inactive") or self.notification_service is None:
@@ -1626,6 +1761,8 @@ class SettingsPage(QWidget):
         )
 
     def shutdown_workers(self) -> None:
+        if self._font_timer.isActive():
+            self._persist_font()
         self._settings_closing = True
         if hasattr(self, "feishu_connection"): self.feishu_connection.shutdown()
         for worker in (self._skill_status_worker, self._feishu_config_worker):

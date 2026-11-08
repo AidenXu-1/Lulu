@@ -1,0 +1,14 @@
+/* The native window provides its own frame and navigation. */
+.app-window { width: 100%; height: 100dvh; min-height: 0; margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+.app-body { height: 100%; grid-template-columns: minmax(0, 1fr); }
+html, body, .app-window { background: transparent; }
+.app-window::before { display: none; }
+.page-header { min-height: 37px; border-left: 3px solid #537d96; padding-left: 15px; }
+.page-header h1 {
+  margin: 0; font: 600 27px/37px "Songti SC", STSong, serif; color: #2a2622;
+}
+.toast { left: 50%; }
+body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after {
+  transition: none !important; animation: none !important; scroll-behavior: auto !important;
+}
+.comment-pages { display: flex; justify-content: flex-end; align-items: center; gap: 8px; font-size: 12px; color: #726653; }

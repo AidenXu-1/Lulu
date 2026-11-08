@@ -211,18 +211,24 @@ def acquire_source(source, *, execution_policy, engine_name, enable_link_downloa
         elif 'cover' in chosen:
             asset('cover', 'running')
             stage('cover'); report('获取封面')
+            metadata_failed = False
             if not TranscriptCover.from_meta(meta).url:
                 try: meta.update(metadata(source, directory, report, cover_cancelled))
                 except Exception:
                     check()
                     if not stop_new_work():
+                        metadata_failed = True
                         failures.append('封面信息获取失败，请重试')
             check()
             cover = TranscriptCover.from_meta(meta)
             if stop_new_work():
                 failures.append(cancelled_cover)
-            elif not cover.eligible or cover_workflow is None:
+            elif metadata_failed:
+                pass
+            elif not cover.eligible:
                 failures.append('此作品没有可获取的封面')
+            elif cover_workflow is None:
+                failures.append('封面保存服务暂不可用，请重试')
             else:
                 try:
                     receipt = cover_workflow.localize(platform=cover.platform,

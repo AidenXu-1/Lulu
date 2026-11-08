@@ -32,10 +32,17 @@ def login_state(root, index):
         error = False
     except Exception:
         browser, profile, error = False, False, True
-    return dict(browser=browser, profile=profile, cookie=bool(index.setting('credential')),
-                source=index.setting('login_source', ''),
-                partial=bool(index.setting('login_clear_pending')),
-                error=error or bool(index.setting('login_update_pending')))
+    try:
+        cookie = bool(index.setting('credential'))
+        source = index.setting('login_source', '')
+        partial = bool(index.setting('login_clear_pending'))
+        pending = bool(index.setting('login_update_pending'))
+    except Exception:
+        # A failed optional presence read must not fail the live keepalive.
+        # Mark uncertainty explicitly rather than claim the account is absent.
+        return dict(browser=browser, profile=profile, cookie=False, source='', partial=False, error=True)
+    return dict(browser=browser, profile=profile, cookie=cookie, source=source,
+                partial=partial, error=error or pending)
 
 
 class LoginStore:

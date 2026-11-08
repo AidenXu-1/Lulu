@@ -5,10 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt
-from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QPushButton
-
 from src.core.job_ledger.store import JobLedgerStore
 from src.core.job_ledger.service import JobControlService
 from src.core.live_recording import service as service_module
@@ -62,13 +58,20 @@ class LiveCloseTests(unittest.TestCase):
                     main._switch_page(9)
                     page = main.live_recording_page
                     fixture.until(lambda: bool(page.data))
+
+                    def js(source):
+                        replies = []
+                        page.approved.page().runJavaScript(source, replies.append)
+                        fixture.until(lambda: bool(replies))
+                        return replies[0]
+
                     service.stop_event.set()
                     service.scheduler.join(2)
                     hid = service.handle('add', dict(session=main.live_controller.session,
                         source='https://live.douyin.com/778899'))['host_id']
                     fixture.until(lambda: not service.checks)
                     page.refresh()
-                    fixture.until(lambda: page.table.rowCount() == 1)
+                    fixture.until(lambda: js("document.querySelectorAll('#host-rows tr').length") == 1)
                     if operation.startswith('automatic'):
                         service.handle('start', dict(session=main.live_controller.session, host_id=hid))
                         service.provider.check = lambda *_: Observation('live')
@@ -76,14 +79,18 @@ class LiveCloseTests(unittest.TestCase):
                             patch.object(service_module, 'directory', directory), \
                             patch.object(Path, 'mkdir', mkdir), \
                             patch('src.ui.main_window.dialogs.confirm', return_value=True), \
-                            patch('src.ui.live_recording_page.QFileDialog.getExistingDirectory', return_value=str(target)):
+                            patch('src.ui.approved_live_workspace.QFileDialog.getExistingDirectory', return_value=str(target)):
                         if operation == 'start':
-                            QTest.mouseClick(page.table.cellWidget(0, 6).findChild(QPushButton), Qt.LeftButton)
+                            js("document.querySelector('.row-action').click()")
                         elif operation == 'directory':
-                            page._directory()
+                            js("document.querySelector('#storage-button').click()")
+                            js("document.querySelector('#change-folder').click()")
+                            js("document.querySelector('#folder-select').click()")
                         else:
                             service._submit_check(hid, main.live_controller.session)
                         fixture.until(entered.is_set)
+                        if operation == 'directory':
+                            fixture.until(lambda: js("document.querySelector('#modal-layer').hidden"))
                         main.close()  # Deliver the native window close event, including safe-stop retries.
                         fixture.until(lambda: not main.isVisible(), seconds=2)
                         self.assertTrue(main.live_controller.settled)

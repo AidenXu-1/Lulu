@@ -152,6 +152,18 @@ class ExpansionTests(unittest.TestCase):
             self.assertEqual(plan['items'][0]['source'], 'https://example.com/ep2.mp3')
             self.assertEqual(fetch.call_count, 1)
 
+    def test_unavailable_feed_has_actionable_error_and_keeps_saved_feeds(self):
+        runtime = self.runtime()
+        with patch('src.core.podcast.fetch_feed', return_value=Feed('节目', [Episode('第一集', 'https://example.com/ep1.mp3')])):
+            before = self.call('rss.fetch', dict(source='https://example.com/rss.xml'), runtime)
+        with patch('src.core.podcast.fetch_feed', return_value=None):
+            code, result = self.invoke('rss.fetch', dict(source='https://example.com/unavailable.xml'), runtime)
+        self.assertEqual(code, 41)
+        self.assertEqual(result['error']['details']['reason_code'], 'RSS_FEED_UNAVAILABLE')
+        self.assertIn('订阅链接', result['error']['message'])
+        self.assertNotIn('JSON', result['error']['human_action'])
+        self.assertEqual(self.call('rss.list', dict(feed_id=before['feed_id']), runtime), before)
+
     def test_control_real_gui_claim_result_replay_and_no_cli_heartbeat(self):
         service = ControlService()
         with self.assertRaises(LocalTranscriptionJobError):
@@ -197,6 +209,54 @@ class ExpansionTests(unittest.TestCase):
             self.call('voices.delete', dict(voice_id=result['id'], confirmed=True))
             self.assertEqual(self.call('voices.list', {})['voices'], [])
             self.assertTrue(source.exists())
+
+    def test_partial_voice_delete_is_not_success_and_retry_finishes(self):
+        from src.core.synthesis import voices
+        root=self.root/'voices'
+        sample=self.root/'reference.wav';sample.write_bytes(b'isolated reference')
+        with patch.object(voices,'VOICES_DIR',root),patch.object(voices,'INDEX',root/'voices.json'), \
+                patch('src.config.AppConfig.load',return_value=SimpleNamespace(voice_library_dir=str(root))):
+            voice=voices.add_voice('test',str(sample));before=voices.INDEX.read_bytes()
+            folder=root/voice.id
+            def fail(path, **kwargs):
+                Path(voice.reference_audio_path).unlink()
+                if not kwargs.get('ignore_errors'):raise PermissionError('injected partial removal')
+            with patch.object(voices.shutil,'rmtree',side_effect=fail):
+                code,envelope=self.invoke('voices.delete',dict(voice_id=voice.id,confirmed=True))
+            self.assertNotEqual(code,0)
+            self.assertFalse(envelope.get('ok'))
+            self.assertEqual(envelope['error']['details']['reason_code'],'VOICE_DELETE_INCOMPLETE')
+            self.assertIn('部分参考文件可能已删除',envelope['error']['message'])
+            self.assertNotIn('原资料保留',envelope['error']['message'])
+            self.assertIn('重试删除',envelope['error']['human_action'])
+            self.assertEqual(voices.INDEX.read_bytes(),before)
+            self.assertTrue(folder.exists())
+            self.assertTrue(self.call('voices.delete',dict(voice_id=voice.id,confirmed=True))['deleted'])
+            self.assertFalse(folder.exists())
+            self.assertTrue(sample.exists())
+
+    def test_voice_delete_cleans_residue_even_when_old_index_entry_is_absent(self):
+        from src.core.synthesis import voices
+        root=self.root/'voices';root.mkdir()
+        (root/'voices.json').write_text('[]')
+        folder=root/('a'*12);folder.mkdir();(folder/'remaining.txt').write_text('residue')
+        with patch.object(voices,'VOICES_DIR',root),patch.object(voices,'INDEX',root/'voices.json'), \
+                patch('src.config.AppConfig.load',return_value=SimpleNamespace(voice_library_dir=str(root))):
+            result=self.call('voices.delete',dict(voice_id='a'*12,confirmed=True))
+            self.assertTrue(result['deleted'])
+            self.assertFalse(folder.exists())
+
+    def test_unreadable_voice_index_reports_recovery_and_preserves_bytes(self):
+        from src.core.synthesis import voices
+        root=self.root/'voices';root.mkdir();index=root/'voices.json';index.write_bytes(b'{broken')
+        with patch.object(voices,'VOICES_DIR',root),patch.object(voices,'INDEX',index), \
+                patch('src.config.AppConfig.load',return_value=SimpleNamespace(voice_library_dir=str(root))):
+            code,envelope=self.invoke('voices.list',{})
+            self.assertEqual(code,21)
+            self.assertEqual(envelope['error']['details']['reason_code'],'VOICE_LIBRARY_UNREADABLE')
+            self.assertIn('原资料保留',envelope['error']['message'])
+            self.assertIn('不要重复添加或删除',envelope['error']['human_action'])
+            self.assertEqual(index.read_bytes(),b'{broken')
 
     def test_collection_actual_service_injected_history_selection_and_exports(self):
         from src.core.collect.application import CollectionApplicationService

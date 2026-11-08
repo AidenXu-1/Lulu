@@ -5,9 +5,15 @@ from uuid import uuid4
 
 from PySide6.QtCore import QObject, QThread, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QDialog, QLabel, QPushButton, QLineEdit, QComboBox, QWidget, QCheckBox
+from PySide6.QtWidgets import QLabel, QPushButton, QLineEdit, QComboBox, QWidget, QCheckBox
+from .theme import TextScaledDialog as QDialog
 from ..core import feishu, feishu_mapping as mapping, feishu_save as saving
 from .feishu_save_surface import SaveSurface, Choice as _Choice
+
+
+def _location_values(location):
+    # A location's display name must never overwrite the requested content name.
+    return {key: location[key] for key in ('destination_kind', 'folder_token', 'space_id', 'node_token') if key in location}
 
 
 class _CallWorker(QThread):
@@ -28,13 +34,23 @@ class _CallWorker(QThread):
 class FeishuSaveSession(QObject):
     done=Signal(bool,object)
     finished=Signal()
-    def __init__(self,parent,cfg,records,title,context,toast=None):
+    def __init__(self,parent,cfg,records,title,context,toast=None,*,present=None):
         super().__init__(parent)
         self.dialog=FeishuSaveDialog(parent,cfg,records,title,context,self)
         self.toast=toast
+        self.present=present
+        self.presented=False
+        self.dialog.finished.connect(self._closed)
         self.dialog.finished.connect(self.finished)
-    def start(self): self.dialog.open()
-    def isRunning(self): return self.dialog.isVisible() or self.dialog.busy or self.dialog._connection_suspended
+    def start(self):
+        if self.present is None:
+            self.dialog.open()
+        else:
+            self.presented=True
+            self.present(self.dialog)
+    def _closed(self):
+        self.presented=False
+    def isRunning(self): return self.presented or self.dialog.isVisible() or self.dialog.busy or self.dialog._connection_suspended
     def request_cancel(self): self.dialog.reject()
     def isFinished(self): return not self.isRunning()
 
@@ -81,7 +97,7 @@ class FeishuSaveDialog(SaveSurface, QDialog):
             self.status.setText('请从左侧「飞书知识库」进入；如有暂存的保存表单，请先返回完成或关闭。')
 
     def resume_from_connection(self):
-        self._connection_suspended=False;self.open()
+        self._connection_suspended=False;self.session.start()
         previous=getattr(self,'_connection_account_id',None)
         self.account={};self.account_label.setText('正在检查连接…')
         def got(info):
@@ -134,7 +150,15 @@ class FeishuSaveDialog(SaveSurface, QDialog):
         item=self.target.currentData()
         self._invalidate()
         self.url.setText(item.get('url','') if isinstance(item,dict) else '')
-        if isinstance(item,dict):self.saved_map=item.get('field_map') or {};self._discover()
+        if isinstance(item,dict):self.saved_map=item.get('field_map') or {}
+        self._save_kind_changed()
+    def _save_kind_changed(self,*_):
+        self._layout()
+        existing=self.format.currentData()=='table' and self.mode.currentData()=='existing'
+        if existing and isinstance(self.target.currentData(),dict) and self.url.text().strip() and not self.discovery:
+            self._discover()
+        elif not existing:
+            self.status.setText('确认目标后存入；下次会自动带出本次位置。')
     def _discover(self):
         url=self.url.text().strip()
         if not url:self.status.setText('请先粘贴表格链接。');return
@@ -213,7 +237,7 @@ class FeishuSaveDialog(SaveSurface, QDialog):
             if not value['name']:raise ValueError('请填写名称。')
             location=self.location.currentData() or {}
             if location.get('custom'):value['location_url']=self.location_url.text().strip()
-            else:value.update(location or {'destination_kind':'drive','folder_token':''})
+            else:value.update(_location_values(location) or {'destination_kind':'drive','folder_token':''})
         return value
     def _save(self):
         if self.result and self.result.complete:self.accept();return
@@ -227,7 +251,7 @@ class FeishuSaveDialog(SaveSurface, QDialog):
         def call():
             if 'location_url' in selection:
                 if not selection['location_url']:raise ValueError('请粘贴位置链接，或选择云文档默认位置。')
-                selection.update(saving.resolve_location(selection.pop('location_url')))
+                selection.update(_location_values(saving.resolve_location(selection.pop('location_url'))))
             return saving.save_records(self.records,selection,cancelled=lambda:self._cancel,progress=lambda text:self._worker.progress.emit(text))
         self.status.setText('正在检查目标并保存…');self._run(call,self._saved)
     def _saved(self,result):

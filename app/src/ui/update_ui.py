@@ -21,6 +21,7 @@ from ..core.updater.models import UpdateError, UpdateSnapshot
 from ..core.updater.service import UpdateService
 from ..core.updater.constants import MANUAL_DOWNLOAD_URL
 from ..version import __build__, __version__
+from .. import edition
 from . import theme as T
 from .consumer_switch import ConsumerSwitch
 from .progress_feedback import present_progress, reset_progress
@@ -212,6 +213,10 @@ class UpdateController(QObject):
 
     def check(self, *, manual=True):
         if not self._ensure_service(): return
+        if edition.is_experience():
+            self.snapshot = self.service.check(manual=manual)
+            self.publish()
+            return
         if self.snapshot.state in {"installing", "waiting_ready", "recovering"}:
             self.refresh_external()
             return
@@ -220,6 +225,7 @@ class UpdateController(QObject):
         self._start(f"check:{'manual' if manual else 'auto'}")
 
     def maybe_auto_check(self, enabled: bool) -> bool:
+        if edition.is_experience(): return False
         if not self._ensure_service(): return False
         self.refresh_external()
         if not enabled or self.snapshot.state in {"installing", "waiting_ready", "recovering"}: return False
@@ -435,7 +441,13 @@ _STATE = {
 _GATEKEEPER = "当前 Lulu 仍是未签名、未公证的信任用户内测包。更新后如 macOS 提示无法验证开发者，请按内测说明手动允许打开。"
 
 
+def _development_update(snapshot):
+    return edition.is_experience() or snapshot.error_code == 'development_edition'
+
+
 def _state_presentation(snapshot):
+    if _development_update(snapshot):
+        return ('neutral', '开发体验版单独更新', '请使用新版开发体验安装包更新；此版本不检查或安装稳定版更新。', '', '')
     if snapshot.ui_state == "download_error" and snapshot.error_code == "cancelled":
         return ("neutral", "下载已暂停", "下载已暂停。下次将重新下载，当前版本不受影响。", "重新下载", "稍后")
     if snapshot.ui_state == "download_paused" and snapshot.error_code in {"network", "timeout", "http", "download"}:
@@ -515,7 +527,10 @@ class UpdatePanel(QFrame):
 
     def render(self, snapshot: UpdateSnapshot):
         tone,title,message,primary,secondary=_state_presentation(snapshot)
-        if snapshot.ui_state == "check_error":
+        disabled = _development_update(snapshot)
+        self.auto.setVisible(not disabled)
+        self.auto_title.setVisible(not disabled)
+        if snapshot.ui_state == "check_error" and not disabled:
             message = _check_error_message(snapshot.error_code)
             if snapshot.error_code == "manifest_recheck_required":
                 primary = "重新检查更新"
@@ -531,7 +546,7 @@ class UpdatePanel(QFrame):
         elif snapshot.ui_state=="verifying": present_progress(self.progress,0.94,approximate=True); self.progress_text.setText(title)
         elif snapshot.ui_state=="preparing": present_progress(self.progress,0.97,approximate=True); self.progress_text.setText(title)
         verbose_states=("update_available","manual_required","ready","ready_blocked","download_paused","download_error","check_error","manifest_verify_error","verify_error","zip_structure_error","preparation_error","location_error","install_error_rollback","rollback_failed","old_version_after_restart")
-        self.message.setVisible(snapshot.ui_state in verbose_states and bool(message))
+        self.message.setVisible((disabled or snapshot.ui_state in verbose_states) and bool(message))
         checking=snapshot.ui_state in ("checking_auto","checking_manual")
         self.spinner.setSpinning(checking); self.status_dot.setVisible(not checking)
         tier="primary" if snapshot.ui_state in ("update_available","download_paused","download_error","ready","install_error_rollback") else "secondary"
@@ -686,6 +701,7 @@ class AboutUpdatePanel(QFrame):
         software.addWidget(self._divider())
 
         auto_row = self._row("自动检查更新", "每 24 小时读取一次版本信息，不上传使用数据。")
+        self.auto_row = auto_row
         auto_lay = auto_row.layout()
         self.auto_title = auto_row.findChild(QLabel, "aboutInfoTitle")
         self.inline_error = QLabel()
@@ -857,7 +873,11 @@ class AboutUpdatePanel(QFrame):
 
     def render(self, snapshot: UpdateSnapshot) -> None:
         tone, title, message, primary, secondary = _state_presentation(snapshot)
-        if snapshot.ui_state == "idle":
+        disabled = _development_update(snapshot)
+        self.auto_row.setVisible(not disabled)
+        if disabled:
+            pass
+        elif snapshot.ui_state == "idle":
             title, message, primary = "尚未检查更新", "", "检查更新"
         elif snapshot.ui_state == "up_to_date":
             title, message, primary = "已是最新版本", "", "检查更新"
@@ -919,7 +939,7 @@ class AboutUpdatePanel(QFrame):
         self.primary.setProperty("tier", tier)
         self.primary.setText(primary)
         self.primary.setAccessibleName(primary)
-        self.primary.setVisible(True)
+        self.primary.setVisible(not disabled)
         self.primary.setEnabled(snapshot.ui_state not in (
             "checking_auto", "checking_manual", "pausing_download", "verifying", "preparing", "ready_blocked"
         ))

@@ -9,9 +9,10 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QIcon, QTextCursor
 from PySide6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
-    QDialog, QPlainTextEdit, QStackedWidget, QButtonGroup, QSpinBox,
+    QPlainTextEdit, QStackedWidget, QButtonGroup, QSpinBox,
     QDoubleSpinBox, QCheckBox, QLineEdit, QScrollArea, QSizePolicy,
 )
+from .theme import TextScaledDialog as QDialog
 from . import dialogs, icons
 from .control_foundation import adopt_button, adopt_dialog, LuluCheckBox
 from .indextts2_settings import _dialog_style, _NumberField

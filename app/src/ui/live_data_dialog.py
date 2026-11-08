@@ -4,8 +4,9 @@ import time
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QLinearGradient, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QButtonGroup, QDialog, QFrame, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel,
                               QPushButton, QSizePolicy, QTabWidget, QVBoxLayout, QWidget)
+from .theme import TextScaledDialog as QDialog
 
 from . import theme as T
 from .control_foundation import (LuluButton, LuluIconButton, LuluSegmentedControl,
@@ -18,6 +19,8 @@ METRICS = {
     'like_count': ('点赞', '平台点赞次数，可含重复点赞。'),
     'cumulative_view_count': ('累计观看', '平台累计值，可含重复访问，非去重人数；近似值保留原文。'),
 }
+
+METRIC_UNITS = {'viewer_count': '人', 'like_count': '次', 'cumulative_view_count': '次'}
 
 def clock(value):
     value = max(0, int(value))
@@ -51,7 +54,7 @@ class LiveDataChart(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setAccessibleName('直播数据趋势，左右方向键查看采样值')
+        self.setAccessibleName('直播数据趋势，方向键浏览采样，Home 和 End 查看首末采样')
         self.plot = QRectF()
         self.coordinates = []
         self.path_count = 0
@@ -83,8 +86,9 @@ class LiveDataChart(QWidget):
             message = ('平台累计观看：' + raw + '\n平台仅提供近似值或下限，暂无精确曲线' if raw else
                        '这次采样未取得精确值' if raw_samples else
                        '这项数据暂未返回\n有数据后将在这里显示' if self.samples else self.empty_message)
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
-                             message)
+            if self.selected is not None:
+                message = "\n".join(self._sample_text()) + "\n" + message
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, message)
             return
         top = max(1, max(values))
         # Readable grid levels without implying a larger measured peak.
@@ -156,20 +160,31 @@ class LiveDataChart(QWidget):
                 painter.setPen(QPen(QColor(c.accent), 2.5))
                 painter.setBrush(QColor(c.surface))
                 painter.drawEllipse(point, 5, 5)
-            number = s[self.metric_key]
-            raw = s.get('cumulative_view_count_raw', '') if self.metric_key == 'cumulative_view_count' else ''
-            value = f'{number:,}' if number is not None else raw or '未返回数据'
-            tip = datetime.fromtimestamp(s['at']).strftime('%m-%d %H:%M') + '\n' + value
-            tip_width = max(160, max(painter.fontMetrics().horizontalAdvance(line) for line in tip.splitlines()) + 24)
-            box = QRectF(min(max(6, x + 14), self.width() - tip_width - 6), self.plot.top() + 10, tip_width, 66)
+            tip = "\n".join(self._sample_text())
+            text_width = max(painter.fontMetrics().horizontalAdvance(line) for line in tip.splitlines())
+            tip_width = min(max(146, text_width + 22), max(1, self.width() - 12))
+            tip_height = min(58, self.height() - 12)
+            tip_x = x + 14 if x + 14 + tip_width <= self.width() - 6 else x - tip_width - 14
+            tip_x = min(max(6, tip_x), self.width() - tip_width - 6)
+            tip_y = min(self.plot.top() + 10, self.height() - tip_height - 6)
+            box = QRectF(tip_x, tip_y, tip_width, tip_height)
             painter.setPen(QColor(c.line))
             painter.setBrush(QColor(c.surface))
-            painter.drawRoundedRect(box, 12, 12)
+            painter.drawRoundedRect(box, 10, 10)
             painter.setPen(QColor(c.ink))
-            painter.drawText(box.adjusted(12, 8, -12, -8), Qt.AlignmentFlag.AlignVCenter, tip)
+            painter.drawText(box.adjusted(10, 4, -10, -4),
+                             Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextWordWrap, tip)
+
+    def _sample_text(self):
+        sample = self.samples[self.selected]
+        number = sample[self.metric_key]
+        raw = sample.get('cumulative_view_count_raw', '') if self.metric_key == 'cumulative_view_count' else ''
+        value = f"{number:,} {METRIC_UNITS[self.metric_key]}" if number is not None else raw or '未返回数据'
+        when = datetime.fromtimestamp(sample['at']).strftime('%m-%d %H:%M:%S')
+        return when, f"{METRICS[self.metric_key][0]}  {value}"
 
     def mouseMoveEvent(self, event):
-        if self.samples and self.plot.width() > 0 and self.plot.contains(event.position()):
+        if self.samples and self.plot.width() > 0 and self.plot.adjusted(-5, -5, 5, 5).contains(event.position()):
             start, end = self.samples[0]['at'], self.samples[-1]['at']
             when = start + (event.position().x() - self.plot.left()) / self.plot.width() * max(300, end - start)
             self.selected = min(range(len(self.samples)), key=lambda i: abs(self.samples[i]['at'] - when))
@@ -180,11 +195,7 @@ class LiveDataChart(QWidget):
         if self.selected is None:
             self.setAccessibleDescription('')
             return
-        sample = self.samples[self.selected]
-        value = sample[self.metric_key]
-        raw = sample.get('cumulative_view_count_raw', '') if self.metric_key == 'cumulative_view_count' else ''
-        self.setAccessibleDescription(datetime.fromtimestamp(sample['at']).strftime('%m-%d %H:%M') + '，' +
-                                      METRICS[self.metric_key][0] + '，' + (str(value) if value is not None else raw or '未返回数据'))
+        self.setAccessibleDescription('，'.join(self._sample_text()))
 
     def leaveEvent(self, event):
         if not self.hasFocus():
@@ -193,9 +204,17 @@ class LiveDataChart(QWidget):
             self.update()
 
     def keyPressEvent(self, event):
-        if self.samples and event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
-            step = 1 if event.key() == Qt.Key.Key_Right else -1
-            self.selected = max(0, min(len(self.samples) - 1, (self.selected if self.selected is not None else 0) + step))
+        key = event.key()
+        if self.samples and key in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Home, Qt.Key_End):
+            if key == Qt.Key_Home:
+                self.selected = 0
+            elif key == Qt.Key_End:
+                self.selected = len(self.samples) - 1
+            elif self.selected is None:
+                self.selected = 0
+            else:
+                step = 1 if key == Qt.Key_Right else -1
+                self.selected = max(0, min(len(self.samples) - 1, self.selected + step))
             self._accessible_sample()
             self.update()
             return
@@ -272,9 +291,9 @@ class LiveDataDialog(QDialog):
                 selection-background-color:transparent;selection-color:{c.ink};}}
             QDialog#liveDataDialog QTableWidget#commentReadingList::item:selected {{background:transparent;color:{c.ink};}}
             QDialog#liveDataDialog QTableWidget#commentReadingList QHeaderView::section {{background:{header_fill};color:{c.ink_muted};
-                border:0;border-bottom:1px solid {c.line};padding-left:12px;padding-right:12px;font-family:"{c.font_body}";font-size:12px;font-weight:500;}}
+                border:0;border-right:1px solid {c.line};border-bottom:1px solid {c.line};padding-left:12px;padding-right:12px;font-family:"{c.font_body}";font-size:12px;font-weight:500;}}
             QDialog#liveDataDialog QTableWidget#commentReadingList QHeaderView::section:first {{border-top-left-radius:6px;}}
-            QDialog#liveDataDialog QTableWidget#commentReadingList QHeaderView::section:last {{border-top-right-radius:6px;}}
+            QDialog#liveDataDialog QTableWidget#commentReadingList QHeaderView::section:last {{border-top-right-radius:6px;border-right:0;}}
             QDialog#liveDataDialog QTableWidget#commentReadingList QTableCornerButton::section {{background:transparent;border:0;}}
             QDialog#liveDataDialog QLabel#commentSummary {{font-size:14px;font-weight:600;}}
             QDialog#liveDataDialog QLabel#commentState {{font-size:11px;background:{c.secondary};color:{c.ink_muted};padding:3px 8px;border-radius:4px;}}

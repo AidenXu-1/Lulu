@@ -1,6 +1,6 @@
 # 从源码构建 Lulu
 
-本版为 **4.3.2 / 20261104.4**，提供实际产品的完整第一方源码、资源、CLI、后台、Skill 与构建入口。第一方 MIT，第三方保留原许可。无需激活码、维护者私钥或维护者的个人资料。
+本版为 **4.3.3 / 20261108.5**，提供实际产品的完整第一方源码、资源、CLI、后台、Skill 与构建入口。第一方 MIT，第三方保留原许可。无需激活码、维护者私钥或维护者的个人资料。
 
 ## 环境与依赖
 
@@ -39,12 +39,12 @@ tar -xzf app/build/asr-sources/moss-source.tar.gz --strip-components=1 -C app/bu
 ```sh
 .venv/bin/python -B app/packaging/product_capability_gate.py   --repo "$PWD" --output /private/tmp/lulu-product-checks.json
 
-export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261104.4"
-export LULU_DIST_ROOT="$PWD/app/dist/phase10-production-20261104.4"
+export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261108.5"
+export LULU_DIST_ROOT="$PWD/app/dist/phase10-production-20261108.5"
 export LULU_PRODUCTION_RELEASE_AUTHORIZED=1
 export LULU_UPDATE_RELEASE=0
 export LULU_UPDATE_PUBLIC_KEY_PATH="$PWD/app/packaging/update-verification-key.pem"
-bash app/packaging/build_app.sh --identity production --venv "$PWD/.venv"
+/bin/zsh app/packaging/build_app.sh --identity production --venv "$PWD/.venv"
 ```
 
 打包时会再次执行正式产品检查、源码与运行依赖校验、隐私、签名和包内检查。构建开关只确认要生成产品包，不上传或发布。随源码提供的 RSA 验证公钥来自正式 App，可公开；官方更新签署私钥由维护者保存在源码仓库外，构建无需该私钥。
@@ -57,7 +57,7 @@ Git 克隆使用公开祖先版本，源码 ZIP 通过 SOURCE_MANIFEST.json 校�
 
 源码开发可在 app/ 运行 ../.venv/bin/python -B run_app.py；此窗口使用本机配置，建议隔离开发资料。完整后台和 CLI 请使用自己构建并安装的 App。
 
-标准拖拽镜像使用 app/packaging/create_drag_delivery.py，应用更新包使用 make_update_release.py。正式发布必须以最终冻结的公开源码构建、签署和核验，源码检查通过不能代替新安装包验收。
+标准拖拽镜像使用 app/packaging/create_drag_delivery.py，应用更新包使用 make_update_release.py。正式发布必须将冻结的公开源码与已验收包的产品输入逐文件核对，再签署和核验更新资产；源码检查通过不能代替安装包验收。
 
 文稿编辑器的前端源码和锁文件位于 app/src/ui/agent_workspace/，已提交资源可直接使用。配音运行时的依赖、版本和构建入口位于 app/packaging/tts_runtimes/；第三方模型权重单独取得并遵守原许可。
 
@@ -65,4 +65,6 @@ Git 克隆使用公开祖先版本，源码 ZIP 通过 SOURCE_MANIFEST.json 校�
 
 实际构建提交以包内构建身份和本地正式构建收据为准。发布源码与该产品实现逐文件核对，私人开发仓库不作为源码下载入口。
 
-`v4.3.2` 标签保留本次覆盖更新的源码快照；`main` 可以继续修订说明文档。核对官方 App 的原始构建身份时，以包内构建身份记录为准。
+`v4.3.3` 标签保留本次覆盖更新的源码快照；`main` 可以继续修订说明文档。核对官方 App 的原始构建身份时，以包内构建身份记录为准。
+
+本版沿用人工验收的正式包。运行源文件与此公开快照逐项一致；公开快照筛除了私人开发记录、退役内部入口及未列入固定检查的历史测试。包内原构建提交号与公开整理提交号可能不同，产品源码一致性由文件清单和发布检查记录核对，未推送私人开发 Git 历史。

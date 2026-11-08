@@ -16,7 +16,9 @@ from threading import RLock
 
 from .core.engines.registry import DEFAULT_ENGINE
 
-_CONFIG_DIR = Path.home() / ".本地转录app"
+from .edition import config_root
+
+_CONFIG_DIR = config_root()
 _CONFIG_PATH = _CONFIG_DIR / "config.json"
 _CONFIG_SAVE_LOCK = RLock()
 COLLECT_COVER_CONTRACT_VERSION = 1
@@ -446,6 +448,9 @@ class AppConfig:
     copywriting_user_templates: dict = field(default_factory=dict)
     auto_update_enabled: bool = True    # 每24小时匿名检查；手动检查始终可用
     notification_policy: str = "never"  # always | inactive | never；默认不申请系统权限
+    interface_font_percent: int = 100
+    notify_on_completion: bool = True
+    notify_on_attention: bool = False
     notify_on_failure: bool = True      # 失败任务沿用通知策略发送固定隐私提醒
     notification_sound_enabled: bool = True  # 完成通知是否附带系统默认提示音
     prevent_sleep_during_tasks: bool = False  # 处理任务时用系统 caffeinate 防止自动休眠
@@ -457,6 +462,8 @@ class AppConfig:
 
     def __post_init__(self) -> None:
         self.theme = "warm"
+        if type(self.interface_font_percent) is not int or not 90 <= self.interface_font_percent <= 130:
+            self.interface_font_percent = 100
         _normalize_feishu_storage_config(self)
 
     # --- 持久化 ---

@@ -17,7 +17,20 @@ import logging
 import sys
 import threading
 
+from src.edition import is_experience
+
 _SERVICE = "Lulu"
+_EXPERIENCE_SERVICE = "Lulu Development Experience"
+_CLEARED = "lulu.development-credential-cleared/v1"
+
+def _service():
+    return _EXPERIENCE_SERVICE if is_experience() else _SERVICE
+
+def _may_read_stable(provider):
+    return provider.startswith("workspace-key-") or provider in {
+        "dashscope", "aliyun", "summary_llm", "custom_openai", "openai",
+        "volcano", "agnes_multimodal",
+    }
 _log = logging.getLogger(__name__)
 _memory: dict[str, str] = {}  # keyring 不可用时的临时降级存储(本进程内)
 _cache: dict[str, str | None] = {}  # 本次运行已读取的凭据；不写入磁盘
@@ -78,7 +91,13 @@ def _read_key(provider: str, *, require_access: bool, allow_memory: bool = True)
     kr = _backend()
     if kr is not None:
         try:
-            v = kr.get_password(_SERVICE, provider)
+            v = kr.get_password(_service(), provider)
+            if is_experience():
+                if v == _CLEARED:
+                    _cache[provider] = None
+                    return None
+                if v is None and _may_read_stable(provider):
+                    v = kr.get_password(_SERVICE, provider)  # read-only reuse; writes always isolated
             _cache[provider] = v or (_memory.get(provider) if allow_memory else None)
             return _cache[provider]
         except Exception as exc:  # noqa: BLE001
@@ -101,10 +120,12 @@ def _write_key(provider: str, key: str) -> None:
     if kr is not None:
         try:
             if key:
-                kr.set_password(_SERVICE, provider, key)
+                kr.set_password(_service(), provider, key)
+            elif is_experience():
+                kr.set_password(_service(), provider, _CLEARED)
             else:
                 try:
-                    kr.delete_password(_SERVICE, provider)
+                    kr.delete_password(_service(), provider)
                 except Exception:  # noqa: BLE001
                     pass
             _memory.pop(provider, None)
@@ -136,10 +157,13 @@ def set_key_verified(provider: str, key: str) -> None:
         value = (key or '').strip()
         try:
             if value:
-                kr.set_password(_SERVICE, provider, value)
-            elif kr.get_password(_SERVICE, provider) is not None:
-                kr.delete_password(_SERVICE, provider)
-            if (kr.get_password(_SERVICE, provider) or '') != value:
+                kr.set_password(_service(), provider, value)
+            elif is_experience():
+                kr.set_password(_service(), provider, _CLEARED)
+            elif kr.get_password(_service(), provider) is not None:
+                kr.delete_password(_service(), provider)
+            expected = value or (_CLEARED if is_experience() else '')
+            if (kr.get_password(_service(), provider) or '') != expected:
                 raise RuntimeError('readback mismatch')
         except Exception:
             _cache.pop(provider, None)

@@ -43,8 +43,9 @@ def main() -> int:
     from .ui.macos import activate_regular_app
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Lulu")
-    app.setApplicationDisplayName("Lulu")
+    from .edition import display_name
+    app.setApplicationName(display_name())
+    app.setApplicationDisplayName(display_name())
     theme.apply_fonts(app)
     # 在创建控件前应用唯一的 Lulu 宣纸样式。
     _apply_startup_theme()
@@ -99,11 +100,24 @@ def _schedule_update_ready(window) -> None:
 
     gate = UpdateReadyGate()
     timer = QTimer(window)
+    started = time.monotonic()
+    reported = set()
+
+    def report(stage, exc):
+        from .core.diagnostics import failure_code, record_failure
+        key = (stage, type(exc).__name__, failure_code(exc))
+        if key not in reported:
+            reported.add(key)
+            record_failure(stage, exc)
 
     def check_ready():
-        if gate.observe(window, now=time.monotonic()):
-            if _write_update_ready_if_requested():
+        now = time.monotonic()
+        if gate.observe(window, now=now):
+            if _write_update_ready_if_requested(on_error=lambda exc: report('update_ready_write', exc)):
                 timer.stop()
+        elif now - started >= 30:
+            for reason in gate.pending_reasons:
+                report('update_readiness', RuntimeError('GUI_UPDATE_WAITING_' + reason))
 
     timer.setInterval(200)
     timer.timeout.connect(check_ready)
@@ -111,7 +125,7 @@ def _schedule_update_ready(window) -> None:
     timer.start()
 
 
-def _write_update_ready_if_requested() -> bool:
+def _write_update_ready_if_requested(*, on_error=None) -> bool:
     if "--lulu-update-ready" not in sys.argv:
         return False
     index=sys.argv.index("--lulu-update-ready")
@@ -127,7 +141,9 @@ def _write_update_ready_if_requested() -> bool:
         started,executable=current_identity()
         write_ready(Path(plan["ready_path"]),plan,pid=os.getpid(),pid_start_time=started,executable_path=executable)
         return True
-    except Exception:
+    except Exception as exc:
+        if on_error is not None:
+            on_error(exc)
         return False
 
 

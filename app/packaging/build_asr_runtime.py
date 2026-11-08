@@ -69,6 +69,9 @@ def verify_runtime(root):
         native_process.checked_tools('moss')
     data = native_process.runtime_data_root(root)
     manifest = json.loads((data/'manifest.json').read_text())
+    owner_source = hashlib.sha256(Path(__file__).with_name('asr_runner.c').read_bytes()).hexdigest()
+    if manifest.get('owner_source_sha256') != owner_source:
+        raise RuntimeError('Native ASR owner helper source changed; restage the runtime before packaging')
     if (set(manifest['audit']) != EXECUTABLES or manifest['versions'] != VERSIONS
             or manifest['source_revisions'] != REVISIONS or manifest['minimum_macos'] != '15.0'):
         raise RuntimeError('Unexpected native ASR runtime identity')
@@ -159,6 +162,7 @@ def stage(build_root, output):
             'transcribe.cpp: https://github.com/handy-computer/transcribe.cpp (community runtime); see source_revisions in manifest.json.\n'
             'These tools contain no model weights. Model sources and pinned revisions are in the Lulu model catalog.\n')
         manifest = {'schema': 1, 'versions': VERSIONS, 'source_revisions': REVISIONS,
+                    'owner_source_sha256': hashlib.sha256(Path(__file__).with_name('asr_runner.c').read_bytes()).hexdigest(),
                     'minimum_macos': '15.0', 'audit': audits,
                     'files': {f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in sorted(target.iterdir())}}
         (target/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')

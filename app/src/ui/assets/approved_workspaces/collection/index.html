@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' qrc:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Lulu · 主页采集</title>
+<link rel="icon" href="../shared/lulu.png" type="image/png">
+<link rel="stylesheet" href="preview.css">
+<link rel="stylesheet" href="../shared/select-controls.css">
+<link rel="stylesheet" href="refinements.css">
+<link rel="stylesheet" href="alignment.css">
+<link rel="stylesheet" href="workspace.css">
+<link rel="stylesheet" href="control-density.css">
+<link rel="stylesheet" href="focus-motion.css">
+<link rel="stylesheet" href="record-management.css">
+<link rel="stylesheet" href="embedded.css">
+</head>
+<body>
+<div class="preview-stage" id="previewStage"><div class="app-frame" id="appFrame"><div class="app-shell">
+  <main class="workspace" id="workspace">
+    <div class="intake-region" id="intakeRegion"><div class="intake-content" id="intakeContent">
+    <div class="page-heading">
+      <h1>主页采集</h1>
+    </div>
+
+    <section class="collect-card" aria-label="采集新主页">
+      <div class="input-line">
+        <span class="input-caption">主页链接</span><i data-icon="link" class="input-icon"></i>
+        <input id="homepage" aria-label="抖音主页链接" placeholder="粘贴抖音主页链接，或包含链接的分享文字">
+        <span class="platform-hint" id="platformHint"><span></span>抖音主页</span>
+        <button class="btn primary start-button" id="collectStart"><i data-icon="plus"></i><span>开始采集</span></button>
+      </div>
+      <div class="collect-options">
+        <div class="segmented" role="tablist" aria-label="采集方式">
+          <div class="segment-indicator" aria-hidden="true"></div>
+          <button role="tab" aria-selected="true" data-mode="partial">部分采集</button>
+          <button role="tab" aria-selected="false" data-mode="full">全量采集</button>
+        </div>
+        <span class="mode-copy" id="modeCopy">匿名优先，采集最新一页（约 15～20 条）</span>
+        <div class="material-options"><span class="material-caption">采集时同步下载素材</span>
+          <label class="check-option"><input type="checkbox" id="saveMedia">音视频</label>
+          <label class="check-option"><input type="checkbox" id="saveCover">封面</label>
+        </div>
+        <button class="btn quiet compact" popovertarget="settingsPopover" id="settingsTrigger"><i data-icon="sliders"></i>浏览器与登录</button>
+      </div>
+      <div class="collection-status" aria-live="polite">
+        <span id="collectStatus"><span class="status-dot"></span>准备就绪，已有作品会自动保留</span>
+        <button class="text-button" id="collectStop" hidden>停止采集</button>
+      </div>
+    </section>
+
+    </div></div>
+    <section class="results-card" aria-label="采集结果">
+      <div class="results-paper" aria-hidden="true"></div>
+      <div class="results-top">
+        <div class="record-group">
+          <span class="section-eyebrow">采集记录</span>
+          <button class="record-trigger" id="recordTrigger" popovertarget="historyPopover" aria-label="切换采集记录" aria-haspopup="dialog" aria-expanded="false">
+            <span class="record-name" id="recordName">暂无采集记录</span><i data-icon="chevron"></i>
+          </button>
+          <span class="subtle-tag" id="recordCount">0 条作品</span>
+        </div>
+        <div class="results-actions"><div id="focusOperation" hidden><span></span><button class="text-button" id="focusStop">停止</button></div>
+          <button class="btn quiet compact" id="focusToggle" aria-pressed="false"><i data-icon="expand"></i><span>放大查看</span></button>
+
+        </div>
+      </div>
+      <div class="filter-panel">
+        <div class="filter-main">
+          <div class="search-wrap"><i data-icon="search"></i><input id="search" type="search" aria-label="搜索标题或作者" placeholder="搜索标题或作者"><kbd>⌘ F</kbd></div>
+          <select id="dateMode" aria-label="发布日期筛选"></select>
+          <select id="fieldName" aria-label="筛选字段"></select>
+          <span class="filter-summary inline-filter-summary" id="filterSummary" hidden><span class="sr-only"></span><button class="text-button" id="clearFilters">清除筛选</button></span>
+          <label class="control-group sort-group"><span class="control-caption">排序</span><select id="sortField" aria-label="排序字段"></select></label>
+          <button class="direction-button" id="sortDirection" aria-label="切换排序方向" title="降序"><span>↓</span></button>
+        </div>
+
+      </div>
+
+
+      <div class="table-scroller" id="tableScroller" tabindex="0" aria-label="作品列表，可使用空格勾选，Shift连续选择">
+        <table id="worksTable">
+          <colgroup><col class="check-col"><col class="author-col"><col class="work-col"><col class="date-col"><col class="duration-col"><col class="stat-col"><col class="stat-col"><col class="stat-col"><col class="stat-col"><col class="asset-col"><col class="asset-col"><col class="asset-col"></colgroup>
+          <thead><tr>
+            <th><label class="select-visible-control"><input type="checkbox" id="selectVisible" aria-label="选择所有可见作品"></label></th>
+            <th><button data-sort="1">作者<i data-icon="sort"></i></button></th><th class="work-heading">标题</th>
+            <th><button data-sort="3">发布日期<i data-icon="sort"></i></button></th>
+            <th><button data-sort="4">时长<i data-icon="sort"></i></button></th>
+            <th><button data-sort="5">点赞<i data-icon="sort"></i></button></th>
+            <th><button data-sort="6">收藏<i data-icon="sort"></i></button></th>
+            <th><button data-sort="7">评论<i data-icon="sort"></i></button></th>
+            <th><button data-sort="8">分享<i data-icon="sort"></i></button></th>
+            <th>转录</th><th>音视频</th><th>封面</th>
+          </tr></thead><tbody id="worksBody"></tbody>
+        </table>
+        <div class="empty-state" id="emptyState" hidden><div><i data-icon="search"></i></div><h2>暂时没有符合条件的作品</h2><p>调整筛选，已选作品仍然保留。</p><button class="btn secondary" id="emptyReset">清除筛选</button></div>
+      </div>
+
+      <div class="selection-bar">
+        <div class="selection-info"><strong id="selectionCount">未选择作品</strong><span id="selectionDetail">勾选后可以批量处理</span><button class="text-button" id="clearSelection" hidden>取消选择</button></div>
+        <div class="selection-actions">
+
+          <button class="btn primary batch-button" id="transcribeSelected" disabled><i data-icon="headphones"></i><span>批量转录</span></button>
+          <span class="action-divider" aria-hidden="true"></span><button class="btn quiet" data-open="export" id="exportAction"><i data-icon="export"></i><span>导出列表</span></button>
+          <button class="btn quiet" id="feishuAction" data-open="feishu" disabled><i data-icon="link"></i>存入飞书</button>
+        </div>
+      </div>
+      <span class="sr-only" id="resultFoot" aria-live="polite">共 0 条作品</span>
+    </section>
+  </main>
+
+</div></div></div>
+
+<div id="dateRangeHome" hidden><div class="custom-range" id="customRange" role="group" aria-label="输入起止日期">
+            <div class="date-input"><input id="dateStart" aria-label="开始日期" placeholder="YYYY-MM-DD" maxlength="10"><button id="startCalendarTrigger" popovertarget="startCalendar" aria-label="选择开始日期"><i data-icon="calendar"></i></button></div><span>至</span>
+            <div class="date-input"><input id="dateEnd" aria-label="结束日期" placeholder="YYYY-MM-DD" maxlength="10"><button id="endCalendarTrigger" popovertarget="endCalendar" aria-label="选择结束日期"><i data-icon="calendar"></i></button></div>
+          </div>
+
+</div>
+<div popover="auto" class="popover field-filter-popover" id="filterDetails" aria-label="填写筛选条件"><div class="filter-editor">
+          <span class="condition-field" id="conditionField"></span>
+          <span id="operatorWrap" hidden><select id="fieldOperator" aria-label="筛选条件"></select></span>
+          <input id="fieldValue" class="condition-input" aria-label="筛选值" aria-describedby="filterError" hidden>
+          <span id="enumWrap" hidden><select id="fieldEnum" aria-label="筛选选项"></select></span>
+          <span id="filterError" class="sr-only" role="status"></span>
+          <span id="activeCondition" class="condition-summary"></span><button class="text-button" id="clearCondition">清除此条件</button>
+        </div></div>
+<div popover="auto" class="popover settings-popover" id="settingsPopover" aria-label="浏览器与登录">
+  <div class="settings-heading"><strong>浏览器与登录</strong><p>专用登录状态，与日常浏览器独立。</p></div>
+  <div class="setting-row browser-row"><label for="browserChoice">浏览器</label><select id="browserChoice" aria-label="专用浏览器" title="选择下次采集使用的浏览器"><option>Chrome</option><option>Edge</option><option>Brave</option><option>Chromium</option></select></div>
+  <div class="setting-row login-row"><span>登录状态</span><div class="session-controls"><span class="session-state" id="loginStatus" role="status" data-connected="false"><i></i><span>未登录</span></span><button class="btn secondary compact" id="loginButton">登录</button><button class="btn quiet compact" id="clearLogin" title="清除专用会话的登录状态" hidden>清除登录</button></div></div>
+  <p class="setting-notice"><i data-icon="help"></i><span id="loginNotice">部分采集受限或全量采集时，可在专用浏览器中自行登录。已取得的作品会保留。</span></p>
+</div>
+<div popover="auto" class="popover history-popover" id="historyPopover" role="dialog" aria-label="选择采集记录">
+  <div class="record-search"><i data-icon="search"></i><input id="recordSearch" type="text" autocomplete="off" spellcheck="false" role="combobox" aria-label="搜索采集记录" aria-autocomplete="list" aria-controls="historyOptions" aria-expanded="false" placeholder="搜索采集记录"><button id="clearRecordSearch" aria-label="清空记录搜索" hidden><i data-icon="close"></i></button></div>
+  <div class="record-list-caption"><span id="recordListCaption">全部记录</span><span id="recordMatches" role="status" aria-live="polite"></span></div>
+  <div class="record-list" id="historyOptions" role="listbox" aria-label="采集记录"></div>
+  <div class="record-picker-footer"><button class="menu-option" id="manageRecords" data-open="manage"><i data-icon="folder"></i><span>管理采集记录</span><i data-icon="chevron"></i></button><button class="menu-option" id="restoreLegacy" hidden><span>恢复旧版保留内容</span></button></div>
+</div>
+<div popover="auto" class="popover calendar-popover" id="startCalendar" aria-label="开始日期日历"></div>
+<div popover="auto" class="popover calendar-popover" id="endCalendar" aria-label="结束日期日历"></div>
+<div popover="auto" class="popover menu" id="coverMenu" aria-label="素材操作"><button class="menu-option" id="revealCover">在 Finder 中显示</button></div>
+<dialog class="standard-dialog" id="modal" aria-labelledby="modalTitle"><div class="dialog-head"><h2 id="modalTitle"></h2><button class="btn quiet icon-only" id="closeModal" aria-label="关闭"><i data-icon="close"></i></button></div><div id="modalBody"></div></dialog>
+<dialog class="drawer" id="drawer" aria-labelledby="drawerTitle"><div class="drawer-head"><div><span class="eyebrow" id="drawerEyebrow">作品详情</span><h2 id="drawerTitle"></h2></div><button class="btn quiet icon-only" id="closeDrawer" aria-label="关闭详情"><i data-icon="close"></i></button></div><div id="drawerBody"></div></dialog>
+<div class="toast-region" role="status" aria-live="polite"><div class="toast" id="toast"><i data-icon="check"></i><span></span><button class="text-button" hidden></button></div></div>
+<script src="../shared/select-controls.js"></script>
+<script src="backend-contract.js"></script>
+<script src="filters.js"></script>
+<script src="workspace.js"></script>
+<script src="record-picker.js"></script>
+<script src="material.js"></script>
+<script src="qrc:/qtwebchannel/qwebchannel.js"></script>
+<script src="../shared/channel.js"></script>
+<script src="collection.js"></script>
+<script src="feishu.js"></script>
+</body></html>

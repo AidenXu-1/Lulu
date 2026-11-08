@@ -58,7 +58,8 @@ def _fail(code="AGENT_ENTRY_COMPONENT_MISMATCH"):
 
 def _root(app: Path) -> Path:
     app = Path(app)
-    if not app.is_absolute() or app.name != "Lulu.app":
+    from ...edition import valid_app_basename
+    if not app.is_absolute() or not valid_app_basename(app):
         raise _fail()
     metadata = app.lstat()
     if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
@@ -180,7 +181,11 @@ def delivery_app_tree_records(app: Path) -> list[dict]:
 
 
 def delivery_app_tree_identity(app: Path) -> dict:
-    records = delivery_app_tree_records(app)
+    return _identity_from_records(delivery_app_tree_records(app))
+
+
+def _identity_from_records(records: list[dict]) -> dict:
+    """Project only a freshly verified complete inventory, including directories."""
     raw = json.dumps(records, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     regular = [r for r in records if r["type"] == "regular"]
     return {"schema_id": SCHEMA_ID, "sha256": hashlib.sha256(raw).hexdigest(),

@@ -1,10 +1,13 @@
 """Credential-free login tests; fake owned browser, explicit temporary root."""
 from pathlib import Path
+import plistlib
+import subprocess
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+from src.core.collect import xhs_browser
 from src.core.collect.browser_shell import BrowserShellError
 from src.core.live_recording.browser_login import cookie_header, login_cookie
 from src.core.live_recording.contracts import LiveError
@@ -36,10 +39,11 @@ class LiveBrowserLoginTests(unittest.TestCase):
         page = self.page([self.cookie()])
         shell = SimpleNamespace(open=Mock(return_value=page))
         with TemporaryDirectory() as temporary:
-            result = login_cookie(Path(temporary), shell=shell)
+            result = login_cookie(Path(temporary), shell=shell, browser_path='/fixture/Edge')
         self.assertEqual(result, 'sessionid=isolated-fixture')
         spec = shell.open.call_args.args[0]
         self.assertEqual((spec.platform_id, spec.profile_id), ('douyin', 'default'))
+        self.assertEqual(spec.browser_path, '/fixture/Edge')
         page.cookies.assert_called_once_with(all_domains=False, all_info=True)
         page.quit.assert_called_once()
 
@@ -78,3 +82,17 @@ class LiveBrowserLoginTests(unittest.TestCase):
                 login_cookie(Path('/isolated-fixture'), shell=shell)
             self.assertIn(expected, str(caught.exception))
             self.assertNotIn('synthetic diagnostic', str(caught.exception))
+
+    def test_installed_chrome_is_not_reported_missing_after_signature_timeout(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable, info = root / 'Chrome', root / 'Info.plist'
+            executable.touch()
+            info.write_bytes(plistlib.dumps({'CFBundleShortVersionString': '156.0'}))
+            with patch.object(xhs_browser, '_CHROME_EXECUTABLE', executable), \
+                 patch.object(xhs_browser, '_CHROME_INFO', info), \
+                 patch.object(xhs_browser.subprocess, 'run',
+                              side_effect=subprocess.TimeoutExpired('codesign', 15)):
+                installation = xhs_browser._system_chrome()
+        self.assertEqual(installation.executable, executable)
+        self.assertFalse(installation.signature_valid)

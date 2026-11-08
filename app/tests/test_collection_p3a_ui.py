@@ -394,6 +394,21 @@ class CollectionP3AUiTests(unittest.TestCase):
             )
 
 
+    def test_material_preferences_save_without_showing_success_notice(self):
+        with patch("src.ui.collection_page.dialogs.alert") as alert:
+            self.page.save_media_cb.click()
+            self.page.cover_cb.click()
+            self.assertTrue(self.cfg.keep_media)
+            self.assertTrue(self.cfg.collect_cover)
+            self.assertEqual(self.page.status.text(), "")
+            self.assertTrue(self.page.activity.isHidden())
+
+            self.page.status.setText("正在采集，已读取 2 条")
+            self.page.save_media_cb.click()
+            self.assertFalse(self.cfg.keep_media)
+            self.assertEqual(self.page.status.text(), "正在采集，已读取 2 条")
+            alert.assert_not_called()
+
     def test_collection_mode_control_persists_and_rolls_back(self):
         class ModeConfig(SimpleNamespace):
             def save(self):

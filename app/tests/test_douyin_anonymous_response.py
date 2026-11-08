@@ -23,7 +23,7 @@ def payload():
 
 class AnonymousHomepageResponseTests(unittest.TestCase):
     def setUp(self):
-        self.registration = patch.object(fetch, "_register_ttwid", return_value="ttwid=isolated")
+        self.registration = patch.object(fetch, "_register_ttwid", return_value=fetch._AnonymousSession("ttwid=isolated", "isolated-visitor"))
         self.registration.start()
         self.addCleanup(self.registration.stop)
         signer = patch.object(fetch, "ABogus")
@@ -51,6 +51,41 @@ class AnonymousHomepageResponseTests(unittest.TestCase):
         self.assertNotIn("vid", query)
         self.assertNotIn("from_tab_name", query)
         self.assertEqual(works[0].author_id, AUTHOR)
+
+    def test_session_query_signature_and_request_share_one_browser_identity(self):
+        from src.core.collect._abogus import ABogus
+        signers = []
+        def signer(*args, **kwargs):
+            instance = ABogus(*args, **kwargs)
+            signers.append(instance)
+            return instance
+        self.signer.side_effect = signer
+        with self.returned(json.dumps(payload()).encode()) as request:
+            fetch.fetch_latest(URL)
+        sent = request.call_args.args[0]
+        query = parse_qs(urlsplit(sent.full_url).query)
+        self.assertEqual(sent.get_header('User-agent'), fetch._DESKTOP_UA)
+        self.assertEqual(signers[0].user_agent, fetch._DESKTOP_UA)
+        self.assertEqual(signers[0].browser_fp.split('|')[-1], query['browser_platform'][0])
+        self.assertIn('Chrome/' + query['browser_version'][0], sent.get_header('User-agent'))
+        self.assertEqual(signers[0].browser_fp.split('|')[8:10],
+                         [query['screen_width'][0], query['screen_height'][0]])
+
+    def test_detail_refresh_uses_the_same_consistent_anonymous_identity(self):
+        from src.core.collect._abogus import ABogus
+        signers = []
+        def signer(*args, **kwargs):
+            instance = ABogus(*args, **kwargs)
+            signers.append(instance)
+            return instance
+        self.signer.side_effect = signer
+        detail = dict(status_code=0, aweme_detail=payload()['aweme_list'][0])
+        with self.returned(json.dumps(detail).encode()) as request:
+            fetch.fetch_item('1234567890123456789')
+        sent = request.call_args.args[0]
+        query = parse_qs(urlsplit(sent.full_url).query)
+        self.assertEqual(sent.get_header('User-agent'), fetch._DESKTOP_UA)
+        self.assertEqual(signers[0].browser_fp.split('|')[-1], query['browser_platform'][0])
 
     def test_access_denial_rate_limit_and_server_failure_have_typed_causes(self):
         for status, code in ((401, "DOUYIN_LOGIN_REQUIRED"),

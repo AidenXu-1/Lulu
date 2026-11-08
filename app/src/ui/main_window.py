@@ -16,6 +16,7 @@ from pathlib import Path
 from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
+    QEventLoop,
     QPoint,
     QPointF,
     QPropertyAnimation,
@@ -35,7 +36,8 @@ from .control_foundation import PaperTextureFrame, adopt_badge, adopt_button, ad
 
 _DEFAULT_TASK_QUEUE_STORE = object()
 
-APP_NAME = "Lulu"
+from ..edition import display_name
+APP_NAME = display_name()
 LIVE_RECORDING_PAGE = 9
 SIDEBAR_W = 232    # 左活动栏固定宽
 CENTER_MIN_W = 620
@@ -65,6 +67,21 @@ class _PaneToggleButton(QPushButton):
 
 
 
+
+
+class _RecordingCallWorker(QThread):
+    """Keep native capture and audio conversion off the window's event thread."""
+    def __init__(self, call, parent):
+        super().__init__(parent)
+        self.call = call
+        self.value = None
+        self.error = None
+
+    def run(self):
+        try:
+            self.value = self.call()
+        except Exception as exc:
+            self.error = exc
 
 
 class _TranscriptCoverRetryWorker(QThread):
@@ -282,8 +299,11 @@ class MainWindow(QWidget):
             self.move(max(available.left(), min(saved['x'],available.right()-self.width()+1)),
                       max(available.top(), min(saved['y'],available.bottom()-self.height()+1)))
         self.setAcceptDrops(True)
-        self.setStyleSheet(T.QSS)
+        self._font_percent = getattr(self.cfg, "interface_font_percent", 100)
+        self.setStyleSheet(T.scale_text_style(T.QSS, self._font_percent))
         self._build()
+        if self._font_percent != 100:
+            self._apply_interface_font(self._font_percent)
         self._task_queue_sync_timer = QTimer(self)
         self._task_queue_sync_timer.setInterval(15000)
         self._task_queue_sync_timer.timeout.connect(self._sync_shared_tasks)
@@ -431,7 +451,7 @@ class MainWindow(QWidget):
         return bar
 
     def _build_pane_toggle_rails(self) -> None:
-        # Three mouse-transparent material strips cover the real root-column
+        # Mouse-transparent material strips cover the real root-column
         # geometry behind macOS chrome.  They sit above the column widgets but
         # below every titlebar control, so the traffic lights, pane toggles and
         # native drag region keep their original behaviour.
@@ -442,6 +462,12 @@ class MainWindow(QWidget):
         for material in self._titlebar_paper_frames():
             adopt_consumer_theme_scope(material, "globalShell")
             material.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+        self.settings_titlebar_sidebar = QFrame(self.titlebar_paper_center)
+        self.settings_titlebar_sidebar.setObjectName("settingsTitlebarSidebar")
+        self.settings_titlebar_sidebar.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.settings_titlebar_sidebar.setFixedWidth(0)
+        self.settings_titlebar_sidebar.setVisible(self.stack.currentIndex() == 6)
 
         self.window_title_label = QLabel(self.windowTitle(), self)
         self.window_title_label.setObjectName("windowTitleLabel")
@@ -506,6 +532,11 @@ class MainWindow(QWidget):
         for material, column in columns:
             geometry = column.geometry()
             material.setGeometry(geometry.x(), 0, geometry.width(), height)
+        self.settings_titlebar_sidebar.setFixedHeight(height)
+
+    def _set_settings_titlebar_sidebar_width(self, width: int) -> None:
+        if hasattr(self, "settings_titlebar_sidebar"):
+            self.settings_titlebar_sidebar.setFixedWidth(width)
 
     def _toggle_pane(self, side: str) -> None:
         if side != "left":
@@ -1143,11 +1174,11 @@ class MainWindow(QWidget):
         self._sync_toggle_icons()
 
     def _sync_workbench_paper_scope(self, index: int | None = None) -> None:
-        """Share the native paper canvas between extraction and model settings."""
+        """Continue the native paper canvas behind embedded workspaces."""
         if index is None:
             index = self.stack.currentIndex() if hasattr(self, "stack") else 0
         active = index == 0
-        shared_paper = index in (0, 1, LIVE_RECORDING_PAGE)
+        shared_paper = index in (0, 1, 5, 6, LIVE_RECORDING_PAGE)
         shell_rail_strength = self.workbench_consumer_theme.paper_rail_opacity
         shell_canvas_strength = self.workbench_consumer_theme.paper_canvas_opacity
         from .agent_workspace.shell_style import apply as apply_workspace_shell_style
@@ -1172,6 +1203,8 @@ class MainWindow(QWidget):
                 material.set_paper_texture_strength(strength)
                 material.setProperty("paperTextureActive", True)
                 material.setVisible(True)
+        if hasattr(self, "settings_titlebar_sidebar"):
+            self.settings_titlebar_sidebar.setVisible(index == 6)
         title = getattr(self, "window_title_label", None)
         immersive = active or index == 2
         if title is not None:
@@ -1289,8 +1322,8 @@ class MainWindow(QWidget):
             self.voice_page = widget
         elif index == 5:
             live = self._ensure_page_loaded(LIVE_RECORDING_PAGE)
-            from .collection_page import CollectionPage
-            widget = CollectionPage(
+            from .approved_collection import ApprovedCollection
+            widget = ApprovedCollection(
                 self.cfg,
                 on_transcribe=self._collect_transcribe,
                 collection_service=self._collection_service,
@@ -1298,14 +1331,20 @@ class MainWindow(QWidget):
                 cover_workflow=self._collection_cover_workflow,
                 collection_task_states=self._collection_task_states,
                 douyin_login_open=live._settings, douyin_login_state=live.login_state,
+                browser_login=live.collection_browser_login, browser_login_active=lambda: live._collection_login,
+                browser_clear_login=live.collection_clear_login,
+                browser_login_blocked=live.collection_login_blocked,
+                browser_retry_blocked=live.collection_retry_blocked,
+                browser_login_saving=lambda: live._credential_pending,
                 douyin_login_busy=lambda: bool(self.live_controller.login_worker or live._credential_pending),
             )
             self.collection_page = widget
             self.live_controller.snapshot.connect(lambda _: widget._refresh_login_status())
+            self.live_controller.activity_changed.connect(widget._refresh_login_status)
             live.login_state_changed.connect(widget._refresh_login_status)
         elif index == 6:
-            from .settings_page import SettingsPage
-            widget = SettingsPage(
+            from .approved_settings import ApprovedSettings
+            widget = ApprovedSettings(
                 self.cfg,
                 update_controller=self.update_controller,
                 notification_service=self.notification_service,
@@ -1315,6 +1354,9 @@ class MainWindow(QWidget):
             )
             widget.category_changed.connect(self._sync_page_navigation)
             widget.preferences_changed.connect(self._sync_preferences_to_workbench)
+            widget.sidebar_width_changed.connect(self._set_settings_titlebar_sidebar_width)
+            widget.font_preview.connect(self._schedule_interface_font)
+            widget.live_location_requested.connect(self._show_live_storage)
             widget.storage_activity_changed.connect(
                 self._on_settings_storage_activity_changed
             )
@@ -1325,8 +1367,11 @@ class MainWindow(QWidget):
             widget.manual_download.connect(lambda url: QDesktopServices.openUrl(QUrl(url)) if is_safe_manual_url(url) else None)
             self.settings_page = widget
         elif index == LIVE_RECORDING_PAGE:
-            from .live_recording_page import LiveRecordingPage
-            widget = LiveRecordingPage(self.live_controller, transcribe=self._live_transcribe, parent=self,
+            from .approved_live_workspace import ApprovedLiveWorkspace
+            widget = ApprovedLiveWorkspace(self.live_controller, transcribe=self._live_transcribe, parent=self,
+                needs_attention=lambda: self.completion_feedback.needs_attention(
+                    app_is_active=bool(getattr(self, "_window_is_active", True))
+                ),
                 collection_busy=lambda: bool(self.collection_page and (self.collection_page._collect_running() or
                     any(w and w.isRunning() for w in (self.collection_page._login_worker, self.collection_page._xhs_login_worker)))))
             self.live_recording_page = widget
@@ -1339,7 +1384,30 @@ class MainWindow(QWidget):
         self.stack.removeWidget(old)
         old.deleteLater()
         self.stack.insertWidget(index, widget)
+        self._scale_workspace_web_text(widget)
         return widget
+
+    def _scale_workspace_web_text(self, widget) -> None:
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+
+        for view in widget.findChildren(QWebEngineView):
+            if not view.property("usesLocalFontScale"):
+                view.setZoomFactor(self._font_percent / 100)
+
+    def _schedule_interface_font(self, percent: int) -> None:
+        self._pending_interface_font = percent
+        if not hasattr(self, '_interface_font_timer'):
+            self._interface_font_timer = QTimer(self, singleShot=True, interval=40)
+            self._interface_font_timer.timeout.connect(
+                lambda: self._apply_interface_font(self._pending_interface_font))
+        if not self._interface_font_timer.isActive():
+            self._interface_font_timer.start()
+
+    def _apply_interface_font(self, percent: int) -> None:
+        self._font_percent = percent
+        T.apply_fonts(QApplication.instance(), percent)
+        self.setStyleSheet(T.scale_text_style(T.QSS, percent))
+        self._scale_workspace_web_text(self)
 
     def _sync_preferences_to_workbench(self, field: str) -> None:
         """设置页保存成功后，把已加载工作台控件同步到同一份 AppConfig。"""
@@ -1497,6 +1565,11 @@ class MainWindow(QWidget):
         self._switch_page(0)
         self._toast(f"已加入 {len(sources)} 条到转录队列")
 
+    def _show_live_storage(self):
+        self._switch_page(LIVE_RECORDING_PAGE)
+        if self.live_recording_page:
+            self.live_recording_page.show_storage_location()
+
     def _live_transcribe(self, source: str) -> bool:
         """Create a local text task directly from a completed recording segment."""
         from ..core.engines.local_models import LOCAL_MODELS
@@ -1529,9 +1602,17 @@ class MainWindow(QWidget):
         self,
         candidates: list[TaskGroupCandidate],
         folder_name: str | None = None,
-    ) -> None:
+        *,
+        wait_for_save=False,
+    ):
         """把两条以上可执行作品编成运行期组，子任务仍走既有串行队列。"""
         batches = getattr(getattr(self, 'extraction_workspace', None), 'batches', None)
+        if wait_for_save and (batches is None or not batches.enabled):
+            from concurrent.futures import Future
+
+            completion = Future()
+            completion.set_exception(RuntimeError('任务服务暂不可用，请在连接恢复后重试'))
+            return completion
         if batches is not None and batches.enabled:
             from ..core import library
             executable = [c for c in candidates if c.executable]
@@ -1539,13 +1620,19 @@ class MainWindow(QWidget):
                 self._toast('所选作品没有可转录的音视频')
                 return
             fid = library.ensure_folder('transcript',folder_name) if folder_name else None
-            batches.stage([dict(source=c.source,title=c.title or '采集转写',stable_key=c.stable_key,
+            completion = batches.stage([dict(source=c.source,title=c.title or '采集转写',stable_key=c.stable_key,
                                 outputs=['text'],prefer_subtitles=bool(self.cfg.prefer_subtitles)) for c in executable],
                           name=folder_name or '主页采集作品', group=True, folder_id=fid,
                           skipped=[dict(title=c.title or '作品',reason=c.skipped_reason or '不支持转录')
                                    for c in candidates if not c.executable])
+            if wait_for_save:
+                def saved(result):
+                    if not result.cancelled() and result.exception() is None and self.stack.currentIndex() == 5:
+                        self._switch_page(0)
+                completion.add_done_callback(saved)
+                return completion
             self._switch_page(0)
-            return
+            return None
         selected_engine = self.cfg.engine_name
         unfinished = {
             (task.stable_key, task.execution_policy.engine_name or selected_engine) for task in self.tasks
@@ -1699,6 +1786,8 @@ class MainWindow(QWidget):
 
 
     def _on_rec_source_selected(self, source: str) -> None:
+        if getattr(self, "_recording_busy", ""):
+            raise ValueError("录音处理中不能更改来源")
         if source not in {"microphone", "system_audio", "mixed"}:
             raise ValueError("录音来源无效")
         self._rec_source = source
@@ -2289,6 +2378,8 @@ class MainWindow(QWidget):
     # ---------------- 录音 ---------------- #
 
     def _pick_recording_dir(self) -> None:
+        if getattr(self, "_recording_busy", ""):
+            return
         d = QFileDialog.getExistingDirectory(self, "选择录音保存的文件夹", self.cfg.recording_dir)
         if d:
             self.cfg.recording_dir = d
@@ -2311,7 +2402,32 @@ class MainWindow(QWidget):
             self._system_audio_backend = MacOSSystemAudioBackend()
         return self._system_audio_backend
 
+    def _run_recording_call(self, label, call):
+        # A bounded local event loop keeps paint/cancel events alive while this
+        # one operation owns the recorder. All recorder re-entry is gated below.
+        self._recording_busy = label
+        worker = _RecordingCallWorker(call, self)
+        self._recording_worker = worker
+        loop = QEventLoop(self)
+        worker.finished.connect(loop.quit)
+        self._publish_extraction_state()
+        worker.start()
+        try:
+            loop.exec()
+            worker.wait()
+            if worker.error is not None:
+                raise worker.error
+            return worker.value
+        finally:
+            self._recording_busy = ""
+            self._recording_worker = None
+            worker.deleteLater()
+            loop.deleteLater()
+            self._publish_extraction_state()
+
     def _toggle_record(self) -> None:
+        if getattr(self, "_recording_busy", ""):
+            return
         if self._mixed_rec_active or self._mixed_pending_stop:
             self._stop_mixed_recording()
             return
@@ -2364,6 +2480,7 @@ class MainWindow(QWidget):
         path = self._recording_path("系统声音录音")
         if not path:
             return
+        self._rec_cancel_requested = False
         try:
             from ..core.recording import RecordingRequest, RecordingSource, RecordingUse
 
@@ -2373,10 +2490,16 @@ class MainWindow(QWidget):
                 use=RecordingUse.TRANSCRIPTION,
             )
             backend = self._ensure_system_audio_backend()
-            self._system_rec_session = backend.start(request)
+            self._system_rec_session = self._run_recording_call("正在准备录音", lambda: backend.start(request))
         except Exception as exc:
             self._system_rec_session = None
             self._toast(self._friendly_system_recording_error(exc))
+            return
+        if self._rec_cancel_requested:
+            self._run_recording_call("正在取消录音", self._system_rec_session.cancel)
+            self._system_rec_session = None
+            self._reset_rec_ui()
+            self._toast("已取消录音，不会加入转录队列")
             return
         self._rec_active_source = "system_audio"
         self._rec_cancel_requested = False
@@ -2395,6 +2518,7 @@ class MainWindow(QWidget):
         stem = output_path.stem
         mic_path = output_path.with_name(f"{stem}_麦克风轨.m4a")
         system_path = output_path.with_name(f"{stem}_系统声音轨.m4a")
+        self._rec_cancel_requested = False
         try:
             from ..core.recording import RecordingRequest, RecordingSource, RecordingUse
 
@@ -2404,10 +2528,16 @@ class MainWindow(QWidget):
                 use=RecordingUse.TRANSCRIPTION,
             )
             backend = self._ensure_system_audio_backend()
-            self._system_rec_session = backend.start(request)
+            self._system_rec_session = self._run_recording_call("正在准备录音", lambda: backend.start(request))
         except Exception as exc:
             self._system_rec_session = None
             self._toast(self._friendly_system_recording_error(exc))
+            return
+        if self._rec_cancel_requested:
+            self._run_recording_call("正在取消录音", self._system_rec_session.cancel)
+            self._system_rec_session = None
+            self._reset_rec_ui()
+            self._toast("已取消录音，不会加入转录队列")
             return
         self._rec_active_source = "mixed"
         self._rec_cancel_requested = False
@@ -2428,6 +2558,9 @@ class MainWindow(QWidget):
         self._publish_extraction_state()
 
     def _friendly_system_recording_error(self, exc: Exception) -> str:
+        from ..core.recording import RecordingBackendError
+        if isinstance(exc, RecordingBackendError):
+            return str(exc)
         text = str(exc) or "系统声音录制失败"
         if "权限" in text or "permission" in text.lower() or "not authorized" in text.lower():
             return "系统声音权限未打开。你可以先改为麦克风录音，或到系统设置允许 Lulu 录制电脑声音后重试。"
@@ -2435,14 +2568,15 @@ class MainWindow(QWidget):
             return "系统声音录制启动超时。你可以先改为麦克风录音，或检查系统声音权限后重试。"
         if "清晰" in text or "静音" in text or "没有录到" in text:
             return "没有录到清晰的系统声音，请先播放电脑声音后重试。"
-        return "系统声音录制失败。你可以先改为麦克风录音，或检查系统声音权限后重试。"
+        return "系统声音录制失败，请检查保存位置后重试，或重新打开 Lulu。"
 
     def _stop_system_recording(self) -> None:
         session = self._system_rec_session
         if session is None:
             return
         try:
-            result = session.stop()
+            self._rec_elapsed_timer.stop()
+            result = self._run_recording_call("正在保存录音", session.stop)
         except Exception as exc:
             self._system_rec_session = None
             self._reset_rec_ui()
@@ -2461,7 +2595,8 @@ class MainWindow(QWidget):
         self._mixed_pending_stop = True
         self._publish_extraction_state()
         try:
-            self._mixed_system_result = session.stop()
+            self._rec_elapsed_timer.stop()
+            self._mixed_system_result = self._run_recording_call("正在保存录音", session.stop)
         except Exception as exc:
             self._system_rec_session = None
             self._fail_mixed_recording(self._friendly_system_recording_error(exc))
@@ -2485,11 +2620,14 @@ class MainWindow(QWidget):
 
     def _cancel_recording(self) -> None:
         self._rec_cancel_requested = True
+        if getattr(self, "_recording_busy", ""):
+            self._toast("正在取消，录音处理结束后会清理本次文件")
+            return
         if self._mixed_rec_active or self._mixed_pending_stop:
             self._cancel_mixed_recording()
             return
         if self._system_rec_session is not None and self._system_rec_session.is_active():
-            self._system_rec_session.cancel()
+            self._run_recording_call("正在取消录音", self._system_rec_session.cancel)
             self._system_rec_session = None
             self._reset_rec_ui()
             self._toast("已取消录音，不会加入转录队列")
@@ -2502,7 +2640,7 @@ class MainWindow(QWidget):
 
     def _cancel_mixed_recording(self) -> None:
         if self._system_rec_session is not None and self._system_rec_session.is_active():
-            self._system_rec_session.cancel()
+            self._run_recording_call("正在取消录音", self._system_rec_session.cancel)
         self._system_rec_session = None
         rec = self._ensure_recorder()
         if rec.is_recording():
@@ -2519,6 +2657,13 @@ class MainWindow(QWidget):
     def _on_rec_elapsed_tick(self) -> None:
         if self._rec_active_source not in {"system_audio", "mixed"}:
             self._rec_elapsed_timer.stop()
+            return
+        session = self._system_rec_session
+        if session is not None and not session.is_active() and not getattr(self, "_recording_busy", ""):
+            if self._mixed_rec_active:
+                self._stop_mixed_recording()
+            else:
+                self._stop_system_recording()
             return
         self._rec_elapsed += 1
         self._on_rec_tick(self._rec_elapsed)
@@ -2571,7 +2716,7 @@ class MainWindow(QWidget):
             self._fail_mixed_recording("没有录到系统声音，请先播放电脑声音后重试")
             return
         try:
-            mic_stats = self._analyze_recording_file(mic_path)
+            mic_stats = self._run_recording_call("正在检查录音", lambda: self._analyze_recording_file(mic_path))
         except Exception:
             self._fail_mixed_recording("麦克风录音无法读取，请检查麦克风权限后重试")
             return
@@ -2579,9 +2724,15 @@ class MainWindow(QWidget):
             self._fail_mixed_recording("没有录到清晰的麦克风声音，请检查麦克风权限后重试")
             return
         try:
-            self._mix_recording_tracks(mic_path, system_path, output_path)
+            self._run_recording_call("正在合并录音", lambda: self._mix_recording_tracks(mic_path, system_path, output_path))
         except Exception:
             self._fail_mixed_recording("混合录音保存失败，请重新录制")
+            return
+        if self._rec_cancel_requested:
+            self._cleanup_mixed_paths()
+            self._clear_mixed_state()
+            self._reset_rec_ui()
+            self._toast("已取消录音，不会加入转录队列")
             return
         self._cleanup_mixed_track_paths()
         self._clear_mixed_state()
@@ -2605,7 +2756,9 @@ class MainWindow(QWidget):
     def _mix_recording_tracks(self, mic_path: Path, system_path: Path, output_path: Path) -> dict[str, object]:
         from ..core.recording import mix_recording_tracks
 
-        return mix_recording_tracks(mic_path, system_path, output_path)
+        return mix_recording_tracks(mic_path, system_path, output_path,
+            microphone_started_at=self._ensure_recorder().capture_started_monotonic,
+            system_started_at=self._mixed_system_result.metadata.get("capture_started_monotonic"))
 
     def _cleanup_mixed_track_paths(self) -> None:
         for p in (self._mixed_mic_path, self._mixed_system_path):
@@ -3978,10 +4131,18 @@ class MainWindow(QWidget):
         return True
 
     def closeEvent(self, e):  # noqa: N802
+        if getattr(self, "_recording_busy", ""):
+            self._rec_cancel_requested = True
+            e.ignore()
+            QTimer.singleShot(250, self.close)
+            return
         if self.library_page is not None and hasattr(self.library_page, "flush_pending"):
             if not self.library_page.flush_pending(self.close):
                 e.ignore()
                 return
+        flush_font = getattr(getattr(self, "settings_page", None), "flush_font", None)
+        if flush_font is not None and not flush_font():
+            self._toast("字号未能保存，已恢复原设置。")
         first_attempt = not bool(getattr(self, "_close_settling", False))
         if (
             first_attempt

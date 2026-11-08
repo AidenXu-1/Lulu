@@ -120,6 +120,7 @@ function nativeStateLabel(b,i){
  const cloud=!!modelOptions.find(m=>m.id===b.engine)?.cloud;
  if(i.state==='queued')return cloud?'等待发送':'等待识别';
  if(i.state==='running')return '提取中';
+ if(i.state==='failed')return i.selection.outputs.some(k=>i.assets[k]?.state==='ready')?'部分未完成':'提取失败';
  return NX_STATES[i.state]||i.state;
 }
 let nativeModelMenu=null;

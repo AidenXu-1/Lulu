@@ -5,6 +5,7 @@ from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timezone
 import csv
+import hashlib
 import json
 import math
 import os
@@ -143,6 +144,12 @@ def _entries(file, recording, limit, start=0):
                 raise ValueError()
         except (ValueError, TypeError, KeyError, OverflowError):
             raise LiveError('弹幕记录格式异常，原文件保留；请检查文件夹') from None
+        if value['kind'] == 'chat':
+            # File position distinguishes identical legacy rows; content prevents
+            # an externally edited/replaced row from inheriting another selection.
+            value['row_key'] = hashlib.sha256(json.dumps(
+                [recording['id'], offset, value], ensure_ascii=False, sort_keys=True,
+                separators=(',', ':')).encode()).hexdigest()
         yield offset, value
 
 

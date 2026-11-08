@@ -8,6 +8,22 @@ from PySide6.QtCore import QObject, QThread, QTimer, Signal
 from ..core.live_recording.client import dispatch
 from ..core.live_recording.contracts import LiveError, ORDERED_CONTROLS
 
+
+class _FailureMessage:
+    def __init__(self, callback):
+        self.callback = callback
+
+    def __call__(self, message='操作已停止或连接已变化，请重试。'):
+        self.callback(message)
+
+
+def _notify_failure(callback, message='操作已停止或连接已变化，请重试。'):
+    if isinstance(callback, _FailureMessage):
+        callback(message)
+    elif callback:
+        callback()
+
+
 class LiveRequest(QThread):
     replied = Signal(object)
     failed = Signal(str)
@@ -35,6 +51,7 @@ class LiveController(QObject):
         self.dispatcher = dispatcher
         self.session, self.nonce = '', uuid4().hex
         self.active = False
+        self.login_presence = None
         self.connected = False
         self.closing = False
         self.settled = False
@@ -53,6 +70,12 @@ class LiveController(QObject):
         self.heartbeat_at = 0
         self.poll_at = 0
         self._connection_epoch = 0
+        self._open_attempts = 0
+        self._heartbeat_failures = 0
+        self.connection_message = ''
+        self.retry_timer = QTimer(self)
+        self.retry_timer.setSingleShot(True)
+        self.retry_timer.timeout.connect(self._retry_connection)
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self._tick)
@@ -60,12 +83,33 @@ class LiveController(QObject):
     def start(self):
         if self.connected or self.worker or self.closing:
             return
+        self._open_attempts = 0
+        self.retry_timer.stop()
+        self._start_connection()
+
+    def _retry_connection(self):
+        if self.connected or self.closing or self.settled or self._open_attempts >= 3:
+            return
+        if self.worker:
+            self.retry_timer.start(100)
+            return
+        self._start_connection()
+
+    def _start_connection(self):
+        if self.connected or self.worker or self.closing or self.settled:
+            return
+        self._open_attempts += 1
+        self.connection_message = '正在连接登录服务…'
         # Restored monitor intent is unknown until Core's first heartbeat reply.
         self.active = True
         self.activity_changed.emit()
         def opened(reply):
             self.session = reply['session']
             self.connected = True
+            self.connection_message = ''
+            self._heartbeat_failures = 0
+            self.heartbeat_at = self.poll_at = 0
+            self.retry_timer.stop()
             self.timer.start()
             self._tick()
         self._enqueue('open', {'nonce': self.nonce}, opened)
@@ -75,18 +119,25 @@ class LiveController(QObject):
         if self.closing or self.settled:
             return
         self._connection_epoch += 1
+        self._open_attempts = 0
         self.connected, self.session = False, ''
+        self.login_presence = None
+        self.retry_timer.stop()
         self.timer.stop()
         self._discard_controls()
         self.heartbeat_at = self.poll_at = 0
         if not self.worker:
             self.start()
 
-    def call(self, operation, callback=None, failure=None, **arguments):
+    def call(self, operation, callback=None, failure=None, failure_message=None, **arguments):
+        if failure_message is not None:
+            if failure is not None:
+                raise ValueError('只选择一种失败回调')
+            failure = _FailureMessage(failure_message)
         if not self.connected or self.closing:
-            self.error.emit('直播连接未就绪，请等待启动准备完成')
-            if failure:
-                failure()
+            message = self.connection_message or '直播连接未就绪，请等待启动准备完成'
+            self.error.emit(message)
+            _notify_failure(failure, message)
             return
         if operation == 'start' and (self.directory_worker or any(item[0] == 'directory' for item in self.queue)):
             self.error.emit('保存位置正在检查，请等待完成后再开始监控')
@@ -159,11 +210,13 @@ class LiveController(QObject):
             else:
                 discard_reply()
         def failed(message):
+            nonlocal completed
             if completed:
                 return
             if epoch == self._connection_epoch and not self.closing:
                 self.error.emit(message)
-            discard_reply()
+            completed = True
+            _notify_failure(failure, message)
         def finished():
             setattr(self, slot, None)
             worker.deleteLater()
@@ -255,7 +308,12 @@ class LiveController(QObject):
                 discard_reply()
                 return
             completed = True
+            if isinstance(result.get('login'), dict):
+                self.login_presence = dict(result['login'])
             if operation in {'heartbeat', 'stop'}:
+                if operation == 'heartbeat':
+                    self._heartbeat_failures = 0
+                    self._open_attempts = 0
                 self.active = bool(result['active'])
                 self.activity_changed.emit()
                 if operation == 'heartbeat' and result['stopped'] and not self.closing:
@@ -277,16 +335,50 @@ class LiveController(QObject):
             if callback:
                 callback(result)
         def failed(message):
+            nonlocal completed
             if epoch != self._connection_epoch:
                 discard_reply()
                 return
-            discard_reply()
+            if completed:
+                return
+            completed = True
+            _notify_failure(failure, message)
             self.error.emit(message)
             if operation == 'open':
                 self.connected = False
+                if not self.closing:
+                    if self._open_attempts < 3:
+                        self.connection_message = '登录服务连接暂时不可用，正在重新连接…'
+                        self.retry_timer.start((1, 3)[self._open_attempts - 1] * 1000)
+                    else:
+                        self.connection_message = '连接未能恢复，请重新打开 Lulu；已有资料保留。'
+                        self.error.emit(self.connection_message)
+                    self.activity_changed.emit()
+            elif operation == 'heartbeat' and not self.closing:
+                self._heartbeat_failures += 1
+                if self._heartbeat_failures >= 3:
+                    # Keep the last session for an explicit stop during recovery.
+                    # Drop queued effects; reconnect never replays user controls.
+                    self._connection_epoch += 1
+                    self.connected = False
+                    self.active = True
+                    self.login_presence = None
+                    self.connection_message = '连接已中断，正在重新连接；请稍后重试。'
+                    self.timer.stop()
+                    self._discard_controls()
+                    if self._open_attempts < 3:
+                        self.retry_timer.start(1000)
+                    else:
+                        self.connection_message = '连接未能恢复，请重新打开 Lulu；已有资料保留。'
+                        self.error.emit(self.connection_message)
+                    self.activity_changed.emit()
             if self.closing:
                 # Heartbeat loss is a fallback, never claim actual process settlement.
-                self.timer.start()
+                if operation == 'open' and not self.session:
+                    self.core_stopped = True
+                    self.timer.stop()
+                else:
+                    self.timer.start()
         worker.replied.connect(replied)
         worker.failed.connect(failed)
         def finished():
@@ -294,7 +386,7 @@ class LiveController(QObject):
             worker.deleteLater()
             # Finish this request before starting a new connection. A second
             # finished-signal connection can be lost when deleteLater runs.
-            if epoch != self._connection_epoch:
+            if epoch != self._connection_epoch and not self.retry_timer.isActive() and self._open_attempts < 3:
                 self.start()
             else:
                 self._pump()
@@ -303,7 +395,7 @@ class LiveController(QObject):
         worker.start()
 
     def _tick(self):
-        if not self.connected or self.settled or self.core_stopped:
+        if self.settled or self.core_stopped:
             return
         now = time.monotonic()
         operations = {item[0] for item in self.queue}
@@ -313,10 +405,15 @@ class LiveController(QObject):
                 and self.params == {k: v for k, v in self.worker.arguments.items() if k != 'session'}):
             operations.add('snapshot')
         if self.closing:
-            if 'stop' not in operations and not (self.worker and self.worker.operation == 'stop'):
+            if self.session and 'stop' not in operations and not (self.worker and self.worker.operation == 'stop'):
                 self._enqueue('stop', {'session': self.session}, first=True)
             return
-        if now - self.heartbeat_at >= 7 and 'heartbeat' not in operations:
+        if not self.connected:
+            return
+        # With no monitor, pending operation or visible live page, renew the
+        # 30-second lease less often. Active work keeps the original cadence.
+        heartbeat_interval = 14 if not self.active and not self.has_pending_work and not self.params else 7
+        if now - self.heartbeat_at >= heartbeat_interval and 'heartbeat' not in operations:
             self.heartbeat_at = now
             self._enqueue('heartbeat', {'session': self.session}, first=True)
         if self.params and now - self.poll_at >= 2 and 'snapshot' not in operations:
@@ -327,6 +424,7 @@ class LiveController(QObject):
         if self.settled:
             return True
         self.closing = True
+        self.retry_timer.stop()
         self._discard_controls()
         if self.login_worker:
             self.login_worker.requestInterruption()

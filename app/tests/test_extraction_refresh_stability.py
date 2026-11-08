@@ -9,6 +9,71 @@ from tests import test_extraction_batches_ui as fixtures
 from src.ui.extraction.batches import WorkspaceBatches
 
 
+class IdleBatchRefreshTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from PySide6.QtWidgets import QApplication, QWidget
+        self.app=QApplication.instance() or QApplication([])
+        self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name)
+        self.directory=self.root/'.workspace'/'batches';self.directory.mkdir(parents=True)
+        self.location=patch('src.core.library.LIBRARY_DIR',self.root);self.location.start()
+        self.widget=QWidget();self.widget.main=SimpleNamespace(_workspace_batch_dispatcher=lambda:None)
+        self.adapter=WorkspaceBatches(self.widget);self.calls=[]
+        def submit(operation,arguments,callback):
+            self.calls.append((operation,arguments));callback({'batches':[]})
+        self.submit=patch.object(self.adapter,'_submit',side_effect=submit);self.submit.start()
+
+    def tearDown(self):
+        self.adapter.shutdown();self.widget.deleteLater();self.app.processEvents()
+        self.submit.stop();self.location.stop();self.temp.cleanup()
+
+    def poll(self,age=6,force=False):
+        import time
+        self.adapter._at=time.monotonic()-age
+        self.adapter.refresh(force=force)
+
+    def settle_directory(self):
+        import time
+        limit=time.monotonic()+2
+        while not self.adapter._poll_dirty and time.monotonic()<limit:
+            self.app.processEvents();time.sleep(.01)
+        self.assertTrue(self.adapter._poll_dirty)
+
+    def test_idle_skips_unchanged_reads_but_external_atomic_writes_refresh(self):
+        self.poll();self.poll();self.calls.clear()
+        self.poll();self.assertEqual(self.calls,[])
+        pending=self.directory/'pending';pending.write_text('new task')
+        pending.replace(self.directory/'batch-new.json')
+        self.settle_directory();self.poll();self.assertEqual(len(self.calls),1)
+        self.calls.clear();self.poll();self.assertEqual(self.calls,[])
+        self.poll(force=True);self.assertEqual(len(self.calls),1)
+
+    def test_active_and_periodic_fallback_reads_do_not_wait_for_watch_events(self):
+        import time
+        self.poll();self.poll();self.calls.clear()
+        self.adapter.views={'active':{'counts':{'running':1}}}
+        self.poll(age=2);self.assertEqual(len(self.calls),1)
+        self.calls.clear();self.adapter.views={};self.adapter._last_full_poll=time.monotonic()-31
+        self.poll();self.assertEqual(len(self.calls),1)
+
+    def test_missing_watch_uses_normal_polling_and_rearms_after_directory_creation(self):
+        import shutil
+        shutil.rmtree(self.directory)
+        self.poll();self.poll();self.assertEqual(len(self.calls),2)
+        self.directory.mkdir();self.poll();self.poll();self.calls.clear()
+        self.poll();self.assertEqual(self.calls,[])
+
+    def test_change_during_reply_is_not_cleared_by_old_reply(self):
+        self.poll();self.poll();callbacks=[]
+        self.submit.stop()
+        self.submit=patch.object(self.adapter,'_submit',side_effect=lambda op,args,cb:callbacks.append(cb));self.submit.start()
+        self.poll(force=True)
+        (self.directory/'batch-new.json').write_text('created while read pending')
+        self.settle_directory();callbacks.pop()({'batches':[]})
+        self.poll();self.assertEqual(len(callbacks),1)
+
+
 class WorkspaceReadinessTests(unittest.TestCase):
     def test_background_read_keeps_ready_workspace_but_startup_and_failure_stay_blocked(self):
         main = SimpleNamespace(_task_queue_store=SimpleNamespace(async_write=True),
@@ -99,27 +164,74 @@ class ExtractionRefreshStabilityTests(fixtures.ExtractionBatchUITests):
         for item in batch['items']:
             item.update(state='paused', auto_paused=False, message='用户暂停')
         batch['state'] = 'paused'; service._save(batch)
-        with patch.object(adapter, 'page'):
-            adapter.refresh(force=True)
+        entered, release = threading.Event(), threading.Event()
+        original = self.main._workspace_batch_dispatcher
+        def delayed(operation, **arguments):
+            if operation == 'batch_poll':
+                entered.set(); release.wait(4)
+            return original(operation, **arguments)
+        try:
+            with patch.object(self.main, '_workspace_batch_dispatcher', delayed):
+                adapter.refresh(force=True)
+                self.until(entered.is_set)
+                view = adapter.views[self.bid]
+                self.assertEqual(view['counts']['draft'], 2)
+                self.assertEqual([i['state'] for i in view['items']], ['draft', 'draft'])
+                self.assertEqual(self.js('workspaceBatches[0].counts.draft'), 2)
+        finally:
+            release.set()
             self.until(lambda: adapter.worker is None)
-        view = adapter.views[self.bid]
-        self.assertEqual(view['counts']['draft'], 2)
-        self.assertEqual([i['state'] for i in view['items']], ['draft', 'draft'])
-        adapter._accept(service.show(self.bid, limit=50))
-        self.widget.publish(force=True)
         self.until(lambda: self.js('workspaceBatches[0].items[0].state') == 'paused')
+        self.assertEqual(adapter.views[self.bid]['counts']['paused'], 2)
         self.assertEqual(self.js('document.querySelector(".nx-action").textContent'), '继续')
 
     def test_newly_discovered_summary_is_not_rendered_as_a_short_empty_card(self):
         self.stage(1, group=False); self.widget.timer.stop(); self.settle()
         adapter = self.widget.batches
         adapter.views.clear()
-        with patch.object(adapter, 'page'):
-            adapter.refresh(force=True)
+        entered, release = threading.Event(), threading.Event()
+        original = self.main._workspace_batch_dispatcher
+        def delayed(operation, **arguments):
+            if operation == 'batch_poll':
+                entered.set(); release.wait(4)
+            return original(operation, **arguments)
+        try:
+            with patch.object(self.main, '_workspace_batch_dispatcher', delayed):
+                adapter.refresh(force=True)
+                self.until(entered.is_set)
+                self.assertEqual(adapter.snapshot(), [])
+        finally:
+            release.set()
             self.until(lambda: adapter.worker is None)
-        self.assertEqual(adapter.snapshot(), [])
-        adapter._accept(self.runtime.expansion_batches().show(self.bid, limit=50))
         self.assertEqual(len(adapter.snapshot()[0]['items']), 1)
+
+    def test_chunked_refresh_keeps_later_batches_until_their_details_arrive(self):
+        self.stage(1,group=False);self.widget.timer.stop();self.settle()
+        adapter=self.widget.batches;service=self.runtime.expansion_batches()
+        for number in range(32):
+            reply=service.stage_extraction(f'chunk-refresh-{number}',[dict(
+                source=f'https://example.com/chunk-{number}.mp4',outputs=['text'])])
+            adapter._accept(reply)
+        last=max(adapter.views)
+        batch=service._read(last)
+        batch['items'][0].update(state='paused',auto_paused=False,message='用户暂停')
+        batch['state']='paused';service._save(batch)
+        entered,release=threading.Event(),threading.Event()
+        original=self.main._workspace_batch_dispatcher
+        def delayed(operation,**arguments):
+            if operation=='batch_poll' and arguments.get('after'):
+                entered.set();release.wait(4)
+            return original(operation,**arguments)
+        try:
+            with patch.object(self.main,'_workspace_batch_dispatcher',delayed):
+                adapter.refresh(force=True);self.until(entered.is_set)
+                self.assertEqual(len(adapter.views),33)
+                self.assertEqual(adapter.views[last]['items'][0]['state'],'draft')
+        finally:
+            release.set();self.until(lambda:adapter.worker is None and not adapter.reads)
+        self.assertEqual(len(adapter.views),33)
+        self.assertEqual(adapter.views[last]['items'][0]['state'],'paused')
+        self.assertEqual(self.run_calls,[])
 
     def test_member_state_change_keeps_other_rows_and_controls(self):
         self.stage(3); self.widget.timer.stop(); self.settle()

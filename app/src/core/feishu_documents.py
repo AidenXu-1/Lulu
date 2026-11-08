@@ -76,13 +76,16 @@ def document_key(account, selection, record):
 
 def _save_document(record, selection, account, store, cancelled):
     blocks=document_blocks(record)
+    title=selection.get('name') if selection.get('single_document') else record.title
+    title=str(title or 'Lulu 文稿')
+    content_hash=digest([title,blocks])
     key=document_key(account,selection,record)
     old=store.read(key)
     if old.get('state') in {'pending','uncertain'}:
         raise ValueError('上次文档保存结果待核对，请先打开原文档检查：'+old.get('url','飞书云文档'))
     same_operation=old.get('operation_id')==selection['operation_id']
     updating=bool(old.get('doc_id') and (selection.get('repeat_mode')=='update' or same_operation))
-    if same_operation and old.get('state')=='done' and old.get('content_hash')==digest(blocks):
+    if same_operation and old.get('state')=='done' and old.get('content_hash')==content_hash:
         return old['url'],False
     token=feishu._user_token()
     original_children=[]
@@ -94,12 +97,10 @@ def _save_document(record, selection, account, store, cancelled):
         root=next((b for b in current if b.get('block_id')==doc_id),None)
         if root is None: raise ValueError('文档结构无法确认，请另存一份。')
         original_children=root.get('children') or []
-    state={'state':'pending','operation_id':selection['operation_id'],'content_hash':digest(blocks),'url':old.get('url','') if updating else ''}
+    state={'state':'pending','operation_id':selection['operation_id'],'content_hash':content_hash,'url':old.get('url','') if updating else ''}
     store.write(key,state)
     try:
         if not updating:
-            title=selection.get('name') if selection.get('single_document') else record.title
-            title=str(title or 'Lulu 文稿')
             if selection.get('destination_kind')=='wiki':
                 body={'obj_type':'docx','node_type':'origin','title':title}
                 if selection.get('node_token'): body['parent_node_token']=selection['node_token']
@@ -116,6 +117,14 @@ def _save_document(record, selection, account, store, cancelled):
         else:
             state.update(doc_id=doc_id,url=url)
             store.write(key,state)
+            current_title=''.join(element.get('text_run',{}).get('content','')
+                for element in root.get('page',{}).get('elements',[]))
+            if current_title!=title:
+                if cancelled(): raise ValueError('已停止，请打开原文档核对。')
+                data=feishu._api('PATCH',f'/docx/v1/documents/{doc_id}/blocks/{doc_id}',token,
+                    params={'document_revision_id':revision,'client_token':str(uuid4())},
+                    json={'update_text_elements':{'elements':[{'text_run':{'content':title}}]}})
+                revision=data['document_revision_id']
         # Append new body first, then delete only the unchanged old child range.
         for start in range(0,len(blocks),40):
             if cancelled(): raise ValueError('已停止，文档可能部分写入，请打开核对。')
@@ -129,6 +138,11 @@ def _save_document(record, selection, account, store, cancelled):
         final_revision,current=snapshot(doc_id)
         if final_revision!=revision:
             raise ValueError('文档在保存时发生变化，请打开核对。')
+        final_root=next((b for b in current if b.get('block_id')==doc_id),{})
+        saved_title=''.join(element.get('text_run',{}).get('content','')
+            for element in final_root.get('page',{}).get('elements',[]))
+        if saved_title!=title:
+            raise ValueError('文档名称未保存成功，请打开飞书核对。')
         state.update(state='done',remote_hash=digest(current))
         store.write(key,state)
         return url,updating

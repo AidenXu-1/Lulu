@@ -32,6 +32,21 @@ class _NSEdgeInsets(ctypes.Structure):
     )
 
 
+def _uses_cocoa() -> bool:
+    # Offscreen/minimal Qt IDs are integers, not NSView pointers. Sending an
+    # Objective-C message to one can terminate the process before Python can
+    # catch an exception.
+    if sys.platform != 'darwin':
+        return False
+    application = QGuiApplication.instance()
+    if application is None:
+        return False
+    try:
+        return str(application.platformName()).strip().lower() == 'cocoa'
+    except Exception:
+        return False
+
+
 def activate_regular_app() -> bool:
     """源码态 python 在 macOS 下显式注册成普通前台 App。
 
@@ -39,7 +54,7 @@ def activate_regular_app() -> bool:
     非前台策略,进程存活且 Qt 事件循环在跑,但 System Events 看不到窗口。
     这里不引入 PyObjC,只用 Objective-C runtime 做 best-effort 修正。
     """
-    if sys.platform != "darwin":
+    if not _uses_cocoa():
         return False
     try:
         objc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.dylib")
@@ -76,7 +91,7 @@ def activate_regular_app() -> bool:
 
 def unify_titlebar(window) -> bool:
     """把窗口标题栏改为透明、隐藏标题、内容延伸到顶。成功返回 True。"""
-    if sys.platform != "darwin":
+    if not _uses_cocoa():
         return False
     try:
         # Keep Qt's own window state consistent with AppKit. A Cocoa-only style
@@ -126,16 +141,7 @@ def set_page_titlebar_immersive(window, enabled: bool) -> bool:
     transcription sample is active, then restores the exact prior separator
     style when the user leaves that page.
     """
-    if sys.platform != "darwin":
-        return False
-    application = QGuiApplication.instance()
-    if application is None:
-        return False
-    try:
-        qt_platform = str(application.platformName()).strip().lower()
-    except Exception:  # noqa: BLE001 — 无法确认真实 Qt 平台时必须失败关闭
-        return False
-    if qt_platform != "cocoa":
+    if not _uses_cocoa():
         return False
     try:
         objc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.dylib")
@@ -215,7 +221,7 @@ def set_page_titlebar_immersive(window, enabled: bool) -> bool:
 
 def native_safe_area_top(window) -> int | None:
     """Return Cocoa's actual content-view safe top, or None on any uncertainty."""
-    if sys.platform != "darwin":
+    if not _uses_cocoa():
         return None
     try:
         objc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.dylib")

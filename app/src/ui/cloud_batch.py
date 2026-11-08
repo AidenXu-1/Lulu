@@ -2,9 +2,10 @@
 from uuid import uuid4
 
 from PySide6.QtCore import QThread, QTimer, Signal
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QPlainTextEdit, QFileDialog, QMessageBox, QComboBox, QGroupBox, QFormLayout, QLineEdit, QWidget,
     QScrollArea, QFrame)
+from .theme import TextScaledDialog as QDialog
 
 
 class RequestWorker(QThread):

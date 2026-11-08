@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 
 from . import theme as T, icons, dialogs
 from .collection_history_dialog import CollectionHistoryDialog
+from .collection_material_controls import CollectionEditorPopup, MaterialCell
 from .consumer_date import ConsumerDate
 from .consumer_select import ConsumerActionPopup, ConsumerSelect
 from .control_foundation import (
@@ -58,6 +59,7 @@ from .control_foundation import (
 )
 from ..core.collect import export
 from ..core.collect.contracts import CollectResult
+from ..core.collect.cover_workflow import CoverItemOutcome, CoverWorkflowResult
 from ..core.collect.history import CollectionHistoryRepository, HistoryError, HistorySnapshot
 from ..core.collect.application import (
     CollectionApplicationService,
@@ -86,6 +88,7 @@ from ..core.collect.media import (
     reliable_media_sources,
 )
 from ..core.collect.douyin_browser import login, is_logged_in, clear_login
+from ..core.collect.router import detect_link
 
 _COLS = [
     "", "作者", "标题", "发布日期", "时长",
@@ -95,7 +98,7 @@ _TRANSCRIBED_COL = 9
 _MEDIA_COL = 10
 _COVER_COL = 11
 _ROW_SELECTED_ROLE = int(Qt.ItemDataRole.UserRole) + 41
-_PARTIAL_COLLECTION_SUMMARY = "匿名优先；受限时可选择登录，仅采最新一页（约 15～20 条）。"
+_PARTIAL_COLLECTION_SUMMARY = "未登录时匿名读取，已保存浏览器登录时直接复用；仅采最新一页（约 15～20 条）。"
 # 可点击排序的列 → CollectedItem 属性；以及该列默认降序（数值/日期默认降序，作者升序）
 _SORT_ATTR = {
     1: "author_name", 3: "create_time", 4: "duration_ms",
@@ -224,6 +227,8 @@ class _CollectionRowDelegate(QStyledItemDelegate):
             )
             painter.fillRect(option.rect, self.selected_background())
             rendered.backgroundBrush = QBrush(Qt.BrushStyle.NoBrush)
+        if index.column() in {_MEDIA_COL, _COVER_COL}:
+            rendered.text = ""  # The row control paints its action; keep item text for accessibility.
         style = rendered.widget.style() if rendered.widget is not None else QApplication.style()
         style.drawControl(
             QStyle.ControlElement.CE_ItemViewItem,
@@ -363,9 +368,9 @@ def _media_fetch_error(exc):
     return media_fetch_error(exc)
 
 
-def _fetch_managed_media(item, download_mode, destination, is_cancelled):
+def _fetch_managed_media(item, download_mode, destination, is_cancelled, *, on_progress=None):
     from ..core.collect.media_fetcher import fetch_managed_media
-    return fetch_managed_media(item, download_mode, destination, is_cancelled)
+    return fetch_managed_media(item, download_mode, destination, is_cancelled, on_progress=on_progress)
 
 
 def _cover_cas_values(before, after) -> tuple[dict, dict]:
@@ -456,6 +461,16 @@ class _TranscribedRead:
             self._stopped.set()
 
 
+def _can_lookup_work_cover(item) -> bool:
+    if item.platform != "douyin" or not re.fullmatch(r"[0-9]{1,64}", item.work_id or ""):
+        return False
+    identity = detect_link(item.work_url)
+    return (
+        identity.platform == "douyin" and identity.kind == "work"
+        and identity.extracted_id == item.work_id
+    )
+
+
 class _MaterialDownloadWorker(QThread):
     """历史素材下载：受管媒体与封面分别结算、分别 CAS。"""
 
@@ -477,6 +492,44 @@ class _MaterialDownloadWorker(QThread):
     def request_cancel(self) -> None:
         self._cancel = True
 
+    def _download_covers(self, items):
+        result = CollectResult.complete(items)
+        if (self._origin == "homepage_history_material" and len(items) == 1
+                and not self._snapshot.save_media and not items[0].cover_url
+                and _can_lookup_work_cover(items[0])):
+            from ..core.collect.douyin_fetch import fetch_item_with_page_fallback
+
+            item = items[0]
+            self.progress.emit((item.stable_key, "cover", "downloading"))
+
+            def check_cancel(*_):
+                if self._cancel:
+                    raise InterruptedError()
+
+            try:
+                check_cancel()
+                detail = fetch_item_with_page_fallback(
+                    item.work_id, check_cancel, is_cancelled=lambda: self._cancel
+                )
+            except Exception:
+                detail = None
+            if self._cancel or not (
+                detail and detail.stable_key == item.stable_key and detail.cover_url
+            ):
+                outcome = CoverItemOutcome(
+                    item.stable_key, "cancelled" if self._cancel else "failed",
+                    "" if self._cancel else "cover_source_refresh_failed",
+                )
+                return CoverWorkflowResult(result, (outcome,))
+            result = CollectResult.complete((replace(item, cover_url=detail.cover_url),))
+        for item in result.items:
+            if item.cover_url:
+                self.progress.emit((item.stable_key, "cover", "downloading"))
+        return self._cover_workflow.run(
+            result, snapshot=CollectCoverPreferenceSnapshot(True),
+            is_cancelled=lambda: self._cancel,
+        )
+
     def run(self) -> None:
         from ..core.task import TaskExecutionPolicy
 
@@ -495,8 +548,15 @@ class _MaterialDownloadWorker(QThread):
                     self.progress.emit(
                         (item.stable_key, "media", "downloading")
                     )
+                    last_emission = [0.0, None]
+                    def relay(_message, fraction):
+                        now = monotonic_time.monotonic()
+                        known = isinstance(fraction, (int, float)) and math.isfinite(fraction) and 0 <= fraction <= 1
+                        if now - last_emission[0] >= 0.08 or fraction == 1 or known != last_emission[1]:
+                            last_emission[:] = [now, known]
+                            self.progress.emit((item.stable_key, "media", "downloading", fraction))
                     return _fetch_managed_media(
-                        item, mode, destination, is_cancelled
+                        item, mode, destination, is_cancelled, on_progress=relay
                     )
 
                 service = CollectionMediaAssociationService(
@@ -511,21 +571,14 @@ class _MaterialDownloadWorker(QThread):
 
             cover_result = None
             if self._snapshot.save_cover and self._cover_workflow is not None:
-                for item in current:
-                    if str(getattr(item, "cover_url", "") or ""):
-                        self.progress.emit(
-                            (item.stable_key, "cover", "downloading")
-                        )
-                cover_result = self._cover_workflow.run(
-                    CollectResult.complete(current),
-                    snapshot=CollectCoverPreferenceSnapshot(True),
-                    is_cancelled=lambda: self._cancel,
-                )
+                cover_result = self._download_covers(current)
                 settled = []
                 outcomes = list(cover_result.outcomes)
                 for index, (before, after) in enumerate(zip(
                     current, cover_result.collect_result.items
                 )):
+                    if before.cover_url != after.cover_url:
+                        after = replace(after, cover_url=before.cover_url)
                     if (
                         before.cover_local_path == after.cover_local_path
                         and before.cover_status == after.cover_status
@@ -950,6 +1003,10 @@ class CollectionPage(QWidget):
         self._material_worker: _MaterialDownloadWorker | None = None
         self._pending_material_jobs: list[tuple[tuple, MaterialPreferenceSnapshot, str]] = []
         self._material_runtime: dict[str, dict[str, str]] = {}
+        self._material_progress: dict[tuple[str, str], float] = {}
+        self._material_refresh_timer = QTimer(self)
+        self._material_refresh_timer.setInterval(1200)
+        self._material_refresh_timer.timeout.connect(self._refresh_visible_materials)
         self._active_material_entries: set[tuple[str, str]] = set()
         self._shutting_down = False
         self._cover_retry_is_recovery = False
@@ -983,6 +1040,9 @@ class CollectionPage(QWidget):
     def shutdown_workers(self, timeout_ms: int = 3000) -> None:
         """Cancel and join page-owned workers before the main window closes."""
         self._shutting_down = True
+        self._material_refresh_timer.stop()
+        self.field_filter_popup.hide()
+        self.date_filter_popup.hide()
         self._clear_partial_login_retry()
         reader = getattr(self, "_transcribed_read", None)
         self._transcribed_read_pending = False
@@ -1055,16 +1115,7 @@ class CollectionPage(QWidget):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(0)
 
-        page_meta = (
-            "贴一个抖音公开主页链接，Lulu 会识别并采集。采集数据只留在你电脑上。"
-            if self._xhs_homepage_release_disabled
-            else
-            "贴一个抖音或小红书公开主页链接，Lulu 会识别平台。采集数据只留在你电脑上。"
-        )
-        header, self.page_title, self.page_meta = build_consumer_page_header(
-            "主页采集",
-            page_meta,
-        )
+        header, self.page_title, self.page_meta = build_consumer_page_header("主页采集")
         col.addWidget(header)
         col.addSpacing(24)
 
@@ -1171,20 +1222,17 @@ class CollectionPage(QWidget):
         self.data_location_select.row_activated.connect(self._open_data_location)
         self.data_location_select.button_activated.connect(self._choose_data_location)
         self._refresh_data_location_contexts()
-        for b in (self.select_all_btn, self.material_download_btn, self.transcribe_btn,
-                  self.export_btn, self.bitable_btn, self.history_manage_button):
+        self.material_download_btn.hide()  # Kept as an internal compatibility entry only.
+        self.history_manage_button.hide()
+        self.data_location_select.hide()
+        for b in (self.select_all_btn, self.transcribe_btn, self.export_btn, self.bitable_btn):
             bar.addWidget(b)
-        bar.addWidget(self.data_location_select)
         bar.addStretch(1)
         self.count_label = QLabel("共 0 条")
         self.count_label.setObjectName("pageMeta")
         self.count_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         bar.addWidget(self.count_label)
-        # 放大查看与结果计数同驻动作行，避免为两个短控件单独占用整行。
         self.focus_btn = self._tool_btn("放大查看", self._toggle_table_focus, "list")
-        bar.addWidget(self.focus_btn)
-        results.addLayout(bar)
-        results.addSpacing(8)
 
         history_row = QHBoxLayout()
         history_row.setSpacing(8)
@@ -1192,7 +1240,9 @@ class CollectionPage(QWidget):
         self.history_select = ConsumerSelect(
             (),
             value="",
-            accessible_name="采集任务",
+            accessible_name="采集记录",
+            search_placeholder="搜索采集记录",
+            manage_label="管理采集记录",
             max_visible_rows=8,
             allow_empty=True,
             empty_text="暂无采集任务",
@@ -1202,14 +1252,14 @@ class CollectionPage(QWidget):
         )
         self.history_select.setMinimumWidth(260)
         self.history_select.value_changed.connect(self._on_history_selected)
+        self.history_select.manage_requested.connect(self._open_history_manager)
+        self.history_select.setMaximumWidth(340)
         history_row.addWidget(self.history_select, 1)
+        history_row.addStretch(1)
+        history_row.addWidget(self.focus_btn)
         results.addLayout(history_row)
         results.addSpacing(8)
 
-        # 排序 / 筛选行（可见下拉；点表头排序也可，二者同步）
-        ctrl = QHBoxLayout()
-        ctrl.setSpacing(6)
-        ctrl.addWidget(self._dim_label("排序"))
         self.sort_combo = ConsumerSelect(
             tuple((str(col_id), name) for name, col_id in _SORT_FIELDS),
             value=str(self._sort_col),
@@ -1220,15 +1270,11 @@ class CollectionPage(QWidget):
         )
         self.sort_combo.setFixedWidth(104)
         self.sort_combo.currentIndexChanged.connect(self._on_sort_combo)
-        ctrl.addWidget(self.sort_combo)
-        self.dir_btn = QPushButton("↓ 降序")
+        self.dir_btn = QPushButton("↓")
         self.dir_btn.setObjectName("act")
         self.dir_btn.setCursor(Qt.PointingHandCursor)
-        self.dir_btn.setFixedWidth(78)
+        self.dir_btn.setFixedWidth(34)
         self.dir_btn.clicked.connect(self._toggle_dir)
-        ctrl.addWidget(self.dir_btn)
-        ctrl.addSpacing(16)
-        ctrl.addWidget(self._dim_label("筛选"))
         self.metric_combo = ConsumerSelect(
             tuple(("__none__" if attr is None else str(attr), name) for name, attr, _type in _FILTER_FIELDS),
             value="__none__",
@@ -1240,7 +1286,7 @@ class CollectionPage(QWidget):
         self.metric_combo.setFixedWidth(104)
         self.metric_combo.setToolTip("未获取值不参与筛选")
         self.metric_combo.currentIndexChanged.connect(self._on_filter_field_changed)
-        ctrl.addWidget(self.metric_combo)
+        self.metric_combo.option_chosen.connect(self._open_field_editor)
         self.operator_combo = ConsumerSelect(
             (),
             value="",
@@ -1255,7 +1301,6 @@ class CollectionPage(QWidget):
         self.operator_combo.currentIndexChanged.connect(
             lambda *_: self._apply_filter_editor()
         )
-        ctrl.addWidget(self.operator_combo)
         self.metric_value = QLineEdit()
         self.metric_value.setObjectName("linkInput")
         adopt_text_field(self.metric_value, accessible_name="筛选值")
@@ -1266,7 +1311,6 @@ class CollectionPage(QWidget):
             f"QLineEdit[state=\"error\"]{{border:1px solid {self._consumer.danger};}}"
         )
         self.metric_value.textChanged.connect(lambda *_: self._apply_filter_editor())
-        ctrl.addWidget(self.metric_value)
         self.enum_value_combo = ConsumerSelect(
             (),
             value="",
@@ -1281,14 +1325,19 @@ class CollectionPage(QWidget):
         self.enum_value_combo.currentIndexChanged.connect(
             lambda *_: self._apply_filter_editor()
         )
-        ctrl.addWidget(self.enum_value_combo)
-        ctrl.addStretch(1)
-        results.addLayout(ctrl)
-        results.addSpacing(8)
+        self.field_filter_popup = CollectionEditorPopup(self, "筛选条件", width=336)
+        field_row = QHBoxLayout()
+        field_row.setSpacing(10)
+        for editor in (self.operator_combo, self.metric_value, self.enum_value_combo):
+            field_row.addWidget(editor)
+        field_row.addStretch(1)
+        self.field_filter_popup.body.addLayout(field_row)
+        clear_condition = QPushButton("清除此条件")
+        clear_condition.clicked.connect(lambda: self.metric_combo.setCurrentIndex(0))
+        self.field_filter_popup.body.addWidget(clear_condition, 0, Qt.AlignRight)
 
         search_row = QHBoxLayout()
         search_row.setSpacing(8)
-        search_row.addWidget(self._dim_label("日期"))
         self.date_select = ConsumerSelect(
             _DATE_FILTERS,
             value="all",
@@ -1299,7 +1348,19 @@ class CollectionPage(QWidget):
         )
         self.date_select.setFixedWidth(118)
         self.date_select.value_changed.connect(self._on_date_mode_changed)
-        search_row.addWidget(self.date_select)
+        self.date_filter_popup = CollectionEditorPopup(self, "按作品发布时间筛选", width=354)
+        self.date_select.setParent(self.date_filter_popup)
+        self.date_select.hide()
+        self.date_choices = {}
+        for value, caption in _DATE_FILTERS:
+            if value == "custom":
+                continue
+            option = self._tool_btn(caption, lambda _checked=False, key=value: self._choose_date(key))
+            option.setCheckable(True)
+            self.date_filter_popup.body.addWidget(option)
+            self.date_choices[value] = option
+        self.date_filter_button = self._tool_btn("日期不限", self._open_date_filter, "calendar")
+        self.date_filter_button.setFixedWidth(154)
         today = _beijing_today()
         initial_date = QDate(today.year, today.month, today.day)
         self.date_start = ConsumerDate(initial_date, accessible_name="开始日期")
@@ -1312,30 +1373,38 @@ class CollectionPage(QWidget):
             editor.setToolTip(f"{name}，按北京时间自然日计算")
             editor.ensurePolished()
             editor.setFixedWidth(138)
-            editor.hide()
-            search_row.addWidget(editor)
         self.date_connector = QLabel("至")
         self.date_connector.setObjectName("pageMeta")
         self.date_connector.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.date_connector.setFixedWidth(18)
-        self.date_connector.hide()
-        search_row.insertWidget(search_row.indexOf(self.date_end), self.date_connector)
+        date_row = QHBoxLayout()
+        for editor in (self.date_start, self.date_connector, self.date_end):
+            date_row.addWidget(editor)
+        date_row.addStretch(1)
+        self.date_filter_popup.body.addLayout(date_row)
         self.date_start.dateChanged.connect(self._on_custom_start_changed)
         self.date_end.dateChanged.connect(self._on_custom_end_changed)
         self.filter_edit = QLineEdit()
         self.filter_edit.setObjectName("linkInput")
         adopt_text_field(self.filter_edit, accessible_name="搜索采集结果")
         self.filter_edit.setClearButtonEnabled(True)
-        self.filter_edit.setPlaceholderText("搜索标题 / 作者")
-        self.filter_edit.setMinimumWidth(180)
+        self.filter_edit.setPlaceholderText("搜索标题或作者")
+        self.filter_edit.setMinimumWidth(132)
         self.filter_edit.textChanged.connect(lambda *_: self._render())
         search_row.addWidget(self.filter_edit, 1)
+        search_row.addWidget(self.date_filter_button)
+        search_row.addWidget(self.metric_combo)
+        search_row.addWidget(self._dim_label("排序"))
+        search_row.addWidget(self.sort_combo)
+        search_row.addWidget(self.dir_btn)
         results.addLayout(search_row)
         results.addSpacing(8)
 
         # 表格（表头常显）+ 空状态浮层（覆盖在表格空白区、居中，不挡表头）
         self._build_table()
         results.addWidget(self.table, 1)
+        results.addSpacing(8)
+        results.addLayout(bar)
         root.addWidget(self.results_shell, 1)
         self.empty_state = self._build_empty_state()
         self.empty_state.setParent(self.table.viewport())
@@ -1601,7 +1670,6 @@ class CollectionPage(QWidget):
     def _settle_material_preference(self, receipt) -> bool:
         if receipt.success:
             self._sync_material_preferences(receipt.current_snapshot)
-            self.status.setText("已同步到内容提取和主页采集")
             return True
         self._sync_material_preferences(receipt.previous_snapshot)
         dialogs.alert(
@@ -1775,29 +1843,33 @@ class CollectionPage(QWidget):
             self.full_panel.hide()
             return
         requested = "partial" if self.m_quick_btn.isChecked() else "full"
-        # An explicit user mode change ends the one-off scope from the document.
-        if requested=='full':
-            self._workspace_request=None
-            self._clear_partial_login_retry()
-        if requested == self._selected_mode:
-            self._render_collection_mode_state()
-            return
-        previous = self._selected_mode
+        self._save_collection_mode(requested)
+
+    def _save_collection_mode(self, requested: str) -> bool:
         cfg = self.cfg
-        if cfg is not None:
+        if cfg is not None and getattr(cfg, "collection_mode", "partial") != requested:
+            previous = cfg.collection_mode
             setattr(cfg, "collection_mode", requested)
             saver = getattr(cfg, "save", None)
-            if callable(saver) and not saver():
+            try:
+                saved = not callable(saver) or saver()
+            except Exception:
+                saved = False
+            if not saved:
                 setattr(cfg, "collection_mode", previous)
-                self._set_method_buttons(previous)
+                self._set_method_buttons(self._selected_mode)
                 self._render_collection_mode_state()
                 self.status.setText(
                     "采集方式未保存，仍使用"
-                    + ("部分采集。" if previous == "partial" else "全量采集。")
+                    + ("部分采集。" if self._selected_mode == "partial" else "全量采集。")
                 )
-                return
+                return False
+        if requested == "full":
+            self._workspace_request = None
+            self._clear_partial_login_retry()
         self._selected_mode = requested
         self._render_collection_mode_state()
+        return True
 
     def _set_method_buttons(self, mode: str) -> None:
         partial = mode != "full"
@@ -2056,7 +2128,8 @@ class CollectionPage(QWidget):
         self.table.itemChanged.connect(self._on_item_changed)
         self.table.cellClicked.connect(self._on_table_cell_clicked)
         self.table.cellDoubleClicked.connect(self._on_table_cell_double_clicked)
-        self.table.verticalHeader().setDefaultSectionSize(58)
+        self.table.verticalScrollBar().valueChanged.connect(lambda *_: self._refresh_visible_materials())
+        self.table.verticalHeader().setDefaultSectionSize(48)
         hh = self.table.horizontalHeader()
         hh.setStretchLastSection(False)
         hh.setHighlightSections(False)
@@ -2153,7 +2226,10 @@ class CollectionPage(QWidget):
                 break
         self.sort_combo.blockSignals(False)
         self.dir_btn.setEnabled(self._sort_col != 0)
-        self.dir_btn.setText("↓ 降序" if self._sort_desc else "↑ 升序")
+        self.dir_btn.setText("↓" if self._sort_desc else "↑")
+        direction = "降序" if self._sort_desc else "升序"
+        self.dir_btn.setAccessibleName(f"切换排序方向，当前{direction}")
+        self.dir_btn.setToolTip(direction)
 
     def _update_headers(self) -> None:
         for c in range(len(_COLS)):
@@ -2220,6 +2296,7 @@ class CollectionPage(QWidget):
         elif field_type == "text":
             self.metric_value.setPlaceholderText("输入文字")
         if not enabled:
+            self.field_filter_popup.hide()
             self._active_field_filter = None
             self._render()
             return
@@ -2343,6 +2420,7 @@ class CollectionPage(QWidget):
         self._sync_sort_combo()
         self._update_count()
         self._update_tools_enabled()
+        self._sync_filter_buttons()
         self._update_empty_state()
 
     def _fill_table(self, *, status_only=False) -> None:
@@ -2496,6 +2574,8 @@ class CollectionPage(QWidget):
                     else ''
                 ),
             )
+            self._sync_material_cell(r, it, "media", runtime_states)
+            self._sync_material_cell(r, it, "cover", runtime_states)
         if not status_only:
             self._sync_row_selection_visuals()
         visible_keys = {item.stable_key for item in self._view}
@@ -2543,11 +2623,7 @@ class CollectionPage(QWidget):
 
     def _on_date_mode_changed(self, value: str) -> None:
         self._date_mode = str(value or "all")
-        custom = self._date_mode == "custom"
-        self.date_start.setVisible(custom)
-        self.date_connector.setVisible(custom)
-        self.date_end.setVisible(custom)
-        if custom and self._custom_date_range is None:
+        if self._date_mode == "custom" and self._custom_date_range is None:
             self._commit_custom_date_range()
         self._render()
 
@@ -2555,6 +2631,7 @@ class CollectionPage(QWidget):
         start = self.date_start.date().toPython()
         end = self.date_end.date().toPython()
         self._custom_date_range = (start, end)
+        self._sync_filter_buttons()
         if self._date_mode == "custom":
             self._render()
 
@@ -2568,6 +2645,7 @@ class CollectionPage(QWidget):
             finally:
                 self._syncing_custom_dates = False
         self._commit_custom_date_range()
+        self.date_select.set_value("custom", emit=True)
 
     def _on_custom_end_changed(self, *_args) -> None:
         if self._syncing_custom_dates:
@@ -2579,6 +2657,12 @@ class CollectionPage(QWidget):
             finally:
                 self._syncing_custom_dates = False
         self._commit_custom_date_range()
+        self.date_select.set_value("custom", emit=True)
+
+    def _choose_date(self, value: str) -> None:
+        self.date_select.set_value(value, emit=True)
+        self.date_filter_popup.hide()
+        self.date_filter_button.setFocus()
 
     def _on_custom_date_changed(self, *_args) -> None:
         """Compatibility shim for older focused tests and internal callers."""
@@ -2748,7 +2832,14 @@ class CollectionPage(QWidget):
         self, snapshot: HistorySnapshot, *, restore_selected: bool = False
     ) -> HistorySnapshot:
         snapshot = self._reconcile_history_snapshot(snapshot)
+        previous = getattr(self, '_history_snapshot', None)
+        if previous is not None and previous.selected_record_id != snapshot.selected_record_id:
+            self._history_selection_generation = getattr(self, '_history_selection_generation', 0) + 1
         self._history_snapshot = snapshot
+        if snapshot.code == 'restore_pending':
+            self.status.setText('取回登记暂未完成，原记录和取回文件已保留，可查看和导出；请稍后重新打开采集页面重试。')
+        elif snapshot.code == 'system_trash_pending':
+            self.status.setText('移入废纸篓尚未完成，续办记录已保留；请稍后重开采集页重试，不会再次移动已完成的包。')
         self.history_select.set_options(
             self._history_options(snapshot),
             value=snapshot.selected_record_id,
@@ -2879,6 +2970,10 @@ class CollectionPage(QWidget):
             except HistoryError as exc:
                 self.status.setText(self._history_error_text(exc.code))
                 return
+        else:
+            # Read-only recovery still lets the user browse healthy records.
+            # Move the in-memory pointer with the displayed works.
+            snapshot = replace(snapshot, selected_record_id=record_id)
         snapshot = self._apply_history_snapshot(snapshot)
         record = next(
             (row for row in snapshot.active_records if row.record_id == record_id),
@@ -2891,24 +2986,37 @@ class CollectionPage(QWidget):
     def _open_history_manager(self) -> None:
         if self._history_repo is None or self._history_snapshot is None:
             return
+        if self._collect_running():
+            self.status.setText("采集进行中，请等待当前任务结束再管理记录。")
+            return
         if self._history_dialog is not None and self._history_dialog.isVisible():
             self._history_dialog.raise_()
             self._history_dialog.search_edit.setFocus(
                 Qt.FocusReason.PopupFocusReason
             )
             return
+        self._refresh_history_index()
         parent = self.window()
         dialog = CollectionHistoryDialog(
             self._history_repo,
             self._history_snapshot,
             on_changed=self._on_history_changed,
+            can_move=lambda: not self._collect_running(),
             parent=parent,
         )
         self._history_dialog = dialog
         dialog.finished.connect(lambda *_: setattr(self, "_history_dialog", None))
         dialog.open()
 
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().showEvent(event)
+        if not self._shutting_down:
+            self._material_refresh_timer.start()
+
     def hideEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self._material_refresh_timer.stop()
+        self.field_filter_popup.hide()
+        self.date_filter_popup.hide()
         self._clear_partial_login_retry()
         if self._history_dialog is not None:
             self._history_dialog.reject()
@@ -3056,9 +3164,11 @@ class CollectionPage(QWidget):
         if getattr(self, "_partial_login_retry", None) is not None:
             status = getattr(self, "status", None)
             if status is not None:
-                status.setText(status.text().replace(
-                    "可点击“登录后部分采集”，在专用浏览器中自行登录后重试。",
-                    "请重新开始采集，受限时可再次选择登录。"))
+                text = status.text()
+                for phrase in ('可点击“登录后部分采集”，在专用浏览器中自行登录后重试。',
+                               '可点击“用已保存登录重试”，在专用浏览器中尝试复用登录；失效时请自行重新登录。'):
+                    text = text.replace(phrase, '请重新开始采集，受限时可再次选择登录。')
+                status.setText(text)
         self._partial_login_retry = None
         button = getattr(self, "partial_login_btn", None)
         if button is not None:
@@ -3082,6 +3192,9 @@ class CollectionPage(QWidget):
             self._clear_partial_login_retry()
             return
         self.partial_login_btn.show()
+        shared = self._douyin_login_state
+        saved = shared and shared()[0] in {'已登录', '已保存浏览器登录'}
+        self.partial_login_btn.setText('用已保存登录重试' if saved else '登录后部分采集')
         self.partial_login_btn.setEnabled(
             not self._collect_running()
             and not self._active_collection_mode
@@ -3097,10 +3210,11 @@ class CollectionPage(QWidget):
                 "permission_denied", "login_required", "login_expired", "captcha", "no_items_unverified"
             }
         ):
-            self._partial_login_retry = (token, command)
+            author = command.resolved_author_id or result.resolved_author_id
+            self._partial_login_retry = (token, replace(command, resolved_author_id=author))
             self._sync_partial_login_retry()
 
-    def _on_partial_login_retry(self) -> None:
+    def _on_partial_login_retry(self, *, confirm=True) -> None:
         self._sync_partial_login_retry()
         retry = getattr(self, "_partial_login_retry", None)
         if retry is None or not self.partial_login_btn.isEnabled():
@@ -3108,13 +3222,17 @@ class CollectionPage(QWidget):
         _token, original = retry
         limit = original.limit if type(original.limit) is int else 20
         limit = max(1, min(20, limit))
-        accepted = dialogs.confirm(
+        shared = self._douyin_login_state
+        saved = shared and shared()[0] in {'已登录', '已保存浏览器登录'}
+        title = '用已保存登录重试' if saved else '登录后部分采集'
+        lead = ('将打开 Lulu 专用浏览器，尝试复用已保存登录；如已失效，由你重新登录。\n\n'
+                if saved else '将打开 Lulu 专用浏览器登录，可复用已保存登录。建议使用小号。\n\n')
+        accepted = not confirm or dialogs.confirm(
             self,
-            "登录后部分采集",
-            "将打开 Lulu 专用浏览器登录，可复用已保存登录。建议使用小号。\n\n"
-            f"只读取当前最新一页（通常约 15～20 条），本次最多 {limit} 条，不会全量滚动。\n\n"
+            title,
+            lead + f"只读取当前最新一页（通常约 15～20 条），本次最多 {limit} 条，不会全量滚动。\n\n"
             "登录和验证码由你本人完成；不会读取日常浏览器的登录信息，采集数据只留本地。",
-            ok="登录后部分采集",
+            ok=title,
             cancel="取消",
         )
         if not accepted:
@@ -3134,7 +3252,7 @@ class CollectionPage(QWidget):
             profile_id="default",
             browser_path=self._browser_path,
         )
-        self.status.setText(f"正在打开专用浏览器，登录后最多采集 {limit} 条最新作品…")
+        self.status.setText(f"正在打开专用浏览器，最多读取 {limit} 条最新作品；需要登录或验证时请自行完成…")
         self._start_collect(command, full=False)
 
     # ---------------- 抓取最新（路 A） ----------------
@@ -3204,13 +3322,20 @@ class CollectionPage(QWidget):
             )
             self.status.setText(f"正在启动小红书专用浏览器（{self._browser_name}）…")
         else:
+            shared = self._douyin_login_state
+            saved = shared()[0] in {'已登录', '已保存浏览器登录'} if shared else is_logged_in()
+            blocked = getattr(self, '_browser_retry_blocked', lambda: '')() if saved else ''
+            if blocked:
+                self.status.setText(blocked)
+                return
             command = CollectionCommand(
                 url,
-                "anonymous_latest",
+                "profile_latest" if saved else "anonymous_latest",
                 limit=self._workspace_request_limit() or 20,
                 include_cover=self._cover_snapshot_enabled(),
+                **({'profile_id': 'default', 'browser_path': self._browser_path} if saved else {}),
             )
-            self.status.setText("正在抓取…（匿名、不登录）")
+            self.status.setText('正在用已保存登录读取最新一页…' if saved else '正在抓取…（匿名、不登录）')
         self._start_collect(command, full=False)
 
     # ---------------- 全量采集（路 B） ----------------
@@ -3362,7 +3487,7 @@ class CollectionPage(QWidget):
             cover_summary = CollectionCoverSummary()
         items = list(result.items)
         if source_command is not None and not getattr(self, "_sort_explicit", False):
-            self._sort_col = 0 if source_command.mode in {"anonymous_latest", "profile_latest"} else 3
+            self._sort_col = 3
         records_warning, records_saved = self._persist_records_result(result)
         history_warning, history_saved = self._persist_history_result(
             result, token
@@ -3446,8 +3571,12 @@ class CollectionPage(QWidget):
                 collection_mode == "partial"
                 and getattr(source_command, "mode", "anonymous_latest") == "anonymous_latest"
             )
+            shared = getattr(self, '_douyin_login_state', None)
+            saved = shared and shared()[0] in {'已登录', '已保存浏览器登录'}
+            retry_copy = ('可点击“用已保存登录重试”，在专用浏览器中尝试复用登录；失效时请自行重新登录。'
+                          if saved else '可点击“登录后部分采集”，在专用浏览器中自行登录后重试。')
             login_choice = (
-                "可点击“登录后部分采集”，在专用浏览器中自行登录后重试。"
+                retry_copy
                 if source_command is not None and getattr(self, "isVisible", lambda: True)() else
                 "请重新开始采集，受限时可再次选择登录。"
                 if source_command is not None else
@@ -3507,6 +3636,8 @@ class CollectionPage(QWidget):
             **platform_messages,
         }
         message = messages.get(result.reason_code, "采集未完成，请稍后重试。")
+        if result.reason_code == 'invalid_input' and result.next_action == '原作者已无法确认，请重新开始采集。':
+            message = result.next_action
         if result.completion == "partial":
             message += f" 已保留 {len(items)} 条结果。"
         if items and self._has_unknown_fields(items):
@@ -3630,7 +3761,8 @@ class CollectionPage(QWidget):
         self._table_focus = enabled
         curve = QEasingCurve(QEasingCurve.Type.BezierSpline)
         curve.addCubicBezierSegment(_EASE_C1, _EASE_C2, QPointF(1.0, 1.0))
-        self._animate_form(collapse=enabled, curve=curve)
+        from .indextts2_settings import reduced_motion
+        self._animate_form(collapse=enabled, curve=None if reduced_motion() else curve)
         self.focus_btn.setText("  退出放大" if enabled else "  放大查看")
 
     def _animate_form(self, *, collapse: bool, curve=None) -> None:
@@ -3679,6 +3811,7 @@ class CollectionPage(QWidget):
         self.login_btn.setText("重新登录" if label != "未登录" else "登录账号")
         # 只在有登录档案时才让「清除登录」可点
         self.clear_login_btn.setEnabled(saved and not self._douyin_login_busy())
+        self.clear_login_btn.setVisible(saved and label != '未登录')
         if hasattr(self, "full_btn"):
             self._render_collection_mode_state()
 
@@ -3921,7 +4054,7 @@ class CollectionPage(QWidget):
 
     def _set_items(self, items: list, *, source_method=None) -> None:
         if source_method is not None and not self._sort_explicit:
-            self._sort_col = 0 if source_method in {"anonymous_latest", "profile_latest"} else 3
+            self._sort_col = 3
         self._items = items
         live_keys = {str(item.stable_key or "") for item in items}
         self._material_runtime = {
@@ -4092,6 +4225,7 @@ class CollectionPage(QWidget):
         else:
             self.count_label.setText(f"共 {total} 条")
             self.count_label.setToolTip("")
+        self.export_btn.setText("  导出所选" if selected else "  导出列表")
         self._update_tools_enabled()
 
     def _checked_rows(self) -> list[int]:
@@ -4118,11 +4252,170 @@ class CollectionPage(QWidget):
     def _selected_or_all(self) -> list:
         return self._checked_items() or list(self._view)
 
+    def _open_field_editor(self, _value: str) -> None:
+        self.date_filter_popup.hide()
+        if self._filter_field_data()[0] is None:
+            return
+        self.field_filter_popup.set_heading(self.metric_combo.currentText())
+        self.field_filter_popup.open_at(self.metric_combo.trigger)
+        target = self.metric_value if self.metric_value.isVisible() else self.enum_value_combo.trigger
+        target.setFocus(Qt.PopupFocusReason)
+
+    def _open_date_filter(self) -> None:
+        self.field_filter_popup.hide()
+        if self.date_filter_popup.isVisible():
+            self.date_filter_popup.hide()
+        else:
+            self.date_filter_popup.open_at(self.date_filter_button)
+
+    def _sync_filter_buttons(self) -> None:
+        if not hasattr(self, 'date_filter_button'):
+            return
+        label = dict(_DATE_FILTERS).get(self._date_mode, '日期不限')
+        for value, option in self.date_choices.items():
+            option.setChecked(value == self._date_mode)
+        self.date_filter_button.setText(label + '  ▾')
+        self.date_filter_button.setAccessibleName('发布日期范围：' + label)
+        self.date_filter_button.setToolTip(
+            f'{self._custom_date_range[0]} 至 {self._custom_date_range[1]}，按北京时间自然日'
+            if self._date_mode == 'custom' and self._custom_date_range else '按作品发布时间筛选'
+        )
+        if self.date_filter_popup.isVisible():
+            self.date_filter_popup.adjustSize()
+
+    def _material_is_pending(self, key, kind) -> bool:
+        for items, snapshot, _origin in self._pending_material_jobs:
+            wanted = snapshot.save_media if kind == 'media' else snapshot.save_cover
+            if wanted and any(item.stable_key == key for item in items):
+                return True
+        return False
+
+    def _material_cell_state(self, item, kind, task_states):
+        key = item.stable_key
+        if kind == 'media' and item.is_image:
+            return 'image', '图文作品没有可下载的音视频'
+        code = str(getattr(item, 'last_error_code', '') or '')
+        if kind == 'cover' and code.endswith('cover_commit_uncertain'):
+            return 'recovery', '上一份封面尚待安全恢复；先恢复，不启动普通下载'
+        running = self._material_runtime.get(key, {}).get(kind, '')
+        if not running:
+            running = str(getattr(task_states.get(key), kind, '') or '')
+        if running in {'queued', 'downloading'}:
+            return running, ''
+        if self._material_is_pending(key, kind):
+            return 'queued', ''
+        if kind == 'cover' and self._cover_retry_worker is not None:
+            if any(row.stable_key == key for row in getattr(self._cover_retry_worker, '_items', ())):
+                return 'downloading', ''
+        path = self._existing_media_file(item) if kind == 'media' else self._managed_cover_file(item)
+        if path is not None:
+            return 'ready', '点击查看；右键可在 Finder 中显示'
+        if kind == 'cover':
+            status = str(getattr(item, 'cover_status', '') or '')
+            if status == 'skipped_privacy':
+                return 'privacy', '此封面按隐私规则跳过'
+            if (status == 'unavailable' or self._cover_workflow is None
+                    or not (item.cover_url or _can_lookup_work_cover(item))):
+                return 'unavailable', '当前没有可用的封面下载来源'
+        elif not reliable_media_sources(item):
+            return 'unavailable', '当前没有可靠的音视频下载来源'
+        if getattr(item, 'schema_version', 0) != 2 or not key or self._records_repo is None:
+            return 'unavailable', '缺少可核实的作品主档，本次不能创建下载'
+        if running == 'failed' or (kind == 'cover' and item.cover_status == 'failed'):
+            return 'failed', '下载未完成，点击只重试这项素材，已有文件保留'
+        return 'missing', '下载这项素材；已移动或删除的文件需要重新下载'
+
+    def _sync_material_cell(self, row, item, kind, task_states):
+        column = _MEDIA_COL if kind == 'media' else _COVER_COL
+        state, reason = self._material_cell_state(item, kind, task_states)
+        cell = self.table.cellWidget(row, column)
+        if not isinstance(cell, MaterialCell):
+            cell = MaterialCell(self._consumer, self.table)
+            cell.activated.connect(self._activate_material_cell)
+            cell.reveal_requested.connect(self._reveal_material_cell)
+            self.table.setCellWidget(row, column, cell)
+        cell.sync(item.stable_key, kind, item.title, state,
+                  self._material_progress.get((item.stable_key, kind)), reason)
+        persisted = item.media_status if kind == 'media' else item.cover_status
+        text = {'ready': '✓', 'queued': '排队中', 'downloading': '下载中',
+                'failed': '已失败', 'image': '图文', 'unavailable': '不可用',
+                'privacy': '隐私跳过', 'recovery': '待恢复'}.get(
+                    state, '需补下' if persisted == 'downloaded' else '未下载')
+        self._set_status_cell(row, column, text, reason)
+
+    def _refresh_visible_materials(self) -> None:
+        if self._shutting_down or not self.isVisible() or not self._view:
+            return
+        start = max(0, self.table.rowAt(0))
+        end = self.table.rowAt(self.table.viewport().height() - 1)
+        end = min(len(self._view) - 1, start + 40) if end < start else min(end, start + 40)
+        try:
+            task_states = dict(self._collection_task_states() or {})
+        except Exception:
+            task_states = {}
+        blocked = self.table.blockSignals(True)
+        try:
+            for row in range(start, end + 1):
+                item = self._view[row]
+                self._sync_material_cell(row, item, 'media', task_states)
+                self._sync_material_cell(row, item, 'cover', task_states)
+        finally:
+            self.table.blockSignals(blocked)
+
+    def _activate_material_cell(self, stable_key: str, kind: str, displayed_state: str | None = None) -> None:
+        item = next((row for row in self._items if row.stable_key == stable_key), None)
+        if item is None or kind not in {'media', 'cover'}:
+            return
+        try:
+            states = dict(self._collection_task_states() or {})
+        except Exception:
+            states = {}
+        state, reason = self._material_cell_state(item, kind, states)
+        if displayed_state == 'ready' and state != 'ready':
+            self.status.setText('文件已移走、删除或状态已变化；已更新此格，请再次点击所需操作。')
+            self._fill_table(status_only=True)
+            return
+        if state == 'ready':
+            path = self._managed_media_file(item) if kind == 'media' else self._managed_cover_file(item)
+            if path is None:
+                self.status.setText('这份素材已不存在或未通过检查，未打开原文件。')
+                self._fill_table(status_only=True)
+                return
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+                self.status.setText('文件存在，但系统未能打开它；可右键在 Finder 中显示。')
+            return
+        if state == 'recovery':
+            if self._cover_retry_worker is None:
+                self._start_cover_retry([item])
+            return
+        if state in {'queued', 'downloading', 'unavailable', 'image', 'privacy'}:
+            if reason:
+                self.status.setText(reason)
+            return
+        snapshot = MaterialPreferenceSnapshot('video', kind == 'media', kind == 'cover')
+        self._enqueue_material_job([item], snapshot, origin='homepage_history_material')
+        self._fill_table(status_only=True)
+
+    def _reveal_material_cell(self, stable_key: str, kind: str) -> None:
+        item = next((row for row in self._items if row.stable_key == stable_key), None)
+        if item is None:
+            return
+        path = self._managed_media_file(item) if kind == 'media' else self._managed_cover_file(item)
+        if path is None:
+            self._fill_table(status_only=True)
+            return
+        menu = QMenu(self)
+        reveal = menu.addAction('在 Finder 中显示')
+        if menu.exec(self.cursor().pos()) is reveal:
+            subprocess.run(['open', '-R', str(path)], check=False)
+
     def _set_material_runtime(
         self, stable_key: str, kind: str, state: str
     ) -> None:
         if not stable_key or kind not in {"media", "cover"}:
             return
+        if state != "downloading":
+            self._material_progress.pop((stable_key, kind), None)
         states = self._material_runtime.setdefault(stable_key, {})
         if state:
             states[kind] = state
@@ -4132,7 +4425,7 @@ class CollectionPage(QWidget):
                 self._material_runtime.pop(stable_key, None)
 
     def _queue_material_runtime(
-        self, items, snapshot: MaterialPreferenceSnapshot
+        self, items, snapshot: MaterialPreferenceSnapshot, *, origin: str
     ) -> None:
         for item in items:
             stable_key = str(getattr(item, "stable_key", "") or "")
@@ -4146,7 +4439,10 @@ class CollectionPage(QWidget):
             if (
                 snapshot.save_cover
                 and self._cover_workflow is not None
-                and str(getattr(item, "cover_url", "") or "")
+                and (item.cover_url or (
+                    origin == "homepage_history_material" and len(items) == 1
+                    and not snapshot.save_media and _can_lookup_work_cover(item)
+                ))
                 and self._managed_cover_file(item) is None
             ):
                 entry = (stable_key, "cover")
@@ -4154,17 +4450,36 @@ class CollectionPage(QWidget):
                 self._set_material_runtime(*entry, "queued")
         self._render()
 
-    def _on_material_progress(self, payload) -> None:
-        try:
-            stable_key, kind, state = payload
-        except (TypeError, ValueError):
-            return
+    def _apply_material_progress(self, payload) -> tuple[str, str] | None:
+        if not isinstance(payload, (tuple, list)) or len(payload) not in {3, 4}:
+            return None
+        stable_key, kind, state = payload[:3]
         entry = (str(stable_key or ""), str(kind or ""))
         if entry not in self._active_material_entries:
-            return
+            return None
         self._set_material_runtime(entry[0], entry[1], str(state or ""))
-        if any(item.stable_key == entry[0] for item in self._items):
-            self._render()
+        if len(payload) == 4:
+            fraction = payload[3]
+            if isinstance(fraction, (int, float)) and math.isfinite(fraction) and 0 <= fraction <= 1:
+                self._material_progress[entry] = float(fraction)
+            else:
+                self._material_progress.pop(entry, None)
+        return entry
+
+    def _on_material_progress(self, payload) -> None:
+        entry = self._apply_material_progress(payload)
+        if entry is None:
+            return
+        # Byte updates repaint only this material cell, never the whole work list.
+        for row, item in enumerate(self._view):
+            if item.stable_key != entry[0]:
+                continue
+            blocked = self.table.blockSignals(True)
+            try:
+                self._sync_material_cell(row, item, entry[1], {})
+            finally:
+                self.table.blockSignals(blocked)
+            break
 
     def _settle_material_runtime(self, media_result, cover_result) -> None:
         failed: set[tuple[str, str]] = set()
@@ -4206,7 +4521,7 @@ class CollectionPage(QWidget):
         fresh = self._fresh_material_items(items)
         if not fresh:
             return
-        self._queue_material_runtime(fresh, snapshot)
+        self._queue_material_runtime(fresh, snapshot, origin=origin)
         worker = _MaterialDownloadWorker(
             self._records_repo,
             self._cover_workflow,
@@ -4359,8 +4674,10 @@ class CollectionPage(QWidget):
                 and outcome.reason_code == "media_source_refresh_failed"
                 for outcome in getattr(media_result, "outcomes", ())
             )
-            reasons = {outcome.reason_code for outcome in getattr(media_result, "outcomes", ())
-                       if outcome.status == "failed"}
+            reasons = {
+                outcome.reason_code for result in (media_result, cover_result)
+                for outcome in getattr(result, "outcomes", ()) if outcome.status == "failed"
+            }
             notes = {
                 "media_disk_full": "磁盘空间不足，请腾出空间后重试",
                 "media_permission_denied": "素材目录无法写入，请检查权限",
@@ -4370,6 +4687,7 @@ class CollectionPage(QWidget):
                 "media_download_failed": "下载发生异常，可重试，已有文件保留",
                 "media_invalid_file": "下载文件无法确认，可重试，已有文件保留",
                 "media_source_unavailable": "作品暂时没有可用的音视频来源",
+                "cover_source_refresh_failed": "暂时无法从作品详情取得封面，可稍后重试",
             }
             messages = [text for code, text in notes.items() if code in reasons]
             if media_refresh_failed:
@@ -4781,12 +5099,16 @@ class CollectionPage(QWidget):
         if not items:
             self.status.setText("请先在表格中勾选要存入飞书的作品。")
             return
-        from .feishu_dialog import send_records_to_feishu
         from .feishu_save_dialog import _CallWorker
         from ..core.feishu_storage import record_from_collected_item
         captured = int(datetime.now().timestamp() * 1000)
         authors = {item.author_name for item in items if item.author_name}
         name = next(iter(authors)) if len(authors) == 1 else "已选作品"
+        snapshot = getattr(self, '_history_snapshot', None)
+        record_id = snapshot.selected_record_id if snapshot else ''
+        selection_generation = getattr(self, '_history_selection_generation', 0)
+        record = snapshot.selected_record if snapshot else None
+        source_title = f'{record.name} · {name}' if record else name
         def prepare():
             transcripts = self._transcript_text_map()
             return tuple(record_from_collected_item(item, transcripts,
@@ -4799,15 +5121,26 @@ class CollectionPage(QWidget):
             self._feishu_prepare_worker = None
             if not self._shutting_down and results:
                 ok,payload = results[0]
-                if ok:
-                    self._feishu_session = send_records_to_feishu(self,self.cfg,payload,
-                        title=f'{name} · {datetime.now():%Y-%m-%d}',context='homepage',toast=self.status.setText)
+                current = getattr(self, '_history_snapshot', None)
+                if (record_id != (current.selected_record_id if current else '') or
+                        selection_generation != getattr(self, '_history_selection_generation', 0)):
+                    self.status.setText('记录已切换，本次飞书准备已取消，请重新选择作品。')
+                elif ok:
+                    self._feishu_session = self._open_feishu_save(
+                        payload, f'{source_title} · {datetime.now():%Y-%m-%d}',
+                    )
                 else:
                     self.status.setText(str(payload))
             worker.deleteLater()
         worker.finished.connect(finished)
         self.status.setText('正在准备所选文稿…')
         worker.start()
+
+    def _open_feishu_save(self, records, title):
+        from .feishu_dialog import send_records_to_feishu
+        return send_records_to_feishu(
+            self, self.cfg, records, title=title, context='homepage', toast=self.status.setText,
+        )
 
     def _remember_bitable_destination(
         self,
@@ -4978,7 +5311,7 @@ class CollectionPage(QWidget):
         self._set_busy(False)
         self._update_tools_enabled()
 
-    def _on_transcribe_selected(self) -> None:
+    def _on_transcribe_selected(self, *, wait_for_save=False):
         items = self._checked_items()
         if not items:
             self.status.setText("请先勾选要转录的作品。")
@@ -5026,8 +5359,12 @@ class CollectionPage(QWidget):
             folder_name = f"{datetime.now():%Y%m%d} {author}"
         owner = getattr(self._on_transcribe, "__self__", None)
         group_handler = getattr(owner, "_collect_transcribe_group", None)
+        completion = None
         if callable(group_handler):
-            group_handler(candidates, folder_name)
+            if wait_for_save:
+                completion = group_handler(candidates, folder_name, wait_for_save=True)
+            else:
+                group_handler(candidates, folder_name)
         else:
             # 保留独立页面测试和第三方调用者的旧双参数回调合同。
             self._on_transcribe(sources, folder_name)
@@ -5035,6 +5372,7 @@ class CollectionPage(QWidget):
         if skipped:
             msg += f"（{skipped} 条无法转录的作品已跳过）"
         self.status.setText(msg)
+        return completion
 
     def _update_tools_enabled(self) -> None:
         has = bool(self._view)
@@ -5049,7 +5387,19 @@ class CollectionPage(QWidget):
         )
         self._update_cover_actions()
 
+    def _refresh_history_index(self) -> None:
+        if self._history_repo is None or self._history_snapshot is None or self._collect_running():
+            return
+        try:
+            snapshot = self._history_repo.load()
+        except HistoryError as exc:
+            self.status.setText(self._history_error_text(exc.code))
+            return
+        if snapshot.source_hash != self._history_snapshot.source_hash:
+            self._on_history_changed(snapshot)
+
     def refresh(self) -> None:
+        self._refresh_history_index()
         self._refresh_login_status()
         self._on_input_changed(self.input.text())
         if not self._xhs_release_disabled():

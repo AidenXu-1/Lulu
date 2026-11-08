@@ -5,9 +5,10 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QTimer, QUrl, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QDialog, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QAbstractSpinBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
     QPlainTextEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget, QStackedWidget,
 )
+from .theme import TextScaledDialog as QDialog
 
 from . import dialogs, icons
 from .consumer_select import ConsumerSelect

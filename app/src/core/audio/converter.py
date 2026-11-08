@@ -13,6 +13,20 @@ from pathlib import Path
 TARGET_SR = 16000
 TARGET_CH = 1
 
+INPUT_MEDIA_MESSAGES = {
+    'LOCAL_MEDIA_EMPTY': '文件为空，未开始转录；请选择有内容的音频或视频文件。',
+    'LOCAL_MEDIA_TOO_LARGE': '文件超过本次转录的大小限制；请拆分后重新添加，原文件保留。',
+    'LOCAL_MEDIA_NO_AUDIO': '视频中没有可用音轨，无法提取文稿；请选择带声音的视频，原文件保留。',
+    'LOCAL_MEDIA_UNREADABLE': '无法读取音频内容，文件可能已损坏或格式不受支持；请确认能正常播放后重新导入，原文件保留。',
+    'LOCAL_MEDIA_SILENT': '音频为空或完全静音，未开始转录；请选择有声音的文件。',
+}
+
+
+class InputMediaError(ValueError):
+    def __init__(self, reason_code):
+        self.reason_code = reason_code
+        super().__init__(INPUT_MEDIA_MESSAGES[reason_code])
+
 
 def _ffmpeg_exe() -> str:
     try:
@@ -61,6 +75,8 @@ def to_wav_mono(src: Path, dst: Path, sr: int = TARGET_SR, *, is_cancelled=None,
     用于把任意格式(mp3/m4a/stereo wav…)的参考音频统一成干净 wav。"""
     src = Path(src)
     dst = Path(dst)
+    if src.is_file() and src.stat().st_size == 0:
+        raise InputMediaError('LOCAL_MEDIA_EMPTY')
     dst.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         _ffmpeg_exe(),
@@ -99,6 +115,11 @@ def to_wav_mono(src: Path, dst: Path, sr: int = TARGET_SR, *, is_cancelled=None,
                         proc.communicate()
             returncode = proc.returncode
     if returncode != 0:
+        if 'does not contain any stream' in stderr or 'matches no streams' in stderr:
+            raise InputMediaError('LOCAL_MEDIA_NO_AUDIO')
+        if any(marker in stderr for marker in ('Invalid data found when processing input',
+                                                'moov atom not found', 'Decoder not found')):
+            raise InputMediaError('LOCAL_MEDIA_UNREADABLE')
         raise RuntimeError(
             f"ffmpeg 转码失败(returncode={returncode}):\n{stderr[-2000:]}"
         )
@@ -126,7 +147,7 @@ def reject_zero_pcm(path: Path, *, is_cancelled=None) -> None:
                 raise InterruptedError('转录已取消')
             data = wav.readframes(65536)
             if not data:
-                raise ValueError('音频为空或完全静音，未开始转录。')
+                raise InputMediaError('LOCAL_MEDIA_SILENT')
             if any(data):
                 return
 

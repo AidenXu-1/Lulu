@@ -1,5 +1,7 @@
 """Locate v2 material only through a committed, DMG-bound installed product receipt."""
 from __future__ import annotations
+
+from src.edition import product_data_root
 import hashlib
 import json
 import os
@@ -32,7 +34,7 @@ def component_manifest_path(app: Path, *, state_root: Path | None = None) -> Pat
     if not os.path.lexists(app/DELIVERY_MARKER) and not os.path.lexists(app/LINK_POLICY) and (app/"Contents/Resources/agent_product_manifest.json").is_file():
         return app/'Contents/Resources/agent_product_manifest.json'
     verify_delivery_marker(app)
-    state=Path(state_root) if state_root is not None else Path.home()/'Library/Application Support/Lulu/AgentEntry'
+    state=Path(state_root) if state_root is not None else product_data_root()/'AgentEntry'
     from .product_transaction import assert_business_available
     assert_business_available(state)
     current=_private_json(state/'current.json')

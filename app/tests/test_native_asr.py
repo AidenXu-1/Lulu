@@ -159,6 +159,28 @@ except ASRResourceBusy: sys.exit(7)
                     is_cancelled=cancelled, progress=lambda *_:None)
         with resource.maintenance(): pass
 
+    def test_native_cancel_reaps_child_with_inherited_blocked_signals(self):
+        import signal
+        runner = Path(__file__).resolve().parents[1]/'build/asr-runtime/asr-runner'
+        self.assertTrue(runner.is_file(), 'Build the native helper before this check')
+        pidfile = self.root/'masked-child.pid'
+        previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT, signal.SIGHUP})
+        try:
+            with patch.object(native_process, 'checked_tools', return_value=(runner, Path(sys.executable), 'fixture')):
+                with resource.model_use('fake'), self.assertRaises(InterruptedError):
+                    native_process.run_native('moss', lambda work: ['-c',
+                        'import os,time;from pathlib import Path;Path('+repr(str(pidfile))+').write_text(str(os.getpid()));time.sleep(60)'],
+                        is_cancelled=pidfile.exists, progress=lambda *_:None)
+            self.assertTrue(pidfile.is_file())
+            with self.assertRaises(ProcessLookupError):
+                os.kill(int(pidfile.read_text()), 0)
+            with resource.maintenance(): pass
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+            if pidfile.exists():
+                try: os.kill(int(pidfile.read_text()), signal.SIGKILL)
+                except ProcessLookupError: pass
+
     def test_packaged_runtime_binds_exact_inventory_and_rejects_extra_tools(self):
         import hashlib,runpy,shutil
         app_root=Path(__file__).resolve().parents[1]
@@ -301,7 +323,17 @@ with asr_resource.model_use('fake',root=root), patch.object(native_process,'chec
                 except ProcessLookupError: break
                 time.sleep(.05)
             else: self.fail('Native child survived its owner')
-            with resource.maintenance(): pass
+            # The helper owns the same lock until it finishes reaping the
+            # child. Observing that child's disappearance can precede the
+            # helper's exit by one scheduler slice; require both outcomes
+            # within the original cleanup deadline.
+            while True:
+                try:
+                    with resource.maintenance(): pass
+                    break
+                except resource.ASRResourceBusy:
+                    if time.monotonic() >= deadline: raise
+                    time.sleep(.01)
         finally:
             if proc.poll() is None: proc.kill()
             proc.communicate(timeout=3)

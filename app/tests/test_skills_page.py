@@ -42,24 +42,31 @@ class SkillsPageTests(unittest.TestCase):
         self.assertNotIn('未完成：',self.page.status.text())
 
 
-    def test_switch_uninstalls_and_reinstalls_real_files(self):
+    def test_switch_preserves_files_and_uninstall_and_restore_are_explicit(self):
         self.page.search.setText('智能摘要')
         def toggle():
             return self.page.scroll.widget().findChildren(ConsumerSwitch)[0]
+        def action(label):
+            return next(button for button in self.page.scroll.widget().findChildren(QPushButton)
+                        if button.text() == label)
         path = self.root/'skills/lulu-summary'
+        original = (path/'SKILL.md').read_bytes()
+        QTest.mouseClick(toggle(), Qt.LeftButton)
+        self.assertTrue(toggle().isChecked())
+        self.wait()
+        self.assertFalse(toggle().isChecked())
+        self.assertEqual((path/'SKILL.md').read_bytes(), original)
+        with patch('src.ui.dialogs.confirm', return_value=False):
+            action('卸载').click()
         self.assertTrue(path.is_dir())
-        QTest.mouseClick(toggle(),Qt.LeftButton)
-        self.assertTrue(toggle().isChecked())  # No success shown before completion.
+        with patch('src.ui.dialogs.confirm', return_value=True):
+            action('卸载').click()
         self.wait()
         self.assertFalse(path.exists())
-        self.assertFalse(toggle().isChecked())
-        self.page.refresh(); self.wait()
-        self.assertFalse(toggle().isChecked())
-        QTest.mouseClick(toggle(),Qt.LeftButton)
-        self.assertFalse(toggle().isChecked())
+        action('恢复').click()
         self.wait()
         self.assertTrue(path.is_dir())
-        self.assertTrue(toggle().isChecked())
+        self.assertEqual((path/'SKILL.md').read_bytes(), original)
 
 
     def test_slow_install_waits_for_confirmed_state_and_survives_filter(self):
@@ -81,9 +88,10 @@ class SkillsPageTests(unittest.TestCase):
             self.page.change_installation(row,True)
             self.assertTrue(started.wait(1))
             self.page.search.setText(''); self.page.search.setText('智能摘要')
-            toggle=self.page.scroll.widget().findChildren(ConsumerSwitch)[0]
-            self.assertFalse(toggle.isChecked())
-            self.assertFalse(toggle.isEnabled())
+            self.assertFalse(self.page.scroll.widget().findChildren(ConsumerSwitch))
+            restore = next(button for button in self.page.scroll.widget().findChildren(QPushButton)
+                           if button.text() == '恢复')
+            self.assertFalse(restore.isEnabled())
             self.assertTrue(self.page.scroll.widget().findChildren(QProgressBar))
             self.assertIn('正在安装',self.page.feedback['lulu-summary']['phase'])
         finally:

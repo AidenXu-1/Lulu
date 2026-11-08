@@ -4,14 +4,17 @@ import json
 from pathlib import Path
 import time
 
-from PySide6.QtCore import QEvent, QRegularExpression, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QRegularExpression, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QRegularExpressionValidator
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QDialog, QFileDialog, QFrame, QHeaderView,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QBoxLayout, QButtonGroup, QFileDialog, QFrame, QGraphicsOpacityEffect, QHeaderView,
     QCheckBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton,
-    QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+    QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+from .theme import TextScaledDialog as QDialog
 
 from . import icons
+from .consumer_select import ConsumerSelect
 from .control_foundation import PaperTextureFrame
+from .indextts2_settings import reduced_motion
 from .live_data_dialog import LiveDataDialog
 from .live_workspace_controls import CommentsSwitch, WorkspaceDialog, WorkspaceTab, WorkspaceTabBar, note
 from ..core.live_recording.contracts import LIVE_MESSAGES, recording_message
@@ -307,55 +310,38 @@ def row_controls(*buttons):
     row.addStretch()
     return widget
 
-class FilterButton(QPushButton):
+class FilterButton(ConsumerSelect):
     changed = Signal(str)
 
     def __init__(self, choices, parent=None):
-        super().__init__(parent)
-        self.choices = choices
-        self.value = choices[0][1]
-        self.setMinimumSize(124, 40)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.row = QHBoxLayout(self)
-        self.row.setContentsMargins(14, 0, 14, 0)
-        self.label = QLabel(choices[0][0])
-        self.label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.row.addWidget(self.label)
-        self.row.addStretch()
-        arrow = icons.icon_label('chevron_down', '#877d70', 14)
-        arrow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.row.addWidget(arrow)
-        self.clicked.connect(self._open)
-        self.setAccessibleName(choices[0][0])
+        super().__init__(
+            ((value, label) for label, value in choices),
+            value=choices[0][1], accessible_name=choices[0][0],
+            consumer_theme_scope="coreWorkspace", paper_popup=True, parent=parent,
+        )
+        self.setMinimumWidth(104)
+        self.value_changed.connect(self.changed.emit)
 
-    def _open(self):
-        menu = QMenu(self)
-        menu.setStyleSheet('QMenu{background:#fffdf7;color:#35312b;border:1px solid #ddd3c3;'
-            'border-radius:10px;padding:6px;}QMenu::item{padding:9px 24px 9px 14px;border-radius:6px;}'
-            'QMenu::item:selected{background:#e3eceb;color:#437f96;}')
-        for label, value in self.choices:
-            action = menu.addAction(label)
-            action.setCheckable(True)
-            action.setChecked(value == self.value)
-            action.triggered.connect(lambda checked=False, v=value, text=label: self.select(v, text))
-        menu.setMinimumWidth(self.width())
-        menu.popup(self.mapToGlobal(self.rect().bottomLeft()))
+    @property
+    def value(self):
+        return self.currentData()
 
     def select(self, value, label):
-        self.value = value
-        self.label.setText(label)
-        self.setAccessibleName(label)
-        self.changed.emit(value)
+        self.set_value(value, emit=True)
+
 
 class LiveRecordingPage(QWidget):
     login_state_changed = Signal()
-    def __init__(self, controller, *, transcribe, parent=None, collection_busy=None):
+    def __init__(self, controller, *, transcribe, parent=None, collection_busy=None, needs_attention=None):
         super().__init__(parent)
         self.controller, self.transcribe = controller, transcribe
         self.collection_busy = collection_busy or (lambda: False)
         self.setObjectName('liveRecordingPage')
         self.pages = {'hosts': 1, 'recordings': 1}
         self.tab = 'hosts'
+        self.scroll_positions = {'hosts': (0, 0), 'recordings': (0, 0)}
+        self._needs_attention = needs_attention or (lambda: None)
+        self._attention_keys = None
         self.data = {}
         self.clock_cells = []
         self.clock_timer = QTimer(self)
@@ -371,6 +357,7 @@ class LiveRecordingPage(QWidget):
         self.detail_timer.setInterval(2000)
         self.detail_timer.timeout.connect(self._refresh_detail)
         self.data_dialog = None
+        self.action_confirmation = None
         self.data_timer = QTimer(self)
         self.data_timer.setInterval(10000)
         self.data_timer.timeout.connect(self._refresh_data)
@@ -404,15 +391,20 @@ class LiveRecordingPage(QWidget):
             QWidget#liveRecordingPage QPushButton[monitoring="true"]:enabled:hover{background:#deebea;border-color:#8aafba;}
             QWidget#liveRecordingPage QPushButton[monitoring="true"]:enabled:pressed{background:#cbdedd;}
             QFrame#liveTabs,QFrame#liveMetrics{background:transparent;border:0;}
-            QWidget#liveRecordingPage QLabel[statLabel="true"]{color:#8a8073;font-size:11px;}
-            QWidget#liveRecordingPage QLabel[statValue="true"]{color:#36332e;font-size:21px;font-weight:500;}
+            QFrame#liveOverview{background:#fffaef;border:1px solid #e4dac8;border-radius:12px;}
+            QWidget#livePanelNav{background:#fbf7ee;border-bottom:1px solid #e4dac8;}
+            QWidget#liveRecordingPage QLabel[statLabel="true"]{color:#786d5d;font-size:12px;}
+            QWidget#liveRecordingPage QLabel[statValue="true"]{color:#38352f;font-size:23px;font-weight:600;}
+            QWidget#liveRecordingPage QLabel[statValue="true"][recording="true"]{color:#a65242;}
+            QWidget#liveRecordingPage QLabel#liveStorageWarning{color:#875b2b;font-size:12px;padding-top:8px;border-top:1px solid #e4dac8;}
             QWidget#liveRecordingPage QTableWidget{background:transparent;alternate-background-color:#f8f3e9;border:0;gridline-color:#eee6d9;outline:none;}
             QWidget#liveRecordingPage QTableWidget::item{padding:0;}
             QWidget#liveRecordingPage QPushButton[liveRemove="true"]{background:transparent;border:1px solid transparent;padding:0;font-size:19px;color:#a69a88;}
             QWidget#liveRecordingPage QPushButton[liveRemove="true"]:enabled:hover{background:#f5e9df;color:#a65d4e;}
             QWidget#liveRecordingPage QPushButton[liveRemove="true"]:enabled:pressed{background:#ead6c9;}
             QWidget#liveRecordingPage QHeaderView::section{background:#f6f1e7;border:0;border-top:1px solid #e8e0d3;border-bottom:1px solid #e8e0d3;padding:8px;color:#928570;font-size:12px;}
-            QWidget#liveRecordingPage QHeaderView{background:transparent;}
+            QWidget#liveRecordingPage QHeaderView{background:#f6f1e7;}
+            QWidget#liveRecordingPage QTableView{background:#fffdf8;alternate-background-color:#fcf9f2;border:0;}
             QWidget#liveRecordingPage QPushButton[livePager="true"]{border-radius:5px;padding:0 5px;background:transparent;border-color:transparent;}
             QWidget#liveRecordingPage QPushButton[livePager="true"]:enabled:hover{background:#f5f0e6;border-color:#b6c5bd;}
             QWidget#liveRecordingPage QPushButton[livePager="true"]:enabled:pressed{background:#e3eceb;}
@@ -421,22 +413,37 @@ class LiveRecordingPage(QWidget):
             QWidget#liveRecordingPage QLineEdit#livePageNumber:focus{background:#fffdf8;border-color:#77aab7;}
         ''')
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 20, 28, 24)
-        layout.setSpacing(20)
+        layout.setContentsMargins(25, 21, 25, 22)
+        layout.setSpacing(15)
         header = QHBoxLayout()
         heading = QVBoxLayout()
         heading.setSpacing(6)
         title = QLabel('直播录制')
         title.setStyleSheet('font-family:"Songti SC","STSong";font-size:28px;font-weight:600;')
         heading.addWidget(title)
-        subtitle = note('开启监控，开播后自动保存到本机。')
+        subtitle = note('开启监控，主播开播后自动录制。')
         subtitle.setWordWrap(False)
         heading.addWidget(subtitle)
         header.addLayout(heading)
-        header.addStretch()
+        layout.addLayout(header)
+        overview = QFrame()
+        overview.setObjectName('liveOverview')
+        overview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        overview_layout = QVBoxLayout(overview)
+        overview_layout.setContentsMargins(17, 12, 17, 12)
+        overview_layout.setSpacing(7)
+        self.overview_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.overview_row.setSpacing(8)
+        overview_layout.addLayout(self.overview_row)
+        self.storage_warning = note('可用空间低于 5 GB，低于 2 GB 时将暂停监控。')
+        self.storage_warning.setObjectName('liveStorageWarning')
+        self.storage_warning.hide()
+        overview_layout.addWidget(self.storage_warning)
+        layout.addWidget(overview)
         self.metrics = QFrame()
         self.metrics.setObjectName('liveMetrics')
-        self.metrics.setFixedWidth(340)
+        self.metrics.setMaximumWidth(340)
+        self.metrics.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         stats = QHBoxLayout(self.metrics)
         stats.setContentsMargins(0, 0, 0, 0)
         stats.setSpacing(18)
@@ -457,14 +464,36 @@ class LiveRecordingPage(QWidget):
             group.addWidget(value)
             stats.addLayout(group, 1)
             self.stats.append(value)
-        header.addWidget(self.metrics)
-        layout.addLayout(header)
+        self.overview_row.addWidget(self.metrics, 1, Qt.AlignmentFlag.AlignLeft)
+        options = QHBoxLayout()
+        options.setContentsMargins(0, 0, 0, 0)
+        options.setSpacing(8)
+        self.comments_toggle = CommentsSwitch()
+        self.comments_toggle.setToolTip('记住选择，从下一场录制起生效；已开始的场次保持当前选择。')
+        self.comments_toggle.setEnabled(False)
+        self.comments_toggle.clicked.connect(self._comments_changed)
+        options.addWidget(QLabel('保存弹幕'))
+        options.addWidget(self.comments_toggle)
+        divider = QFrame()
+        divider.setFixedSize(1, 15)
+        divider.setStyleSheet('background:#e8e0d3;border:0;')
+        options.addWidget(divider)
+        self.storage_button = button('保存位置 ⌄', self._storage_menu)
+        self.storage_button.setProperty('quiet', True)
+        self.storage_button.setIcon(QIcon(icons.pixmap('folder', '#8a7f6e', 15)))
+        options.addWidget(self.storage_button)
+        options_widget = QWidget()
+        options_widget.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        options_widget.setLayout(options)
+        self.overview_row.addWidget(options_widget, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.panel = PaperTextureFrame(strength=.025, corner_radius=13, base_color='#fffdf8')
         workspace = QVBoxLayout(self.panel)
         workspace.setContentsMargins(0, 0, 0, 0)
         workspace.setSpacing(0)
         nav = QWidget()
-        nav.setFixedHeight(58)
+        nav.setObjectName('livePanelNav')
+        nav.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
+        nav.setFixedHeight(53)
         tabs = QHBoxLayout(nav)
         tabs.setContentsMargins(20, 0, 16, 0)
         tabs.setSpacing(8)
@@ -481,26 +510,6 @@ class LiveRecordingPage(QWidget):
         self.host_tab.setChecked(True)
         tabs.addWidget(self.tab_bar)
         tabs.addStretch()
-        self.comments_toggle = CommentsSwitch()
-        self.comments_toggle.setToolTip('记住选择，从下一场录制起生效；已开始的场次保持当前选择。')
-        self.comments_toggle.setEnabled(False)
-        self.comments_toggle.clicked.connect(self._comments_changed)
-        tabs.addWidget(self.comments_toggle)
-        divider = QFrame()
-        divider.setFixedSize(1, 15)
-        divider.setStyleSheet('background:#e8e0d3;border:0;')
-        tabs.addWidget(divider)
-        self.storage_button = button('保存位置 ⌄', self._storage_menu)
-        self.storage_button.setProperty('quiet', True)
-        self.storage_button.setIcon(QIcon(icons.pixmap('folder', '#8a7f6e', 15)))
-        tabs.addWidget(self.storage_button)
-        self.settings_button = button('', self._settings)
-        self.settings_button.setProperty('quiet', True)
-        self.settings_button.setIcon(QIcon(icons.pixmap('gear', '#8a7f6e', 17)))
-        self.settings_button.setFixedSize(32, 34)
-        self.settings_button.setAccessibleName('抖音连接')
-        self.settings_button.setToolTip('抖音连接 · 访问受限时设置')
-        tabs.addWidget(self.settings_button)
         workspace.addWidget(nav)
         self.toolbars = QStackedWidget()
         self.toolbars.setFixedHeight(62)
@@ -517,7 +526,7 @@ class LiveRecordingPage(QWidget):
         row.addWidget(self.host_search, 1)
         row.addWidget(self.host_filter)
         row.addStretch()
-        self.pause_all = button('暂停全部', self._pause_all)
+        self.pause_all = button('暂停全部', self._confirm_pause_all)
         self.pause_all.setAccessibleName('暂停全部监控')
         row.addWidget(self.pause_all)
         self.add_button = button('＋ 添加主播', self._show_add, primary=True)
@@ -543,6 +552,7 @@ class LiveRecordingPage(QWidget):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.verticalHeader().hide()
         self.table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         self.table.horizontalHeader().setFixedHeight(39)
@@ -550,6 +560,27 @@ class LiveRecordingPage(QWidget):
         self.table.setMinimumHeight(100)
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         workspace.addWidget(self.table, 1)
+        self.frozen_names = QTableView(self.table)
+        self.frozen_names.setModel(self.table.model())
+        self.frozen_names.setItemDelegate(LiveRowDelegate(self.frozen_names))
+        self.frozen_names.setAlternatingRowColors(True)
+        self.frozen_names.setShowGrid(False)
+        self.frozen_names.setFocusPolicy(Qt.NoFocus)
+        self.frozen_names.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.frozen_names.setFrameShape(QFrame.NoFrame)
+        self.frozen_names.verticalHeader().hide()
+        self.frozen_names.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
+        self.frozen_names.horizontalHeader().setFixedHeight(39)
+        self.frozen_names.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.frozen_names.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.frozen_names.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.frozen_names.hide()
+        self.table.verticalScrollBar().valueChanged.connect(self.frozen_names.verticalScrollBar().setValue)
+        self.table.horizontalScrollBar().valueChanged.connect(self._sync_frozen_names)
+        self.table.verticalHeader().sectionResized.connect(
+            lambda row, _before, height: self.frozen_names.setRowHeight(row, height)
+        )
+        self._table_fade = None
         self.empty = QLabel('还没有主播\n添加抖音链接，开启监控后自动录制。', self.table)
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setStyleSheet('color:#9a8e7b;font-size:13px;background:transparent;')
@@ -631,6 +662,7 @@ class LiveRecordingPage(QWidget):
         self.jump.returnPressed.connect(self._jump)
         controller.snapshot.connect(self.render)
         controller.error.connect(self._error)
+        controller.activity_changed.connect(self._access_controls)
         self.export_timer = QTimer(self)
         self.export_timer.setInterval(1000)
         self.export_timer.timeout.connect(self._poll_exports)
@@ -669,6 +701,7 @@ class LiveRecordingPage(QWidget):
         self._credential_pending = False
         self._login_generation = 0
         self._login_cancelled = False
+        self._collection_login = False
         content = self.credentials.content
         self.access_description = note('直播提示需要登录或访问受限时，再登录账号。')
         content.addWidget(self.access_description)
@@ -779,74 +812,159 @@ class LiveRecordingPage(QWidget):
         self.credentials._fit()
 
     def _access_closed(self, *_):
-        self._login_generation += 1
         self.credential.clear()
         worker = self.controller.login_worker
-        if worker:
-            self._login_cancelled = True
-            worker.requestInterruption()
+        if worker and not self._collection_login:
+            self._cancel_browser_login()
 
     def _access_busy(self):
-        return bool(self.collection_busy() or self.data.get('active') or self.pending_hosts
-            or self._credential_pending or not self.controller.connected or self.controller.closing)
+        return bool(self._access_block_message())
+
+    def _access_block_message(self):
+        if self.controller.closing:
+            return 'Lulu 正在结束任务，请等待保存完成后再登录。'
+        if not self.controller.connected:
+            return self.controller.connection_message or '登录服务连接尚未就绪，请等待启动准备完成；持续未就绪时请重新打开 Lulu。'
+        if self.collection_busy():
+            return '请先结束当前主页采集，再更改登录。'
+        if self._credential_pending:
+            return '正在保存或清除登录信息，请等待完成。'
+        # Page snapshots stop when this page is hidden. The controller keeps
+        # receiving Core heartbeats regardless of which workspace is visible.
+        if self.controller.active or self.pending_hosts:
+            return '直播后台正在处理任务，请等待完成；如已开启监控，请先暂停。'
+        return ''
+
+    def collection_retry_blocked(self):
+        # Browser collection does not save live credentials or need a live Core
+        # connection. BrowserShell still owns the actual profile/port leases.
+        if self.controller.closing:
+            return 'Lulu 正在结束任务，请等待保存完成后重试。'
+        if self.collection_busy():
+            return '请先结束当前主页采集，再重试。'
+        if self._credential_pending:
+            return '正在保存或清除登录信息，请等待完成。'
+        if self.controller.login_worker:
+            return '正在登录，请先完成或取消登录。'
+        return ''
+
+    def collection_login_blocked(self):
+        if self._credential_pending:
+            return '正在保存或清除登录信息，请等待完成。'
+        if self.controller.login_worker:
+            return '正在登录，请先完成或取消登录。'
+        return self._access_block_message()
 
     def login_state(self):
-        data = self.data.get('login', {})
+        shared = self.controller.login_presence
+        data = shared if shared is not None else self.data.get('login', {})
+        configured = data.get('cookie') if shared is not None else self.data.get('credential')
         if data.get('partial') or data.get('error'):
             label = '未完全清除' if data.get('partial') else '登录状态待检查'
         elif data.get('source') == 'browser' and data.get('browser') and data.get('cookie'):
             label = '已登录'
-        elif data.get('cookie') or self.data.get('credential'):
+        elif data.get('cookie') or configured:
             label = '已保存 Cookie'
         elif data.get('browser'):
             label = '已保存浏览器登录'
         else:
             label = '未登录'
-        return label, bool(data.get('browser') or data.get('cookie') or data.get('partial') or data.get('error') or data.get('profile') or self.data.get('credential'))
+        return label, bool(data.get('browser') or data.get('cookie') or data.get('partial') or data.get('error') or configured)
+
+    def collection_clear_login(self, feedback):
+        blocked = self.collection_login_blocked()
+        if blocked:
+            feedback(blocked)
+            return False
+        if not self.login_state()[1]:
+            feedback('当前没有已保存的抖音登录。')
+            return False
+        # The collection page owns its visible confirmation; keep the existing
+        # atomic credential/profile mutation, without opening a native overlay.
+        self._save_credential('', feedback=feedback)
+        return True
 
     def _access_controls(self):
         busy, worker = self._access_busy(), self.controller.login_worker
         label, saved = self.login_state()
-        self.browser_login.setEnabled(not busy and not self._login_cancelled)
-        self.browser_login.setText('正在取消…' if worker and self._login_cancelled else '取消登录' if worker else '重新登录' if label != '未登录' else '登录账号')
-        self.connection_title.setText('等待扫码登录' if worker else label)
+        self.browser_login.setEnabled(not busy and not self._login_cancelled and not self._collection_login)
+        self.browser_login.setText('正在更新登录…' if self._credential_pending else '正在取消…' if worker and self._login_cancelled
+            else '主页采集正在登录' if self._collection_login else '取消登录' if worker
+            else '重新登录' if label != '未登录' else '登录账号')
+        self.connection_title.setText('正在更新登录' if self._credential_pending else '等待扫码登录' if worker else label)
         self.save_credential.setEnabled(not busy and not worker)
         self.delete_credential.setEnabled(saved and not busy and not worker)
         self.confirm_clear.setEnabled(not busy and not worker)
         self.advanced_toggle.setEnabled(not busy and not worker)
         self.credential.setEnabled(not busy and not worker)
-        self.login_note.setText('请在打开的浏览器中扫码，完成后会自动更新。' if worker else
-            '请先停止采集和直播监控，再更改登录。' if busy else '在打开的浏览器中扫码即可，无需填写 Cookie。')
+        self.login_note.setText(self._access_block_message() if self._credential_pending else
+            '请在打开的浏览器中扫码，完成后会自动更新。' if worker else
+            self._access_block_message() if busy else '在打开的浏览器中扫码即可，无需填写 Cookie。')
 
     def _browser_login(self):
         if self.controller.login_worker:
-            self._login_cancelled = True
-            self._login_generation += 1
-            self.controller.login_worker.requestInterruption()
-            self._access_controls()
+            if not self._collection_login:
+                self._cancel_browser_login()
             return
         if not self.browser_login.isEnabled() or self._access_busy():
             return
+        self._start_browser_login()
+
+    def collection_browser_login(self, browser_path, feedback, *, cancel=False):
+        if cancel:
+            if self._credential_pending:
+                feedback('正在保存或清除登录信息，开始处理后无法取消。')
+                return False
+            if not self._collection_login or self._login_cancelled:
+                feedback('当前没有可取消的主页登录，或正在取消，请稍后查看状态。')
+                return False
+            feedback('正在取消登录…')
+            self._cancel_browser_login()
+            return True
+        blocked = self.collection_login_blocked()
+        if blocked:
+            feedback(blocked)
+            return False
+        self._start_browser_login(browser_path=browser_path, feedback=feedback)
+        return True
+
+    def _cancel_browser_login(self):
+        if self._credential_pending:
+            self.credential_status.setText('正在保存或清除登录信息，开始处理后无法取消。')
+            return
+        self._login_cancelled = True
+        self._login_generation += 1
+        self.controller.login_worker.requestInterruption()
+        self._access_controls()
+
+    def _start_browser_login(self, *, browser_path=None, feedback=None):
         from .live_login import LiveLoginRequest
+        self._collection_login = feedback is not None
         self._login_cancelled = False
         self.credential_status.clear()
         self._login_generation += 1
         generation = self._login_generation
-        worker = LiveLoginRequest(self.controller)
+        worker = LiveLoginRequest(self.controller, browser_path=browser_path)
         self.controller.login_worker = worker
         self.controller.activity_changed.emit()
         self._access_controls()
+        if feedback:
+            feedback('正在打开专用浏览器…')
         def current():
-            return (generation == self._login_generation and self.credentials.isVisible()
+            return (generation == self._login_generation
+                    and (feedback is not None or self.credentials.isVisible())
                     and not worker.isInterruptionRequested() and not self.controller.closing)
         def received(value):
             if current():
-                self._save_credential(value, source='browser')
+                self._save_credential(value, source='browser', feedback=feedback)
         def notice(text):
             if current():
-                self.credential_status.setText(text)
+                (feedback or self.credential_status.setText)(text)
         def finished():
+            if feedback and self._login_cancelled:
+                feedback('已取消登录，可以重新打开专用浏览器。')
             self.controller.login_worker = None
+            self._collection_login = False
             self._login_cancelled = False
             self.controller.activity_changed.emit()
             worker.deleteLater()
@@ -893,14 +1011,14 @@ class LiveRecordingPage(QWidget):
             pending = hid in self.pending_hosts
             enabled = bool(value['enabled'])
             control.setText(('启动中…' if self.pending_hosts[hid] else '暂停中…') if pending
-                            else '暂停监控' if enabled else '开始监控')
+                            else '暂停监控' if enabled else '重试监控' if value.get('error_message') else '开始监控')
             control.setEnabled(not pending and not self._pausing_all)
             self._control_property(control, 'pending', pending)
             self._control_property(control, 'monitoring', enabled and not pending)
             self.table.cellWidget(row, 0).findChild(QPushButton).setEnabled(not pending)
-        self.pause_all.setEnabled((bool(self.data.get('monitoring')) or any(self.pending_hosts.values()))
-                                  and not self._pausing_all)
-        self.pause_all.setVisible(bool(self.data.get('monitoring')) or any(self.pending_hosts.values()) or self._pausing_all)
+        pausable = self._pausable_host_count()
+        self.pause_all.setEnabled(bool(pausable) and not self._pausing_all)
+        self.pause_all.setVisible(bool(pausable) or self._pausing_all)
         self.pause_all.setText('暂停中…' if self._pausing_all else '暂停全部')
 
     def _toggle_host(self, hid):
@@ -977,7 +1095,8 @@ class LiveRecordingPage(QWidget):
         self.data['monitoring'] = 0 if pause_all else max(0, self.data['monitoring'] + delta)
         self.data['recording'] = 0 if pause_all else max(0, self.data['recording'] - stopped_clocks)
         self.stats[0].setText(f"{self.data['monitoring']} 位")
-        self.stats[1].setText(f"{self.data['recording']} 位")
+        self.stats[1].setText(f"{self.data['recording']} 场")
+        self._control_property(self.stats[1], 'recording', bool(self.data['recording']))
 
     def _sync_comments(self):
         self.comments_toggle.blockSignals(True)
@@ -1003,6 +1122,10 @@ class LiveRecordingPage(QWidget):
         self.controller.call('comments_setting', enabled=bool(enabled), callback=changed, failure=failed)
 
     def _open_room(self, hid):
+        row = next((row for row in self.data.get('rows', []) if row['id'] == hid), None)
+        if row and row.get('live_error') == 'login_required':
+            self._settings()
+            return
         value = next((row for row in self.data.get('rows', []) if row['id'] == hid), None)
         if value and value.get('live_url'):
             QDesktopServices.openUrl(QUrl(value['live_url']))
@@ -1044,8 +1167,6 @@ class LiveRecordingPage(QWidget):
         self.credentials.close_button.setFocus()
         if action == 'clear':
             self._credential(delete=True)
-        elif action == 'login':
-            self._browser_login()
 
     def _credential_state(self, configured, *, force=False):
         changed = configured != self._configured
@@ -1076,23 +1197,86 @@ class LiveRecordingPage(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         for column, width in enumerate(widths):
             self.table.setColumnWidth(column, width)
+        self._sync_frozen_names()
+
+    def _sync_frozen_names(self, *_):
+        name = 1 if self.tab == 'hosts' else 0
+        if not self.table.rowCount() or self.table.columnCount() <= name:
+            self.frozen_names.hide()
+            return
+        scroll = self.table.horizontalScrollBar().value()
+        original_x = self.table.horizontalHeader().sectionPosition(name)
+        if scroll <= original_x:
+            self.frozen_names.hide()
+            return
+        for column in range(self.table.columnCount()):
+            self.frozen_names.setColumnHidden(column, column != name)
+        width = self.table.columnWidth(name)
+        self.frozen_names.setColumnWidth(name, width)
+        viewport = self.table.viewport().geometry()
+        header = self.table.horizontalHeader().geometry()
+        self.frozen_names.setGeometry(viewport.x(), header.y(), width, viewport.height() + header.height())
+        self.frozen_names.show()
+        self.frozen_names.raise_()
+        self.frozen_names.verticalScrollBar().setValue(self.table.verticalScrollBar().value())
 
     def _tab(self, tab):
+        if tab == self.tab:
+            self.refresh()
+            return
+        if self._row_keys and self._row_keys[0] == self.tab:
+            self.scroll_positions[self.tab] = (
+                self.table.horizontalScrollBar().value(), self.table.verticalScrollBar().value()
+            )
         self._discard_deferred()
         self._reset_page_input()
         self.tab = tab
         self.host_tab.setChecked(tab == 'hosts')
         self.record_tab.setChecked(tab == 'recordings')
         self.toolbars.setCurrentIndex(0 if tab == 'hosts' else 1)
+        self.table.setEnabled(False)
         self.refresh()
+
+    def _fade_rows(self):
+        if self._table_fade is not None:
+            self._table_fade.stop()
+            self._table_fade.deleteLater()
+        if reduced_motion():
+            self.table.viewport().setGraphicsEffect(None)
+            self._table_fade = None
+            return
+        viewport = self.table.viewport()
+        effect = QGraphicsOpacityEffect(viewport)
+        viewport.setGraphicsEffect(effect)
+        fade = QPropertyAnimation(effect, b'opacity', viewport)
+        fade.setStartValue(.82)
+        fade.setEndValue(1.0)
+        fade.setDuration(160)
+        fade.setEasingCurve(QEasingCurve.OutCubic)
+        self._table_fade = fade
+        def finished():
+            self._table_fade = None
+            viewport.setGraphicsEffect(None)
+            fade.deleteLater()
+        fade.finished.connect(finished)
+        fade.start()
 
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh()
 
     def hideEvent(self, event):
+        if self.action_confirmation:
+            self.action_confirmation.reject()
         super().hideEvent(event)
         self.controller.params = None
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.overview_row.setDirection(
+            QBoxLayout.Direction.TopToBottom if self.width() < 650
+            else QBoxLayout.Direction.LeftToRight
+        )
 
     def refresh(self):
         self.controller.view(tab=self.tab, query=self.host_search.text() if self.tab == 'hosts' else self.record_search.text(),
@@ -1169,7 +1353,7 @@ class LiveRecordingPage(QWidget):
 
     def _credential(self, delete=False):
         if self._access_busy() or self.controller.login_worker:
-            self.credential_status.setText('请先停止采集和直播监控，再更改登录。')
+            self.credential_status.setText(self.collection_login_blocked())
             return
         if delete:
             self._set_access_view('clear')
@@ -1180,29 +1364,36 @@ class LiveRecordingPage(QWidget):
             return
         self._save_credential(value)
 
-    def _save_credential(self, value, source='manual'):
+    def _save_credential(self, value, source='manual', feedback=None):
         if self._access_busy():
+            if feedback:
+                feedback(self._access_block_message())
             return
         self._credential_pending = True
-        self.credential_status.setText('正在保存登录信息…' if value else '正在清除登录…')
+        report = feedback or self.credential_status.setText
+        report('正在保存登录信息…' if value else '正在清除登录…')
         self._access_controls()
         self.controller.activity_changed.emit()
-        def failed():
+        def settled():
             self._credential_pending = False
             self._access_controls()
             self.controller.activity_changed.emit()
             self.refresh()
         def saved(reply):
-            failed()
+            settled()
             self.credential.clear()
             configured = bool(reply['configured'])
             self.data['credential'] = configured
             self.data['login'] = reply.get('login', {})
             self._set_access_view('main')
             self._credential_state(configured, force=True)
-            self._message('登录信息已保存' if configured else '抖音登录已清除')
+            message = '登录信息已保存' if configured else '抖音登录已清除'
+            (feedback or self._message)(message)
+        def failed(message):
+            settled()
+            report(message or '登录信息未能保存，请重试。')
         self.controller.call('credential', value=value, source=source,
-            callback=saved, failure=failed)
+            callback=saved, failure_message=failed)
 
     def render(self, data):
         if (QApplication.mouseButtons() != Qt.MouseButton.NoButton
@@ -1213,20 +1404,25 @@ class LiveRecordingPage(QWidget):
         self._deferred_data = None
         self._render_timer.stop()
         self.data = data
+        self.table.setEnabled(True)
+        attention = set(data.get('attention_keys', ()))
+        if self._attention_keys is not None and attention - self._attention_keys:
+            self._needs_attention()
+        self._attention_keys = attention
         self.clock_cells = []
         self.clock_anchor = time.monotonic()
         self.pages[self.tab] = data['page']
         self.host_tab.setText(f"主播监控  {data['hosts']}")
         self.record_tab.setText(f"录像库  {data['recordings']}")
         free = f"{data['free_bytes'] / 1024**3:.1f} GB" if data['free_bytes'] is not None else '—'
-        for label, text in zip(self.stats, (f"{data['monitoring']} 位", f"{data['recording']} 位",
+        for label, text in zip(self.stats, (f"{data['monitoring']} 位", f"{data['recording']} 场",
                 free)):
             label.setText(text)
+        self._control_property(self.stats[1], 'recording', bool(data['recording']))
         self.pause_all.setEnabled(data['monitoring'] > 0)
         self._credential_state(bool(data['credential']))
         self._sync_comments()
-        if data['disk_warning']:
-            self._message('可用空间低于 5 GB；低于 2 GB 会暂停监控，已存录像保留。')
+        self.storage_warning.setVisible(bool(data['disk_warning']))
         self.storage.setText('录像保存位置\n' + data['directory'])
         self.storage_button.setToolTip('录像保存在 ' + data['directory'])
         self.count.setText(f"共 {data['total']} {'位主播' if self.tab == 'hosts' else '场录像'}")
@@ -1238,7 +1434,9 @@ class LiveRecordingPage(QWidget):
         if not self._page_draft:
             self.jump.setText(str(data['page']))
         scrollbar = self.table.verticalScrollBar()
-        scroll = scrollbar.value()
+        switched = self._row_keys is not None and self._row_keys[0] != self.tab
+        horizontal = self.table.horizontalScrollBar()
+        x, scroll = self.scroll_positions[self.tab] if switched else (horizontal.value(), scrollbar.value())
         keys = (self.tab, tuple(row['id'] for row in data['rows']))
         rebuild = keys != self._row_keys
         headers = ['', '主播', '直播状态', '最近检查', '录制进度', '直播间', '操作'] if self.tab == 'hosts' else ['主播', '录制时间', '已录时长', '文件', '状态', '直播记录', '操作']
@@ -1259,7 +1457,7 @@ class LiveRecordingPage(QWidget):
             if self.tab == 'hosts':
                 hid = value['id']
                 if rebuild:
-                    remove = button('×', lambda checked=False, id=hid: self._remove_host(id))
+                    remove = button('×', lambda checked=False, id=hid: self._confirm_remove_host(id))
                     remove.setProperty('liveRemove', True)
                     remove.setFixedWidth(30)
                     remove.setAccessibleName('移除主播，保留录像')
@@ -1292,8 +1490,9 @@ class LiveRecordingPage(QWidget):
                     toggle.setMinimumWidth(104)
                     self.table.setCellWidget(row, 6, row_controls(toggle))
                 link_button = self.table.cellWidget(row, 5).findChild(QPushButton)
-                link_button.setText('打开 ↗' if value['live_url'] else '待识别')
-                link_button.setEnabled(bool(value['live_url']))
+                requires_login = value.get('live_error') == 'login_required'
+                link_button.setText('抖音连接' if requires_login else '打开 ↗' if value['live_url'] else '待识别')
+                link_button.setEnabled(requires_login or bool(value['live_url']))
             else:
                 status = recording_message(value)
                 text = [value['name'] or '待识别主播', stamp(value['started']), duration(value['duration']),
@@ -1312,7 +1511,7 @@ class LiveRecordingPage(QWidget):
                     self.table.setCellWidget(row, 5, row_controls(view_data))
                     view = button('查看分段', lambda checked=False, id=value['id']:
                         self.controller.call('detail', recording_id=id, callback=self._detail))
-                    remove = button('删除', lambda checked=False, id=value['id']: self._delete_recording(id))
+                    remove = button('删除', lambda checked=False, id=value['id']: self._confirm_delete_recording(id))
                     remove.setProperty('deleteRecordingId', value['id'])
                     self.table.setCellWidget(row, 6, row_controls(view, remove))
                 remove = self.table.cellWidget(row, 6).findChildren(QPushButton)[1]
@@ -1324,7 +1523,11 @@ class LiveRecordingPage(QWidget):
                 cell = self.table.item(row, column)
                 if cell is not None:
                     cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        horizontal.setValue(x)
         scrollbar.setValue(scroll)
+        self._sync_frozen_names()
+        if switched:
+            self._fade_rows()
         if self.tab == 'hosts':
             self._render_host_actions()
         if self.clock_cells:
@@ -1360,8 +1563,66 @@ class LiveRecordingPage(QWidget):
         font.setBold(state == 'live')
         item.setFont(font)
 
+    def _confirm_action(self, title, eyebrow, description, label, callback):
+        if self.action_confirmation or not self.controller.connected or self.controller.closing:
+            return
+        session = self.controller.session
+
+        def confirmed():
+            if self.controller.connected and self.controller.session == session and not self.controller.closing:
+                callback()
+
+        dialog = WorkspaceDialog(title, eyebrow, self)
+        self.action_confirmation = dialog
+        dialog.content.addWidget(note(description))
+        actions = QHBoxLayout()
+        actions.addStretch()
+        cancel = button('取消', dialog.reject)
+        actions.addWidget(cancel)
+        actions.addWidget(button(label, dialog.accept, primary=True))
+        dialog.content.addLayout(actions)
+        dialog.finished.connect(lambda _: setattr(self, 'action_confirmation', None))
+        dialog.finished.connect(dialog.deleteLater)
+        dialog.accepted.connect(confirmed)
+        dialog.show()
+        cancel.setFocus(Qt.FocusReason.PopupFocusReason)
+
+    def _pausable_host_count(self):
+        active = {row['id'] for row in self.data.get('rows', []) if row['enabled']}
+        waiting = sum(target for hid, target in self.pending_hosts.items() if hid not in active)
+        return self.data.get('monitoring', 0) + waiting
+
+    def _confirm_pause_all(self):
+        count = self._pausable_host_count()
+        if count and not self._pausing_all:
+            self._confirm_action(
+                '暂停全部监控？', '主播监控', f'将暂停 {count} 位主播的监控。正在录制的场次会保存已录内容。',
+                '暂停全部', self._pause_all,
+            )
+
+    def _confirm_remove_host(self, hid):
+        row = next((row for row in self.data.get('rows', []) if row['id'] == hid), None)
+        if row and hid not in self.pending_hosts and not self._pausing_all:
+            name = row['name'] or '这位主播'
+            self._confirm_action(
+                '移除这位主播？', '主播监控', f'{name} 将从监控列表中移除。本场录制会停止，已保存的录像保留。',
+                '移除主播', lambda: self._remove_host(hid),
+            )
+
     def _remove_host(self, hid):
         self.controller.call('remove', host_id=hid, callback=lambda _: self.refresh())
+
+    def _confirm_delete_recording(self, rid):
+        row = next((row for row in self.data.get('rows', []) if row['id'] == rid), None)
+        if not row or row['ended'] is None or row.get('delete_blocked') or rid in self.deleting:
+            return
+        name = row['name'] or '这位主播'
+        self._confirm_action(
+            '移入废纸篓？', '删除本场录像',
+            f'{name} 在 {stamp(row["started"])} 的录像、直播数据和弹幕记录将一同移入系统废纸篓。'
+            '如果文件已被移走，将移除列表中的失效记录。',
+            '移入废纸篓', lambda: self._delete_recording(rid),
+        )
 
     def _delete_recording(self, rid):
         if rid in self.deleting:

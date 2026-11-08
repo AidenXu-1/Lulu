@@ -1,4 +1,5 @@
 """Core-owned monitors, leased producers and a bounded GUI media inventory."""
+from ...edition import is_experience
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from copy import deepcopy
@@ -214,7 +215,13 @@ class LiveService:
             if operation == 'heartbeat':
                 if not self.closing:
                     self.deadline = time.monotonic() + 30
-                return {'active': self.busy(), 'stopped': self.closing and not self.busy()}
+                reply = {'active': self.busy(), 'stopped': self.closing and not self.busy()}
+                if not self.closing:
+                    # Presence only; this never reads cookie values or Keychain.
+                    # Collection may change the owned browser while the live
+                    # workspace is hidden and no longer requests snapshots.
+                    reply['login'] = self._login_state()
+                return reply
             if operation == 'stop':
                 self._stop_session()
                 return {'active': self.busy(), 'stopped': not self.busy()}
@@ -227,7 +234,7 @@ class LiveService:
                 source = public_link(arguments['source'])
                 old = self.index.one('SELECT * FROM hosts WHERE source=?', (source,))
                 if old:
-                    return {'host_id': old['id']}
+                    return {'host_id': old['id'], 'already_present': True}
                 hid = uid('host')
                 self.index.write('INSERT INTO hosts(id,source,created) VALUES(?,?,?)', (hid, source, time.time()))
                 self._submit_check(hid, token, identify_only=True)
@@ -464,7 +471,7 @@ class LiveService:
                 self.deleting.pop(rid, None)
 
     def output_dir(self):
-        return self.index.setting('directory', str(Path.home() / 'Movies' / 'Lulu直播录制'))
+        return self.index.setting('directory', str(Path.home() / 'Movies' / ('Lulu开发体验版直播录制' if is_experience() else 'Lulu直播录制')))
 
     def _accept_sequence(self, operation, arguments):
         """Preserve click order even when preparation and pause arrive out of order."""
@@ -1162,6 +1169,8 @@ class LiveService:
                 with self.lock:
                     monitor['validating'] = False
             self.control.verify_worker_lease(monitor['job_id'], lease_token=lease, mutation_kind='result')
+            if value.get('timestamp_discontinuity'):
+                self.index.write('UPDATE recordings SET timestamp_warning=1 WHERE id=?', (monitor['recording_id'],))
             self.index.write('INSERT INTO segments VALUES(?,?,?,?,?,?,?,?,?)',
                 (uid('segment'), monitor['recording_id'], str(path), start, value['duration'],
                  value['bytes'], 1, valid, value['sha256']))
@@ -1387,6 +1396,10 @@ class LiveService:
                 warning = ('本场有断流或中断，文件只包含实际录到的内容。'
                            if gaps or recording.get('reason') in {
                                'recording_error', 'write_error', 'reconnect_timeout', 'recovery_required', 'recovery_checked'} else '')
+                if result.get('timestamp_warning'):
+                    self.index.write('UPDATE recordings SET timestamp_warning=1 WHERE id=?', (rid,))
+                if recording.get('timestamp_warning') or result.get('timestamp_warning'):
+                    warning += '来源时间有跳跃，已按实际媒体整理；原 TS 文件保留。'
                 with self.lock:
                     work.update(state='succeeded', path=result['path'], result={**result,
                         'gaps': gaps, 'warning': warning}, message=warning)
@@ -1477,6 +1490,8 @@ class LiveService:
                                 info = {'duration': 0, 'bytes': path.stat().st_size, 'sha256': ''}
                             if work['cancel'].is_set():
                                 break
+                            if info.get('timestamp_discontinuity'):
+                                self.index.write('UPDATE recordings SET timestamp_warning=1 WHERE id=?', (row['id'],))
                             # Completed-list registrations already have a start;
                             # unfinished/unlisted files have no proven wall time.
                             start = existing['started'] if existing and existing['closed'] else 0
@@ -1623,6 +1638,12 @@ class LiveService:
             'hosts': count_hosts, 'recordings': count_records, 'directory': self.output_dir(),
             'credential': bool(self.index.setting('credential')), 'login': self._login_state(), 'active': self.busy(),
             'comments_enabled': self.index.setting('comments_enabled', '1') == '1',
+            'attention_keys': [f"{row['id']}:{row['status']}:{row['live_error']}" for row in
+                self.index.all("SELECT id,status,live_error FROM hosts WHERE "
+                               "status IN ('disk_full','write_error','recovery_required') "
+                               "OR (enabled=1 AND live_error='login_required')")] +
+                [f"recording:{row['id']}:recovery_required" for row in
+                 self.index.all("SELECT id FROM recordings WHERE reason='recovery_required'")],
             'monitoring': sum(not m['cancel'].is_set() for m in self.monitors.values()),
             'recording': recording_count,
             'free_bytes': self.free, 'disk_warning': self.disk_warning,

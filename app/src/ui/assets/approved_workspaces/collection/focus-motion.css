@@ -1,0 +1,18 @@
+/* One layout change per state; the transition itself only composites transforms. */
+:root{--focus-slide:280ms}
+#workspace>.results-card{isolation:isolate}
+.results-paper{position:absolute;inset:-1px;z-index:-1;pointer-events:none;border:1px solid transparent;border-radius:12px;background:transparent;transform-origin:top left}
+.results-card.focus-plane-moving{overflow:visible;background:transparent;border-color:transparent}
+.intake-region.focus-plane-moving{overflow:visible}
+.intake-content{position:relative;z-index:0}
+.results-top.focus-plane-moving,.filter-panel.focus-plane-moving{position:relative;z-index:2;will-change:transform}
+.results-paper.focus-plane-moving{will-change:transform;background:rgba(255,251,243,.67);border-color:#dcd1bf}
+.table-scroller.focus-plane-moving{position:absolute;left:0;right:0;z-index:1;will-change:transform}
+.selection-bar.focus-plane-moving{position:absolute;left:0;right:0;bottom:0;z-index:3;border-radius:0 0 11px 11px}
+
+/* State color is immediate; the spatial transition already supplies feedback. */
+#focusToggle{transition:transform var(--press) var(--ease-out)}
+
+.material-track i{width:100%;transform-origin:left;transition:transform 140ms linear}
+.material-progress.indeterminate .material-track i{width:35%}
+@media(prefers-reduced-motion:reduce){.material-track i{transition:none}}

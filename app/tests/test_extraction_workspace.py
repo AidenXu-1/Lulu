@@ -39,6 +39,10 @@ class FakeMain(QWidget):
     def _cancel_recording(self):self.calls.append('cancel_record')
     def _pick_file(self):self.calls.append('files')
     def _pick_recording_dir(self):self.calls.append('record_folder')
+    def _publish_extraction_state(self):self.workspace.publish(force=True)
+    def _on_rec_tick(self,sec):
+        from src.ui.main_window import MainWindow
+        MainWindow._on_rec_tick(self,sec)
 
 class ExtractionWorkspaceFixture:
     @classmethod
@@ -67,6 +71,15 @@ class ExtractionWorkspaceFixture:
         self.widget.publish(force=True);self.until(lambda:self.js('tasks.length')==len(self.main.tasks))
 
 class ExtractionWorkspaceTests(ExtractionWorkspaceFixture,unittest.TestCase):
+    def test_recording_prepare_and_save_show_busy_label_and_disable_repeated_start(self):
+        for label in ('正在准备录音','正在保存录音','正在合并录音'):
+            self.main._recording_busy=label;self.widget.publish(force=True)
+            self.until(lambda:self.js('document.querySelector(".record-trigger").textContent').find(label)>=0)
+            self.assertTrue(self.js('document.querySelector(".record-trigger").disabled'))
+            self.assertTrue(self.js('Boolean(document.querySelector(".record-cancel"))'))
+        self.main._recording_busy='';self.widget.publish(force=True)
+        self.until(lambda:not self.js('document.querySelector(".record-trigger").disabled'))
+
     def test_slow_model_checks_leave_ui_responsive_hidden_and_stale_results_safe(self):
         # Let the ordinary initial status read settle before fault injection.
         self.until(lambda: not getattr(self.widget, '_model_pending', None))
@@ -178,6 +191,20 @@ class ExtractionWorkspaceTests(ExtractionWorkspaceFixture,unittest.TestCase):
         self.assertEqual(task.state,TaskState.RUNNING)
 
 
+    def test_recording_button_unifies_active_state_and_timer(self):
+        normal=self.js('getComputedStyle(document.querySelector(".record-trigger")).backgroundColor')
+        recorder=SimpleNamespace(is_recording=lambda: True)
+        with patch.object(self.main,'_recorder_obj',recorder,create=True):
+            self.main._on_rec_tick(65)
+            self.until(lambda:self.js('document.querySelector("#recTime")?.textContent')=='01:05')
+            self.assertIn('录制中',self.js('document.querySelector(".record-trigger").textContent'))
+            self.assertIn('正在录制 · 麦克风',self.js('document.querySelector(".live-record").textContent'))
+            self.assertNotEqual(self.js('getComputedStyle(document.querySelector(".record-trigger")).backgroundColor'),normal)
+            self.main._on_rec_tick(66)
+            self.until(lambda:self.js('document.querySelector("#recTime")?.textContent')=='01:06')
+            self.assertIn('已录制01:06',self.js('document.querySelector(".record-trigger").getAttribute("aria-label")'))
+        self.widget.publish(force=True)
+        self.until(lambda:self.js('document.querySelector(".record-trigger").textContent.includes("开始录音")'))
 
 
     def test_native_actions_and_batch(self):

@@ -4,9 +4,11 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from pathlib import Path
 import threading
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QPushButton
 
@@ -52,6 +54,31 @@ class NativeDataTests(unittest.TestCase):
         self.assertIn('点赞', dialog.chart.accessibleDescription())
         dialog.reject()
 
+
+    def test_chart_home_end_mouse_and_units_match_saved_samples(self):
+        dialog = self.opened()
+        chart = dialog.chart
+        try:
+            for key, expected in (('viewer_count', '40 人'), ('like_count', '400 次'),
+                                  ('cumulative_view_count', '4,000 次')):
+                dialog.select_metric(key)
+                self.app.processEvents()
+                QTest.keyClick(chart, Qt.Key_Home)
+                self.assertEqual(chart.selected, 0)
+                QTest.keyClick(chart, Qt.Key_End)
+                self.assertEqual(chart.selected, 4)
+                self.assertIn(expected, chart.accessibleDescription())
+                timestamp = datetime.fromtimestamp(chart.samples[-1]['at']).strftime('%H:%M:%S')
+                self.assertIn(timestamp, chart.accessibleDescription())
+                for index in (0, 4):
+                    point = chart.coordinates[index]
+                    QCoreApplication.sendEvent(chart, QMouseEvent(
+                        QEvent.MouseMove, point, chart.mapToGlobal(point),
+                        Qt.NoButton, Qt.NoButton, Qt.NoModifier,
+                    ))
+                    self.assertEqual(chart.selected, index)
+        finally:
+            dialog.reject()
 
     def test_slow_local_data_request_does_not_queue_pause_or_stop_behind_it(self):
         rid, _ = self.completed_segment()

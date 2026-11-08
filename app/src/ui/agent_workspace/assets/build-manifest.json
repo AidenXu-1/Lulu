@@ -469,8 +469,8 @@
       "sha256": "6db421a49730a13ed73e66b35b932ea272eff83b991927f58d58aaa56ed0d10c"
     },
     "workspace.js": {
-      "bytes": 588516,
-      "sha256": "3b082e16490e5236af650eb2c74f8944b2b4f699116605522786554e9ba92ded"
+      "bytes": 588569,
+      "sha256": "b1a851b2b1ccbe983e911c2fe8d979f75c733fef7a8aec062e7d3f48f47bc467"
     }
   },
   "inputs": [
@@ -1362,7 +1362,7 @@
           "bytesInOutput": 1673
         },
         "menus.js": {
-          "bytesInOutput": 5530
+          "bytesInOutput": 5583
         },
         "node_modules/@milkdown/exception/lib/index.js": {
           "bytesInOutput": 2827
@@ -2004,7 +2004,7 @@
           "bytesInOutput": 116243
         }
       },
-      "bytes": 588516
+      "bytes": 588569
     },
     "assets/workspace.css": {
       "imports": [],

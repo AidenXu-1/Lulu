@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QUrl, Signal, Slot, Qt
+from PySide6.QtCore import QCoreApplication, QObject, QRunnable, QThreadPool, QUrl, Signal, Slot, Qt
 from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import QWidget, QStackedLayout, QLabel, QFileDialog
 from PySide6.QtWebChannel import QWebChannel
@@ -292,16 +292,15 @@ class AgentWorkspace(QWidget):
         self.handoff_results.done.connect(self.finish_handoff)
         self.batch_results.done.connect(self.finish_batch)
         prepare_webengine_runtime()
-        self.profile=QWebEngineProfile(self)
+        self.profile=QWebEngineProfile(QCoreApplication.instance())
         self.profile.setHttpCacheType(QWebEngineProfile.NoCache)
         self.profile.setPersistentCookiesPolicy(QWebEngineProfile.NoPersistentCookies)
         self.interceptor=LocalResources(self.profile)
         self.profile.setUrlRequestInterceptor(self.interceptor)
         self.view=WorkspaceView(self)
         self.page=WorkspacePage(self.profile,self.view)
-        # A profile must outlive its page's WebEngine adapter. QObject destroys
-        # page children after the page destructor, including this private profile.
-        self.profile.setParent(self.page)
+        # Chromium can still use the profile while the page's destructor runs.
+        self.page.destroyed.connect(self.profile.deleteLater)
         self.page.setBackgroundColor(QColor('#fbf8f1'))
         self.view.setPage(self.page)
         settings=self.page.settings()

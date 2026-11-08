@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import subprocess
 from threading import RLock
 import time
@@ -230,7 +231,8 @@ def probe(path, ffmpeg, *, register=None):
         if process.process.returncode or not streams or not 0 < duration < 7 * 24 * 3600:
             raise LiveError('分段媒体不完整，原文件保留，可在文件夹中检查')
         return {'duration': duration, 'bytes': Path(path).stat().st_size,
-                'sha256': fingerprint(path), 'audio': b'Audio' in streams}
+                'sha256': fingerprint(path), 'audio': b'Audio' in streams,
+                'timestamp_discontinuity': b'timestamp discontinuity' in errors}
     finally:
         process.stop()
 
@@ -338,8 +340,13 @@ def _media_pass(command, *, register=None, cancelled=lambda: False, progress=lam
         owned = OwnedProcess(command, capture=True)
         # stderr is drained separately to avoid a full pipe blocking FFmpeg.
         tail = bytearray()
+        timestamp_discontinuity = False
         def drain_errors():
+            nonlocal timestamp_discontinuity
+            previous = b''
             while chunk := owned.process.stderr.read(8192):
+                timestamp_discontinuity |= b'timestamp discontinuity' in previous + chunk
+                previous = chunk[-64:]
                 errors.write(chunk)
         import threading
         reader = threading.Thread(target=drain_errors, daemon=True)
@@ -371,6 +378,8 @@ def _media_pass(command, *, register=None, cancelled=lambda: False, progress=lam
             reader.join()
             errors.seek(0)
             tail.extend(errors.read(131072))
+            if timestamp_discontinuity and b'timestamp discontinuity' not in tail:
+                tail.extend(b'\ntimestamp discontinuity\n')
             if owned.process.returncode:
                 raise LiveError('媒体检查或合并失败，原录像保留；请检查分段是否损坏或格式不兼容')
             return duration, bytes(tail)
@@ -414,7 +423,7 @@ def export_recording(segments, recording, ffmpeg, *, target, register=None,
     directory(target.parent)
     if target.exists() or target.is_symlink():
         raise LiveError('这个文件名已存在，请换一个名称；原文件未改动')
-    sources, identities = [], []
+    sources, identities, discontinuous = [], [], []
     total = sum(s['duration'] for s in segments)
     def check_cancel():
         if cancelled():
@@ -440,6 +449,7 @@ def export_recording(segments, recording, ffmpeg, *, target, register=None,
             '-xerror', '-i', str(source), '-map', '0:v?', '-map', '0:a?', '-c', 'copy',
             '-progress', 'pipe:1', '-f', 'null', '-'], register=register, cancelled=cancelled)
         current = _stream_signature(log)
+        discontinuous.append(b'timestamp discontinuity' in log)
         if signature is not None and current != signature:
             raise LiveError(f'第 {number + 1} 段的画面或音轨格式变化，无法无损合并；请分别导出分段，未降画质或丢弃声音')
         signature = current
@@ -448,11 +458,34 @@ def export_recording(segments, recording, ffmpeg, *, target, register=None,
         progress('checking', 20 * (number + 1) / len(segments))
     temp = target.with_name('.' + target.stem + '-' + uuid4().hex + '.partial.mp4')
     listing = target.with_name('.lulu-concat-' + uuid4().hex + '.txt')
+    normalized = None
     try:
+        merge_sources = list(sources)
+        if any(discontinuous):
+            # The concat demuxer preserves TS jumps that a direct TS read repairs.
+            # Remux all parts to the same container first, using probe's correction.
+            # Stream copying keeps every encoded frame and audio packet intact.
+            required = 2 * sum(p.stat().st_size for p in sources)
+            if shutil.disk_usage(target.parent).free < required + 64 * 1024 * 1024:
+                raise LiveError('导出空间不足，请选择有更多可用空间的位置；原录像保留')
+            normalized = tempfile.TemporaryDirectory(prefix='.lulu-normalized-', dir=target.parent)
+            for number, source in enumerate(sources):
+                check_cancel()
+                converted = Path(normalized.name) / f'part-{number:06d}.mp4'
+                _media_pass([ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'error', '-xerror', '-n',
+                    '-i', str(source), '-map', '0:v?', '-map', '0:a?', '-c', 'copy',
+                    '-progress', 'pipe:1', str(converted)], register=register, cancelled=cancelled)
+                duration, log = _media_pass([ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'info',
+                    '-xerror', '-i', str(converted), '-map', '0:v?', '-map', '0:a?', '-c', 'copy',
+                    '-progress', 'pipe:1', '-f', 'null', '-'], register=register, cancelled=cancelled)
+                if (_stream_signature(log) != signature or
+                        abs(duration - segments[number]['duration']) > max(2, segments[number]['duration'] * .01)):
+                    raise LiveError('来源时间跳跃无法安全整理，未发布文件；原录像保留')
+                merge_sources[number] = converted
         # ffconcat quoting is independent of shell quoting; no shell is involved.
         with listing.open('x', encoding='utf-8') as handle:
             os.chmod(listing, 0o600)
-            for source in sources:
+            for source in merge_sources:
                 if '\n' in str(source) or '\r' in str(source):
                     raise LiveError('录像路径包含换行，无法安全合并；原文件保留')
                 handle.write("file '" + str(source).replace("'", "'\\''") + "'\n")
@@ -482,8 +515,11 @@ def export_recording(segments, recording, ffmpeg, *, target, register=None,
         os.link(temp, target, follow_symlinks=False)
         progress('complete', 100)
         return dict(path=str(target), duration=duration, segment_count=len(segments),
-                    bytes=target.stat().st_size, sha256=fingerprint(target))
+                    bytes=target.stat().st_size, sha256=fingerprint(target),
+                    timestamp_warning=any(discontinuous))
     finally:
         for path in (temp, listing):
             if path.exists() and not path.is_symlink():
                 path.unlink()
+        if normalized is not None:
+            normalized.cleanup()

@@ -16,6 +16,79 @@ import tempfile
 # These are deliberately real behavior tests, not string/constant checks. Keep the
 # list small enough for every build while representing every high-risk user seam.
 CAPABILITY_TESTS = (
+    'tests.test_fix_list_20261108.VoiceStartupTests.test_system_start_keeps_paint_ticks_and_cancel_alive',
+    'tests.test_fix_list_20261108.VoiceStartupTests.test_mixed_start_keeps_cancel_alive_and_never_starts_microphone_after_cancel',
+    'tests.test_fix_list_20261108.VoiceStartupTests.test_start_prevents_reentry_and_source_change_then_can_stop',
+    'tests.test_fix_list_20261108.VoiceStartupTests.test_close_while_preparing_waits_for_session_cleanup',
+    'tests.test_fix_list_20261108.VoiceStartupTests.test_real_backend_timeout_with_fake_child_cleans_process_and_files',
+    'tests.test_fix_list_20261108.HistoryFontTests.test_overlay_text_scales_without_clipping_or_accumulation',
+    'tests.test_fix_list_20261108.HistoryMoveRecoveryTests.test_successful_system_move_then_failed_index_is_visible_and_resumes_without_duplicate',
+    'tests.test_fix_list_20261108.HistoryMoveRecoveryTests.test_receipt_or_post_commit_failure_never_duplicates_move_or_loses_put_back',
+    'tests.test_fix_list_20261108.SettingsNoticeTests.test_about_trust_notice_is_visible_and_separate_from_privacy',
+    'tests.test_fix_list_20261108.SettingsNoticeTests.test_experience_skill_status_does_not_claim_cli_disconnected',
+    'tests.test_review_edition_voice_boundaries.DevelopmentUiBoundaryTests.test_experience_prompt_uses_current_bundle_without_stable_skill_install',
+    'tests.test_review_edition_voice_boundaries.DevelopmentUiBoundaryTests.test_settings_cli_metadata_is_bound_to_the_running_experience',
+    'tests.test_review_edition_voice_boundaries.DevelopmentUiBoundaryTests.test_stable_prompt_keeps_public_skill_and_canonical_cli',
+    'tests.test_review_edition_voice_boundaries.DevelopmentUiBoundaryTests.test_disabled_update_is_information_without_retry_even_for_persisted_error',
+    'tests.test_review_edition_voice_boundaries.DevelopmentUiBoundaryTests.test_experience_auto_check_never_initializes_service',
+    'tests.test_review_edition_voice_boundaries.DevelopmentUiBoundaryTests.test_actual_settings_page_hides_disabled_updates_and_copies_correct_connection',
+    'tests.test_review_edition_voice_boundaries.DevelopmentUiBoundaryTests.test_native_update_panels_do_not_offer_retry_or_auto_toggle_for_experience',
+    'tests.test_review_edition_voice_boundaries.VoiceBoundaryTests.test_external_reference_matching_id_and_filename_never_rebases',
+    'tests.test_review_edition_voice_boundaries.VoiceBoundaryTests.test_relocated_owned_voice_survives_edit_and_second_relocation',
+    'tests.test_review_edition_voice_boundaries.VoiceBoundaryTests.test_partial_delete_reports_failure_keeps_index_and_allows_retry',
+    'tests.test_review_edition_voice_boundaries.VoiceBoundaryTests.test_index_failure_after_file_removal_is_reported_and_retryable',
+    'tests.test_review_edition_voice_boundaries.VoiceBoundaryTests.test_delete_never_follows_voice_folder_symlink',
+    'tests.test_cli_expansion.ExpansionTests.test_partial_voice_delete_is_not_success_and_retry_finishes',
+    'tests.test_cli_expansion.ExpansionTests.test_voice_delete_cleans_residue_even_when_old_index_entry_is_absent',
+    'tests.test_voice_library.VoiceLibraryTests.test_partial_delete_keeps_edit_open_and_reports_retry',
+    'tests.test_runtime_verification_reuse.RuntimeVerificationReuseTests.test_cold_signed_package_verification_reads_tree_once',
+    'tests.test_runtime_verification_reuse.RuntimeVerificationReuseTests.test_single_scan_still_rejects_changed_directory_before_signature',
+    'tests.test_development_edition.DevelopmentEditionTests.test_core_layout_uses_same_edition_root_as_install_handover',
+    'tests.test_development_edition.DevelopmentEditionTests.test_sealed_profile_has_distinct_name_id_and_no_upload',
+    'tests.test_development_edition.DevelopmentEditionTests.test_environment_cannot_select_development_storage',
+    'tests.test_development_edition.DevelopmentEditionTests.test_isolated_storage_and_optional_commands_do_not_overlap',
+    'tests.test_development_edition.DevelopmentEditionTests.test_real_workspace_writes_leave_stable_preferences_unchanged',
+    'tests.test_development_edition.DevelopmentEditionTests.test_development_basename_requires_matching_sealed_metadata',
+    'tests.test_development_edition.DevelopmentEditionTests.test_development_install_target_does_not_accept_stable_app',
+    'tests.test_development_edition.DevelopmentEditionTests.test_model_credentials_reuse_is_read_only_for_stable_service',
+    'tests.test_development_edition.DevelopmentEditionTests.test_clearing_experience_connection_never_revives_or_deletes_stable_key',
+    'tests.test_development_edition.DevelopmentEditionTests.test_experience_never_downloads_or_stages_stable_update',
+
+    'tests.test_feishu_unified_save.DocumentWriteTests.test_update_applies_changed_name_and_retry_keeps_one_exact_document',
+    'tests.test_feishu_unified_save.DocumentWriteTests.test_rejected_title_update_keeps_original_body_and_reports_unconfirmed',
+    'tests.test_feishu_unified_save.DocumentWriteTests.test_success_response_without_actual_title_change_is_not_complete',
+    'tests.test_feishu_unified_save.DocumentWriteTests.test_create_folder_update_revision_and_retry',
+    'tests.test_feishu_unified_save.DocumentWriteTests.test_partial_doc_has_link_and_stops_batch',
+    'tests.test_feishu_unified_save.DocumentWriteTests.test_rejected_creation_is_retryable',
+    'tests.test_feishu_unified_save.DocumentWriteTests.test_concurrent_edit_never_deletes_original',
+    'tests.test_feishu_unified_save.DocumentTests.test_remote_edits_are_zero_write',
+    'tests.test_mixed_recording_alignment.MixedRecordingAlignmentTests.test_delayed_device_pulses_align_on_the_shared_capture_timeline',
+    'tests.test_mixed_recording_alignment.MixedRecordingAlignmentTests.test_missing_or_invalid_capture_clock_never_silently_aligns_file_starts',
+    'tests.test_mixed_recording_alignment.MixedRecordingAlignmentTests.test_both_recording_surfaces_forward_the_actual_capture_origins',
+    'tests.test_mixed_recording_alignment.MicrophoneCaptureClockTests.test_media_duration_tracks_actual_capture_start_and_ignores_late_ui_delivery',
+    'tests.test_mixed_recording_alignment.MicrophoneCaptureClockTests.test_final_duration_uses_stop_request_time_instead_of_delayed_encoder_callback',
+    'tests.test_macos_system_audio_backend.SystemAudioStartupTests.test_capture_clock_survives_messages_before_or_after_start_acknowledgement',
+    'tests.test_system_audio_package.SystemAudioPackageTests.test_only_exact_native_system_audio_component_is_allowed',
+    'tests.test_recording_ui_responsiveness.RecordingResponsivenessTests.test_start_keeps_event_loop_responsive_and_repeated_click_does_not_start_twice',
+    'tests.test_recording_ui_responsiveness.RecordingResponsivenessTests.test_cancel_while_starting_disposes_session_without_claiming_recording',
+    'tests.test_recording_ui_responsiveness.RecordingResponsivenessTests.test_cancel_while_saving_keeps_window_live_and_never_enqueues_output',
+    'tests.test_recording_ui_responsiveness.RecordingResponsivenessTests.test_helper_ending_itself_settles_existing_recording_instead_of_leaving_timer_running',
+    'tests.test_extraction_workspace.ExtractionWorkspaceTests.test_recording_prepare_and_save_show_busy_label_and_disable_repeated_start',
+    'tests.test_macos_system_audio_backend.SystemAudioStartupTests.test_installed_component_does_not_require_developer_tools',
+    'tests.test_macos_system_audio_backend.SystemAudioStartupTests.test_incomplete_installed_app_never_compiles_on_user_machine',
+    'tests.test_macos_system_audio_backend.SystemAudioStartupTests.test_actual_failed_child_reports_permission_or_storage_and_removes_partial_output',
+    'tests.test_macos_system_audio_backend.SystemAudioStartupTests.test_stop_failure_uses_native_reason_and_never_claims_permission_for_disk_full',
+    'tests.test_macos_system_audio_backend.SystemAudioStartupTests.test_both_recording_surfaces_preserve_specific_backend_error',
+    'tests.test_macos_system_audio_backend.MacOSSystemAudioSessionTests.test_unreadable_container_is_not_reported_as_success',
+    'tests.test_feishu_unified_ui.LastDestinationTests.test_document_restore_does_not_wait_for_unrelated_previous_table',
+    'tests.test_feishu_unified_ui.LastDestinationTests.test_new_table_does_not_fetch_remembered_existing_table',
+    'tests.test_recording_audio_bounds.RecordingAudioBoundsTests.test_both_recording_paths_stream_long_audio_with_exact_statistics',
+    'tests.test_microphone_recorder_results.MicrophoneRecorderResultTests.test_zero_duration_does_not_publish_container_only_recording',
+    'tests.test_microphone_recorder_results.MicrophoneRecorderResultTests.test_error_followed_by_stopped_never_publishes_success',
+    'tests.test_microphone_recorder_results.MicrophoneRecorderResultTests.test_valid_recording_finishes_once_and_next_attempt_recovers',
+    'tests.test_feishu_unified_ui.RedesignedSurfaceTests.test_accessible_toggle_updates_form_and_save_selection',
+    'tests.test_feishu_unified_ui.RedesignedSurfaceTests.test_named_saved_location_cannot_replace_requested_content_name',
+    'tests.test_feishu_unified_ui.RedesignedSurfaceTests.test_resolved_location_keeps_requested_document_name',
     'tests.test_homepage_review_followup.PaginationReviewTests.test_foreign_tail_keeps_target_works_without_claiming_platform_revision',
     'tests.test_homepage_review_followup.AnonymousReadReviewTests.test_continuous_slow_response_cannot_extend_request_deadline',
     'tests.test_homepage_review_followup.AnonymousReadReviewTests.test_successful_real_socket_response_still_parses_without_watcher_leak',
@@ -66,7 +139,7 @@ CAPABILITY_TESTS = (
     'tests.test_homepage_reliability_ui.HomepageUiReliabilityTests.test_fast_completed_task_double_click_writes_only_one_history_then_allows_retry',
     'tests.test_homepage_reliability_ui.HomepageUiReliabilityTests.test_full_mode_double_click_does_not_stop_or_create_second_worker',
     'tests.test_homepage_reliability_ui.HomepageUiReliabilityTests.test_start_reentry_cannot_replace_current_worker_or_token',
-    'tests.test_homepage_reliability_ui.HomepageUiReliabilityTests.test_pinned_source_order_is_default_but_explicit_date_sort_is_preserved',
+    'tests.test_homepage_reliability_ui.HomepageUiReliabilityTests.test_date_is_default_but_explicit_source_order_is_preserved',
     'tests.test_homepage_reliability_ui.HomepageUiReliabilityTests.test_hidden_failure_and_later_hide_never_promise_absent_button',
     'tests.test_homepage_reliability_ui.HomepageUiReliabilityTests.test_out_of_range_platform_date_does_not_break_result_table',
     'tests.test_homepage_reliability_ui.HomepageUiReliabilityTests.test_partial_errors_keep_specific_guidance_and_retained_count',
@@ -99,6 +172,42 @@ CAPABILITY_TESTS = (
     'tests.test_douyin_partial_login_ui.DouyinPartialLoginUiTests.test_context_change_while_confirmation_is_open_cannot_start_retry',
     'tests.test_douyin_partial_login_ui.DouyinPartialLoginUiTests.test_frozen_document_limit_is_bounded_without_expansion',
     'tests.test_douyin_partial_login_ui.DouyinPartialLoginUiTests.test_manual_login_progress_uses_safe_fixed_instructions',
+    'tests.test_homepage_login_feedback.HiddenLoginStateTests.test_hidden_busy_snapshot_cannot_block_login_after_idle_heartbeat',
+    'tests.test_homepage_login_feedback.HiddenLoginStateTests.test_hidden_idle_snapshot_cannot_allow_login_after_busy_heartbeat',
+    'tests.test_homepage_login_feedback.HiddenLoginStateTests.test_heartbeat_updates_hidden_login_controls_in_both_directions',
+    'tests.test_homepage_login_feedback.HiddenLoginStateTests.test_hidden_login_presence_tracks_heartbeat_and_does_not_restore_old_cookie',
+    'tests.test_homepage_login_feedback.HiddenLoginStateTests.test_unavailable_connection_has_its_own_feedback',
+    'tests.test_homepage_login_feedback.HiddenLoginStateTests.test_collection_pending_save_and_closing_still_block_browser',
+    'tests.test_homepage_login_feedback.HiddenLoginStateTests.test_collection_bridge_preserves_specific_rejection_reason',
+    'tests.test_homepage_login_feedback.CollectionLoginViewTests.test_real_view_disables_login_with_reason_then_recovers_without_navigation',
+    'tests.test_homepage_login_feedback.CollectionLoginViewTests.test_partial_login_retry_cannot_start_while_login_changes_are_blocked',
+    'tests.test_homepage_login_feedback.CollectionLoginViewTests.test_active_login_remains_cancellable_even_when_other_controls_are_blocked',
+    'tests.test_homepage_login_feedback.CollectionLoginViewTests.test_403_ui_retry_keeps_original_author_small_scope_and_single_explicit_start',
+    'tests.test_shared_douyin_login.SharedLoginTests.test_heartbeat_refreshes_presence_without_reading_any_credential',
+    'tests.test_douyin_anonymous_response.AnonymousHomepageResponseTests.test_session_query_signature_and_request_share_one_browser_identity',
+    'tests.test_douyin_anonymous_response.AnonymousHomepageResponseTests.test_detail_refresh_uses_the_same_consistent_anonymous_identity',
+    'tests.test_homepage_review_repairs.ConnectionRecoveryTests.test_initial_open_failure_retries_same_nonce_and_recovers',
+    'tests.test_homepage_review_repairs.ConnectionRecoveryTests.test_open_failures_stop_after_three_attempts_with_clear_message',
+    'tests.test_homepage_review_repairs.ConnectionRecoveryTests.test_exit_cancels_scheduled_retry',
+    'tests.test_homepage_review_repairs.ConnectionRecoveryTests.test_one_heartbeat_failure_is_tolerated_three_trigger_recovery_without_replay',
+    'tests.test_homepage_review_repairs.ConnectionRecoveryTests.test_exit_during_failed_open_finishes_without_reopening',
+    'tests.test_homepage_review_repairs.ConnectionRecoveryTests.test_reconnect_stops_if_open_succeeds_but_heartbeats_never_recover',
+    'tests.test_homepage_review_repairs.LoginBoundaryTests.test_browser_retry_ignores_live_connectivity_and_activity_but_not_real_conflicts',
+    'tests.test_homepage_review_repairs.LoginBoundaryTests.test_save_failure_retains_specific_core_reason_and_legacy_callback_stays_compatible',
+    'tests.test_homepage_review_repairs.LoginBoundaryTests.test_cancel_is_rejected_after_save_is_dispatched',
+    'tests.test_homepage_review_repairs.PresenceFailureTests.test_index_read_failure_returns_error_presence_and_keeps_heartbeat_alive',
+    'tests.test_homepage_review_repairs.RecoveredCollectionViewTests.test_disconnected_live_service_does_not_disable_real_403_retry_button',
+    'tests.test_homepage_review_repairs.RecoveredCollectionViewTests.test_known_short_link_author_survives_the_real_ui_retry',
+    'tests.test_homepage_review_repairs.RecoveredCollectionViewTests.test_saved_login_retry_caption_does_not_require_a_new_login',
+    'tests.test_homepage_review_repairs.RecoveredCollectionViewTests.test_saving_stage_disables_cancel_in_the_real_view',
+    'tests.test_collection_retry_identity.RetryAuthorIdentityTests.test_failure_after_resolving_author_preserves_that_author',
+    'tests.test_collection_retry_identity.RetryAuthorIdentityTests.test_adapter_carries_valid_author_out_of_anonymous_failure',
+    'tests.test_collection_retry_identity.RetryAuthorIdentityTests.test_known_author_is_frozen_without_reexpanding_short_link_and_keeps_raw_input',
+    'tests.test_collection_retry_identity.RetryAuthorIdentityTests.test_conflicting_long_url_and_frozen_author_are_rejected',
+    'tests.test_collection_retry_identity.RetryAuthorIdentityTests.test_unknown_author_before_403_still_uses_explicit_browser_resolution',
+    'tests.test_collection_retry_identity.RetryAuthorIdentityTests.test_malformed_author_metadata_cannot_become_a_retry_target',
+    'tests.test_collection_retry_identity.RetryAuthorIdentityTests.test_existing_frozen_author_is_not_replaced_by_later_metadata',
+    'tests.test_collection_retry_identity.RetryAuthorIdentityTests.test_frozen_target_rejects_other_author_from_real_browser_parser',
     'tests.test_douyin_anonymous_response.AnonymousHomepageResponseTests.test_query_parameters_do_not_change_target_author',
     'tests.test_douyin_anonymous_response.AnonymousHomepageResponseTests.test_access_denial_rate_limit_and_server_failure_have_typed_causes',
     'tests.test_douyin_anonymous_response.AnonymousHomepageResponseTests.test_empty_response_does_not_claim_profile_is_empty',
@@ -113,6 +222,7 @@ CAPABILITY_TESTS = (
     'tests.test_live_control_responsiveness.ControlResponsivenessTests.test_two_rooms_share_volume_check_and_cancel_only_the_requested_room',
     'tests.test_live_control_responsiveness.ControlResponsivenessTests.test_pause_all_settles_before_new_start_and_totals_remain_consistent',
     'tests.test_live_control_responsiveness.ControlResponsivenessTests.test_click_pause_all_cancels_slow_start_before_disk_returns',
+    'tests.test_live_control_responsiveness.ApprovedControlResponsivenessTests.test_pause_all_remains_available_while_first_start_is_pending',
     'tests.test_live_control_responsiveness.ControlResponsivenessTests.test_directory_picker_keeps_pause_heartbeat_and_complete_stop_free',
     'tests.test_live_control_responsiveness.ControlResponsivenessTests.test_pause_click_before_start_reaches_core_prevents_late_enable',
     'tests.test_live_control_responsiveness.ControlResponsivenessTests.test_late_success_after_pause_cannot_restore_started_ui',
@@ -185,6 +295,8 @@ CAPABILITY_TESTS = (
     'tests.test_live_workspace_interactions.WorkspaceInteractionTests.test_reconnect_releases_pending_choice_without_replaying_mutation',
     'tests.test_live_workspace_interactions.WorkspaceInteractionTests.test_cancelled_login_cannot_save_late_cookie_and_stop_waits',
     'tests.test_live_workspace_interactions.WorkspaceInteractionTests.test_browser_login_saves_only_after_valid_result_and_keeps_cookie_hidden',
+    'tests.test_live_workspace_interactions.WorkspaceInteractionTests.test_collection_login_opens_directly_and_cancels_without_saving_late_result',
+    'tests.test_live_browser_login.LiveBrowserLoginTests.test_installed_chrome_is_not_reported_missing_after_signature_timeout',
     'tests.test_live_workspace_interactions.WorkspaceInteractionTests.test_login_store_failure_does_not_claim_connection_and_allows_retry',
     'tests.test_live_workspace_interactions.WorkspaceInteractionTests.test_small_access_card_scrolls_and_escape_restores_focus',
     'tests.test_live_browser_login.LiveBrowserLoginTests.test_only_current_douyin_session_and_safe_header_values',
@@ -210,6 +322,7 @@ CAPABILITY_TESTS = (
     'tests.test_extraction_main_window.ExtractionMainWindowTests.test_real_failure_and_web_retry_reset_elapsed',
     'tests.test_extraction_main_window.ExtractionMainWindowTests.test_paused_group_does_not_block_other_group_or_independent_task',
     'tests.test_extraction_main_window.ExtractionMainWindowTests.test_recording_paths_do_not_reuse_same_second',
+    'tests.test_extraction_main_window.ExtractionMainWindowTests.test_recording_button_unifies_active_state_and_timer',
     'tests.test_extraction_main_window.ExtractionMainWindowTests.test_receipt_failure_after_document_commit_retries_save_after_restart',
     'tests.test_extraction_main_window.ExtractionMainWindowTests.test_cancelled_group_member_leaves_visible_resume_for_remaining',
     'tests.test_extraction_main_window.ExtractionMainWindowTests.test_retry_elapsed_excludes_idle_time',
@@ -227,6 +340,7 @@ CAPABILITY_TESTS = (
     'tests.test_native_asr.NativeASRTests.test_failed_task_releases_resource',
     'tests.test_native_asr.NativeASRTests.test_partial_is_private_and_never_marked_success',
     'tests.test_native_asr.NativeASRTests.test_native_cancel_reaps_own_process',
+    'tests.test_native_asr.NativeASRTests.test_native_cancel_reaps_child_with_inherited_blocked_signals',
     'tests.test_native_asr.NativeASRTests.test_zero_silence_rejected_but_quiet_signal_kept',
     'tests.test_native_asr.NativeASRTests.test_moss_preflight_blocks_context_overflow_and_memory_pressure',
     'tests.test_native_asr.NativeASRTests.test_parent_death_reaps_native_child_and_releases_lock',
@@ -550,14 +664,14 @@ CAPABILITY_TESTS = (
     'tests.test_live_recording_ui.NativeLiveTests.test_segment_extract_hands_off_original_without_exporting',
     'tests.test_live_recording_ui.NativeLiveTests.test_extract_rejects_unfinished_and_changed_segments_without_creating_tasks',
     'tests.test_live_recording_ui.NativeLiveTests.test_export_picker_selects_audio_location_and_cancel_has_no_effect',
-    'tests.test_live_recording_ui.NativeLiveTests.test_left_cross_removes_host_in_one_click_and_keeps_recordings',
+    'tests.test_live_recording_ui.NativeLiveTests.test_left_cross_confirms_host_removal_and_keeps_recordings',
     'tests.test_live_recording_ui.NativeLiveTests.test_segments_update_automatically_and_keep_selection_and_scroll',
     'tests.test_live_recording_ui.NativeLiveTests.test_segment_updates_pause_for_actions_and_discard_late_close_reply',
     'tests.test_live_recording_ui.NativeLiveTests.test_both_clock_columns_inherit_body_font_and_size',
     'tests.test_live_recording_ui.NativeLiveTests.test_segment_close_button_backdrop_and_escape_stop_refresh_without_clicking_through',
     'tests.test_live_recording_ui.NativeLiveTests.test_segment_overlay_fits_resize_and_keyboard_stays_inside_card',
     'tests.test_live_recording_ui.NativeLiveTests.test_segment_close_survives_destruction_of_original_focus_button',
-    'tests.test_live_recording_ui.NativeLiveTests.test_archive_last_column_deletes_registered_folder_with_one_click',
+    'tests.test_live_recording_ui.NativeLiveTests.test_archive_last_column_confirms_then_moves_registered_folder',
     'tests.test_live_recording_ui.NativeLiveTests.test_late_detail_and_data_replies_cannot_reopen_deleted_recording',
     'tests.test_live_recording_ui.NativeLiveTests.test_recording_delete_disabled_and_failure_reenables_for_retry',
     'tests.test_live_recording_ui.NativeLiveTests.test_slow_trash_request_keeps_pause_and_shutdown_available',
@@ -651,7 +765,7 @@ CAPABILITY_TESTS = (
     "tests.test_skill_manager.SkillManagerTests.test_uninstall_survives_restart_and_can_restore_offline",
     "tests.test_skill_manager.SkillManagerTests.test_disable_invalidates_frozen_turn_and_is_durable",
     "tests.test_agent_workspace_cli.WorkspaceCliTests.test_skill_management_cli_and_chat_share_state",
-    "tests.test_skills_page.SkillsPageTests.test_switch_uninstalls_and_reinstalls_real_files",
+    "tests.test_skills_page.SkillsPageTests.test_switch_preserves_files_and_uninstall_and_restore_are_explicit",
     "tests.test_skills_page.SkillsPageTests.test_slow_install_waits_for_confirmed_state_and_survives_filter",
     "tests.test_qwen3_modular_deployment.DeploymentControllerTests.test_shutdown_never_starts_pending_feature",
     "tests.test_tts_weights_reuse.TTSWeightsReuseTests.test_prepare_tts_recovers_weights_before_missing_runtime_blocks_install",
@@ -741,6 +855,7 @@ CAPABILITY_TESTS = (
     "tests.test_agent_workspace_ui.AgentWorkspaceUiTests.test_rapid_list_clicks_skip_intermediate_documents",
     "tests.test_agent_workspace_shell.WorkspaceShellTests.test_navigation_and_titlebar_stay_stable_between_workspaces",
     "tests.test_agent_workspace_shell.WorkspaceShellTests.test_workbench_chrome_restored_after_each_library_kind",
+    "tests.test_agent_workspace_shell.WorkspaceShellTests.test_settings_sidebar_continues_to_window_top_at_responsive_widths",
     "tests.test_agent_workspace_ui.AgentWorkspaceUiTests.test_legacy_break_and_timestamp_selection_preserve_exact_source",
     "tests.test_agent_workspace_ui.AgentWorkspaceUiTests.test_composer_minimal_and_model_menu_keyboard_layout",
     "tests.test_agent_workspace_references.FormattedSourceRangeTests.test_cross_block_escape_mapping_uses_same_occurrence",
@@ -1053,8 +1168,20 @@ CAPABILITY_TESTS = (
     "tests.test_transcription_result_store.TranscriptionResultStoreTests.test_first_install_with_standard_parent_permissions_keeps_results_private",
     "tests.test_collection_p3a_ui.CollectionP3AUiTests."
     "test_collection_mode_control_persists_and_rolls_back",
+    "tests.test_collection_p3a_ui.CollectionP3AUiTests."
+    "test_material_preferences_save_without_showing_success_notice",
+    "tests.test_collection_inline_material.InlineMaterialTests."
+    "test_cover_without_address_checks_exact_work_on_click_and_can_retry",
     "tests.test_collection_history_ui.CollectionHistoryUiTests."
     "test_selected_row_background_is_opaque_and_continuous_across_columns",
+    "tests.test_collection_history.HistorySystemTrashTests."
+    "test_batch_move_and_finder_put_back_preserve_legacy_and_media",
+    "tests.test_collection_history.HistorySystemTrashTests."
+    "test_rejected_and_concurrent_moves_preserve_the_current_index",
+    "tests.test_settings_page.SettingsPageTests."
+    "test_legacy_settings_survive_font_and_independent_notice_preferences",
+    "tests.test_live_data_ui.NativeDataTests.test_chart_home_end_mouse_and_units_match_saved_samples",
+
     "tests.test_global_theme_batch3_libraries.GlobalThemeBatch3LibrariesTests."
     "test_folder_click_selects_and_clears_all_member_entries",
     "tests.test_task_queue_ui_recovery.TaskQueueUiRecoveryTests."
@@ -1177,6 +1304,13 @@ CAPABILITY_TESTS += (
     'tests.test_cli_expansion_ui.ControlWindowTests.test_settings_failed_save_restores_window_memory',
     'tests.test_cli_expansion_ui.ControlWindowTests.test_model_receipt_waits_for_existing_controller_actual_settlement',
     'tests.test_cli_expansion_ui.FullExportWindowTests.test_full_export_button_creates_actual_mp4_and_reports_completion',
+    'tests.test_live_timestamp_export.TimestampExportTests.test_probe_identifies_source_timestamp_jump_without_inventing_lost_seconds',
+    'tests.test_live_timestamp_export.TimestampExportTests.test_whole_export_keeps_all_frames_and_audio_when_one_part_has_timestamp_jump',
+    'tests.test_live_timestamp_export.TimestampExportTests.test_saved_recording_labels_timestamp_warning_separately_from_known_gaps',
+    'tests.test_live_timestamp_export.TimestampExportTests.test_cancel_during_timestamp_normalization_removes_only_new_partial_files',
+    'tests.test_live_timestamp_export.TimestampExportTests.test_short_disk_space_preserves_sources_and_does_not_start_normalization',
+    'tests.test_live_timestamp_export.TimestampExportTests.test_completed_media_persists_timestamp_warning_across_index_reopen',
+    'tests.test_trash_actions_ui.TrashActionsUiTests.test_context_menu_survives_other_pane_scroll_but_closes_with_its_anchor',
     'tests.test_live_full_export.FullMediaTests.test_real_merge_duration_audio_order_and_no_overwrite',
     'tests.test_live_full_export.FullMediaTests.test_incompatible_picture_is_explicitly_rejected',
     'tests.test_live_full_export.FullMediaTests.test_bad_or_missing_segment_never_silently_skipped',
@@ -1377,6 +1511,32 @@ CAPABILITY_TESTS += (
     'tests.test_extraction_layout_contract.ExtractionLayoutContractTests.test_readiness_changes_cannot_change_header_or_card_geometry',
 )
 
+CAPABILITY_TESTS += (
+    'tests.test_extraction_batches.ExtractionBatchTests.test_combined_poll_bounds_transport_size_without_losing_later_batches',
+    'tests.test_extraction_refresh_stability.ExtractionRefreshStabilityTests.test_chunked_refresh_keeps_later_batches_until_their_details_arrive',
+    'tests.test_release_cross_review.ReleaseCrossReviewTests.test_non_cocoa_window_ids_never_reach_native_pointer_calls',
+    'tests.test_extraction_refresh_stability.IdleBatchRefreshTests.test_idle_skips_unchanged_reads_but_external_atomic_writes_refresh',
+    'tests.test_extraction_refresh_stability.IdleBatchRefreshTests.test_active_and_periodic_fallback_reads_do_not_wait_for_watch_events',
+    'tests.test_extraction_refresh_stability.IdleBatchRefreshTests.test_missing_watch_uses_normal_polling_and_rearms_after_directory_creation',
+    'tests.test_extraction_refresh_stability.IdleBatchRefreshTests.test_change_during_reply_is_not_cleared_by_old_reply',
+    'tests.test_live_recording_ui.NativeLiveTests.test_only_idle_hidden_session_uses_slower_heartbeat',
+    'tests.test_transcription_input_recovery.TranscriptionInputRecoveryTests.test_invalid_media_reason_survives_service_and_cli_without_decoder_log',
+    'tests.test_transcription_input_recovery.TranscriptionInputRecoveryTests.test_empty_media_is_rejected_before_decoder_or_output_creation',
+    'tests.test_cli_local_transcription_run.CliLocalTranscriptionRunTests.test_run_executes_foreground_pipeline_and_commits_job_receipt',
+    'tests.test_cli_local_transcription_run.CliLocalTranscriptionRunTests.test_repeated_run_reports_existing_idempotent_job_without_new_id_mutation',
+    'tests.test_cli_local_transcription_run.CliLocalTranscriptionRunTests.test_result_write_failure_terminalizes_claimed_job',
+    'tests.test_voice_storage_integrity.VoiceStorageIntegrityTests.test_bad_index_never_becomes_an_empty_writable_library',
+    'tests.test_voice_storage_integrity.VoiceStorageIntegrityTests.test_missing_or_unreadable_index_preserves_existing_reference',
+    'tests.test_voice_storage_integrity.VoiceStorageIntegrityTests.test_partial_index_keeps_readable_rows_but_blocks_changes',
+    'tests.test_voice_storage_integrity.VoiceStorageIntegrityTests.test_relocation_uses_new_copy_even_when_old_directory_is_unavailable',
+    'tests.test_voice_storage_integrity.VoiceStorageIntegrityTests.test_existing_broken_relocation_target_does_not_change_active_library',
+    'tests.test_voice_storage_integrity.VoiceStorageIntegrityTests.test_delete_identifier_cannot_escape_voice_directory',
+    'tests.test_voice_storage_integrity.VoiceStorageIntegrityTests.test_model_identity_matches_engine_and_legacy_read_does_not_rewrite_index',
+    'tests.test_voice_storage_integrity.VoiceStorageIntegrityTests.test_relocation_write_probe_never_overwrites_an_existing_file',
+    'tests.test_voice_library.VoiceLibraryTests.test_broken_index_disables_changes_and_restored_library_reopens',
+    'tests.test_cli_expansion.ExpansionTests.test_unreadable_voice_index_reports_recovery_and_preserves_bytes',
+)
+
 def _git(repo: Path, *args: str) -> str:
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     result = subprocess.run(
@@ -1401,30 +1561,52 @@ def run_capability_gate(*, repo: Path, candidate: str = "HEAD") -> dict:
     env.update(
         {
             "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONFAULTHANDLER": "1",
             "QT_QPA_PLATFORM": "offscreen",
             "LULU_TEST_SECRET_STORE": "memory",
             "PYTHONPATH": os.pathsep.join((str(app), str(app / "tests"))),
         }
     )
-    result = subprocess.run(
-        [os.fspath(Path(os.sys.executable)), str(app / "packaging" / "run_product_capability_tests.py"), *CAPABILITY_TESTS],
-        cwd=app,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    combined = result.stdout + result.stderr
-    if result.returncode != 0:
-        raise SystemExit("产品能力门未通过，拒绝打包：\n" + combined[-8000:])
-    match = _TEST_COUNT_RE.search(combined)
-    if match is None or int(match.group(1)) != len(CAPABILITY_TESTS):
-        raise SystemExit("产品能力门结果不完整，拒绝打包")
+    command = [os.fspath(Path(os.sys.executable)), str(app / "packaging" / "run_product_capability_tests.py")]
+    groups = [([], CAPABILITY_TESTS)]
+    if os.sys.platform == 'darwin':
+        # Real local socket fixtures are permitted; provider/model/download
+        # tests cannot contact the internet, including their child processes.
+        policy = ('(version 1) (allow default) '
+                  '(deny network-outbound (remote ip "*:*")) '
+                  '(allow network-outbound (remote ip "localhost:*")) '
+                  '(deny network-inbound (local ip "*:*")) '
+                  '(allow network-inbound (local ip "localhost:*"))')
+        # macOS refuses to execute /bin/ps inside Seatbelt. These two reviewed
+        # fixtures only spawn owned sleeping helpers, inspect them and reap
+        # them; they contain no real downloader, credentials or network calls.
+        process_probes = (
+            'tests.test_adversarial_delivery.UpdateAdversarialTests.test_real_process_identity_preserves_long_executable_path_with_spaces',
+            'tests.test_download_runtime.DownloadProcessTests.test_cancellation_stops_owned_descendants',
+        )
+        assert set(process_probes) <= set(CAPABILITY_TESTS)
+        groups = [(['/usr/bin/sandbox-exec', '-p', policy],
+                   tuple(name for name in CAPABILITY_TESTS if name not in process_probes)),
+                  ([], process_probes)]
+    passed = 0
+    for prefix, names in groups:
+        result = subprocess.run([*prefix, *command, *names], cwd=app,
+                                capture_output=True, text=True, env=env)
+        combined = result.stdout + result.stderr
+        if result.returncode != 0:
+            # Preserve the active test and native-crash Python stack even if
+            # child renderers emit more diagnostics after the parent exits.
+            raise SystemExit(f"产品能力门未通过（退出 {result.returncode}），拒绝打包：\n" + combined)
+        match = _TEST_COUNT_RE.search(combined)
+        if match is None or int(match.group(1)) != len(names):
+            raise SystemExit("产品能力门结果不完整，拒绝打包")
+        passed += int(match.group(1))
     return {
         "schema_version": 1,
         "status": "passed",
         "candidate_commit": candidate_commit,
         "candidate_tree": candidate_tree,
-        "passed_test_count": int(match.group(1)),
+        "passed_test_count": passed,
         "capability_tests": list(CAPABILITY_TESTS),
     }
 
@@ -1496,6 +1678,13 @@ CAPABILITY_TESTS += ('tests.test_immediate_task_choices.ImmediateChoiceTests.tes
 CAPABILITY_TESTS += (
  'tests.test_trash_actions_ui.TrashActionsUiTests.test_document_context_menu_has_separate_archive_and_system_delete',
  'tests.test_trash_actions_ui.TrashActionsUiTests.test_batch_selection_preserves_list_node_and_actions_are_labelled_readable',
+)
+
+CAPABILITY_TESTS += (
+    'tests.test_skill_manager.SkillManagerTests.test_automatic_preference_survives_restore_and_cannot_override_package',
+    'tests.test_models_relocate.ModelsRelocateTests.test_stop_after_last_move_restores_the_old_directory',
+    'tests.test_settings_storage_visuals.SettingsStorageVisualTests.test_stop_voice_relocation_keeps_old_files_and_allows_retry',
+    'tests.test_user_notifications.UserNotificationServiceTests.test_status_check_never_prompts_even_if_not_determined',
 )
 
 CAPABILITY_TESTS += ('tests.test_archive_system_trash.ArchiveSystemTrashTests.test_interrupted_delete_with_restore_conflict_stays_visible_and_never_overwrites',)
@@ -1572,6 +1761,84 @@ CAPABILITY_TESTS += (
 
 CAPABILITY_TESTS += (
     'tests.test_first_version_shell.FirstVersionShellTests.test_library_rows_share_the_same_indicator_and_switch_kind_immediately',
+    'tests.test_first_version_shell.FirstVersionShellTests.test_approved_workspaces_release_profiles_after_closing_pages',
+    'tests.test_feishu_connection_flow.ConnectionFlowTests.test_expired_authorization_is_bound_to_the_rejected_saved_token',
+)
+
+CAPABILITY_TESTS += (
+    'tests.test_approved_workspace_conflicts.ApprovedWorkspaceConflictTests.test_large_selection_keeps_explicit_bounds_by_operation',
+    'tests.test_approved_workspace_conflicts.ApprovedWorkspaceConflictTests.test_read_only_record_tracks_displayed_works_without_writing_history',
+    'tests.test_approved_workspace_conflicts.ApprovedWorkspaceConflictTests.test_late_permission_cannot_override_latest_notification_choice',
+    'tests.test_approved_workspace_conflicts.ApprovedWorkspaceConflictTests.test_close_flushes_latest_font_and_can_report_failed_save',
+    'tests.test_approved_workspace_conflicts.ApprovedWorkspaceConflictTests.test_explicit_mode_rolls_back_on_failure_and_persists_on_success',
+    'tests.test_approved_workspace_conflicts.ApprovedWorkspaceConflictTests.test_extraction_fallback_does_not_inherit_collection_download_options',
+    'tests.test_approved_workspace_conflicts.ApprovedWorkspaceConflictTests.test_approved_collection_does_not_stage_legacy_tasks_without_save_confirmation',
+    'tests.test_extraction_batches.ExtractionBatchTests.test_collected_batch_reuses_one_repository_read_for_identity_and_assets',
+)
+
+CAPABILITY_TESTS += (
+    'tests.test_release_cross_review.ReleaseCrossReviewTests.test_late_feishu_preparation_cannot_open_after_record_switch',
+    'tests.test_release_cross_review.ReleaseCrossReviewTests.test_feishu_preparation_keeps_record_name_for_same_author',
+    'tests.test_release_cross_review.ReleaseCrossReviewTests.test_legacy_comment_keys_survive_search_page_append_and_distinguish_duplicates',
+    'tests.test_release_cross_review.ReleaseCrossReviewTests.test_comment_projection_does_not_reuse_a_key_for_different_content',
+    'tests.test_release_cross_review.ReleaseCrossReviewTests.test_failed_collection_transcript_keeps_its_failure_state',
+    'tests.test_release_cross_review.ReleaseCrossReviewTests.test_collection_duration_matches_export_rounding',
+    'tests.test_release_cross_review.ReleaseCrossReviewTests.test_rejected_feishu_credentials_stay_rejected_after_memory_cache_reset',
+    'tests.test_release_cross_review.ReleaseCrossReviewTests.test_dialog_text_scales_once_and_returns_to_original_size',
+    'tests.test_release_cross_review.ReleaseCrossReviewTests.test_font_drag_coalesces_window_repaints_and_keeps_last_choice',
+    'tests.test_release_cross_review.ReleaseFrontendTests.test_relative_dates_follow_midnight_without_reloading',
+    'tests.test_release_cross_review.ReleaseFrontendTests.test_repeated_rename_submits_once_and_failure_allows_retry',
+    'tests.test_release_cross_review.ReleaseFrontendTests.test_refused_navigation_preserves_displayed_page_and_secret',
+    'tests.test_release_cross_review.ReleaseCollectionPageTests.test_virtual_table_row_geometry_and_end_key_keep_last_work_reachable',
+    'tests.test_release_cross_review.ReleaseCollectionPageTests.test_legacy_removed_records_and_items_restore_without_overwriting_active_work',
+    'tests.test_collection_history.HistorySystemTrashTests.test_failed_put_back_registration_keeps_history_readable_and_retries',
+    'tests.test_extraction_batches.ExtractionBatchTests.test_combined_poll_reads_each_batch_once_and_keeps_requested_page',
+    'tests.test_extraction_outputs.ExtractionOutputTests.test_cover_metadata_failure_never_claims_the_work_has_no_cover',
+)
+
+CAPABILITY_TESTS += (
+    'tests.test_release_cross_review.ReleaseCrossReviewTests.test_attention_tracks_changed_work_even_when_unknown_count_is_unchanged',
+    'tests.test_live_recording.ServiceTests.test_interrupted_recording_attention_uses_recording_reason_until_resolved',
+)
+
+CAPABILITY_TESTS += (
+    'tests.test_cli_control_idle.ControlIdleTests.test_idle_reads_are_bounded_and_renew_before_core_lease_expires',
+    'tests.test_cli_control_idle.ControlIdleTests.test_database_command_and_new_job_events_restore_next_tick_read',
+    'tests.test_cli_control_idle.ControlIdleTests.test_event_during_pending_reply_is_not_consumed_by_old_reply',
+    'tests.test_cli_control_idle.ControlIdleTests.test_active_work_changed_settings_reports_and_errors_keep_fast_reads',
+    'tests.test_cli_control_idle.ControlIdleTests.test_missing_or_failed_watches_fall_back_and_replaced_database_reconnects',
+)
+
+CAPABILITY_TESTS += (
+    'tests.test_settings_skill_lifecycle.SettingsSkillLifecycleTests.test_success_keeps_running_worker_and_rejects_overlap',
+    'tests.test_settings_skill_lifecycle.SettingsSkillLifecycleTests.test_failed_result_keeps_worker_until_finished',
+    'tests.test_settings_skill_lifecycle.SettingsSkillLifecycleTests.test_close_ignores_late_result_and_retains_worker_until_finished',
+    'tests.test_settings_skill_navigation.SettingsSkillNavigationTests.test_click_skill_category_reads_once_and_displays_result',
+    'tests.test_settings_skill_navigation.SettingsSkillNavigationTests.test_return_to_skill_category_preserves_pending_read',
+    'tests.test_settings_skill_navigation.SettingsSkillNavigationTests.test_programmatic_category_navigation_still_loads_skills',
+    'tests.test_settings_feishu_saved_connection.SettingsFeishuSavedConnectionTests.test_existing_app_connection_loads_without_exposing_secret',
+    'tests.test_settings_feishu_saved_connection.SettingsFeishuSavedConnectionTests.test_pending_read_preserves_typed_app_id_and_secret',
+    'tests.test_settings_feishu_saved_connection.SettingsFeishuSavedConnectionTests.test_read_failure_offers_retry_without_oauth_or_overwrite',
+    'tests.test_podcast_streaming.PodcastStreamingTests.test_large_feed_returns_requested_prefix_without_downloading_tail',
+    'tests.test_podcast_streaming.PodcastStreamingTests.test_empty_or_invalid_feed_is_not_saved_as_success',
+    'tests.test_podcast_streaming.PodcastStreamingTests.test_input_budget_remains_bounded_without_usable_episodes',
+    'tests.test_podcast_streaming.PodcastStreamingTests.test_skips_non_audio_and_handles_unusable_optional_duration',
+    'tests.test_cli_expansion.ExpansionTests.test_unavailable_feed_has_actionable_error_and_keeps_saved_feeds',
+)
+
+CAPABILITY_TESTS += (
+    'tests.test_homepage_session_repair.PresenceTests.test_empty_browser_profile_is_not_saved_login',
+    'tests.test_homepage_session_repair.PresenceTests.test_partial_clear_and_saved_cookie_still_offer_recovery',
+    'tests.test_homepage_session_repair.PresenceTests.test_collection_clear_uses_shared_mutation_without_showing_native_overlay',
+    'tests.test_homepage_session_repair.PresenceTests.test_collection_clear_rechecks_busy_state_before_mutation',
+    'tests.test_homepage_session_repair.LoginViewTests.test_unsigned_surface_shows_only_login_even_if_profile_is_clearable',
+    'tests.test_homepage_session_repair.LoginViewTests.test_clear_confirmation_is_visible_inside_web_page_and_cancel_does_not_clear',
+    'tests.test_homepage_session_repair.LoginViewTests.test_confirm_clear_dispatches_once_and_never_opens_native_overlay',
+    'tests.test_homepage_session_repair.LoginViewTests.test_saved_browser_partial_collection_uses_browser_first_page_directly',
+    'tests.test_homepage_session_repair.AnonymousProtocolTests.test_homepage_request_has_current_server_identity_and_exact_query_signature',
+    'tests.test_homepage_session_repair.AnonymousProtocolTests.test_detail_request_uses_the_same_current_anonymous_protocol',
+    'tests.test_homepage_session_repair.AnonymousProtocolTests.test_registration_takes_visitor_identity_from_server_header_without_credentials',
+    'tests.test_homepage_session_repair.AnonymousProtocolTests.test_registration_missing_server_identity_is_not_reported_as_a_login_failure',
 )
 
 if __name__ == "__main__":

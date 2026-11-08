@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.edition import product_data_root
+
 from pathlib import Path
 import sys
 
@@ -16,7 +18,7 @@ def main() -> int:
     # or credential values. This lets a stalled native call be traced to its
     # Python caller without changing the running service or asking for secrets.
     from src.core.diagnostics import enable_core_stack_diagnostics
-    enable_core_stack_diagnostics(Path.home() / "Library/Application Support/Lulu")
+    enable_core_stack_diagnostics(product_data_root())
     resource_root = executable.parent.parent / "Resources"
     if sys.argv[1:2] in (['--migrate-legacy-tasks'], ['--inherit-legacy-tasks']):
         from src.core.agent_entry.local_task_storage import migration_entry

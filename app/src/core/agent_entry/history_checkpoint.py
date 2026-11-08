@@ -5,6 +5,8 @@ old ledger is changed. An unchanged predecessor can reuse the retained checkpoin
 reauthenticates history changed by rollback or later work before merging it.
 Pre-swap consumers always require the captured snapshot to match exactly.
 """
+
+from src.edition import product_data_root
 import hashlib
 import hmac
 import os
@@ -122,7 +124,7 @@ def prepare_checkpoint(app, *, keys, run_cli=None):
     from .task_handover_context import capture_context
     from .standalone_history import merge_history
     app = installed_app(Path(app))
-    product = Path.home()/'Library/Application Support/Lulu'
+    product = product_data_root()
     state = state_for_app(app)
     def verify():
         owner = verify_ownership_receipt(state/'ownership.json', key_store=keys)

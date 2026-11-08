@@ -143,7 +143,7 @@ class ExtractionBatchMixin:
         _path, fd, _identity = open_destination(directory)
         os.close(fd)
 
-    def _initialize_extraction(self, plan, options):
+    def _initialize_extraction(self, plan, options, collected_by_key):
         plan['workspace'] = {k: v for k, v in options.items() if k != 'selections'}
         for key in ('outputs','save_media','media_directory','prefer_subtitles','operation'):
             plan.pop(key, None)
@@ -176,15 +176,15 @@ class ExtractionBatchMixin:
                 for key, value in (tr.meta or {}).get('extraction_assets', {}).items():
                     if key in {'video', 'cover'} and self._usable_asset(value):
                         assets[key] = dict(state='ready', path=value)
-            if item.get('stable_key'):
-                from ..collect.repository import CollectionRepository
-                collected = next((v for v in CollectionRepository().load().items
-                                  if v.stable_key == item['stable_key']), None)
-                if collected:
-                    for key, value in [('video', collected.media_local_path),
-                                       ('cover', collected.cover_local_path)]:
-                        if self._usable_asset(value):
-                            assets[key] = dict(state='ready', path=value)
+            # prepare() already validated all work IDs against this snapshot.
+            # Reuse it for media; reading the whole repository per work makes
+            # preparing a collected batch quadratic in the number of works.
+            collected = collected_by_key.get(item['stable_key'])
+            if collected:
+                for key, value in [('video', collected.media_local_path),
+                                   ('cover', collected.cover_local_path)]:
+                    if self._usable_asset(value):
+                        assets[key] = dict(state='ready', path=value)
             item.update(selection=selection, assets=assets, hidden=False, auto_paused=False,
                         attempt_id=None, attempts=[], attempt_selection=None,
                         document_id=assets['text'].get('document_id'))
@@ -819,6 +819,8 @@ class ExtractionBatchMixin:
                          offset=offset, has_more=limit is not None and offset+limit<len(shown), counts=counts,
                          progress=round(100*counts['succeeded']/max(1,sum(counts.values())),1),
                          unconfirmed_count=sum(any(a['state']=='unknown' for a in i['assets'].values()) for i in all_items),
+                         attention_keys=[f"{i['index']}:{i.get('attempt_id','')}" for i in all_items
+                             if not i.get('hidden') and any(a['state']=='unknown' for a in i['assets'].values())],
                          upload_notice='需要语音识别时音频会上传至所选服务商并按账户计费' if batch['engine'] in cloud_ids() else '')
             batch['needs_cloud_upload'] = batch['engine'] in cloud_ids() and any(
                 not i.get('hidden') and 'text' in i['selection']['outputs']

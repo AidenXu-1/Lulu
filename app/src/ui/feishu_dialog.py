@@ -16,7 +16,6 @@ from uuid import uuid4
 from PySide6.QtCore import QPoint, QSize, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
-    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -27,6 +26,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .theme import TextScaledDialog as QDialog
 
 from ..core import feishu, secrets
 from . import dialogs, icons, theme as T

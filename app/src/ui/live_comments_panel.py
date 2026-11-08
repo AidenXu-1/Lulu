@@ -88,6 +88,8 @@ class _CommentDelegate(QStyledItemDelegate):
         divider.setAlphaF(.55)
         painter.setPen(divider)
         painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+        if index.column() < 2:
+            painter.drawLine(rect.topRight(), rect.bottomRight())
         if option.state & QStyle.StateFlag.State_HasFocus:
             painter.setPen(QColor(c.ink_muted))
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -210,7 +212,7 @@ class LiveCommentsPanel(QWidget):
         self.table.setAccessibleName('本场已保存弹幕')
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.table.setShowGrid(False)
         self.table.setFrameShape(QFrame.Shape.NoFrame)
         self.table.setMouseTracking(True)

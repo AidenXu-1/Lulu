@@ -18,6 +18,8 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -168,6 +170,19 @@ class _ConsumerSelectPopup(QFrame):
                 _PAPER_POPUP_PADDING,
             )
             content_layout.setSpacing(0)
+        self.search = None
+        self._filtered_rows = []
+        self._chrome_height = 0
+        if owner.search_placeholder:
+            self.search = QLineEdit(content_parent)
+            self.search.setFixedHeight(34)
+            self.search.setPlaceholderText(owner.search_placeholder)
+            self.search.setAccessibleName(owner.search_placeholder)
+            self.search.setClearButtonEnabled(True)
+            self.search.installEventFilter(self)
+            self.search.textChanged.connect(self._filter_rows)
+            content_layout.addWidget(self.search)
+            self._chrome_height += 34
         self.scroll = QScrollArea(content_parent)
         self.scroll.setObjectName("consumerSelectScroll")
         self.scroll.setWidgetResizable(True)
@@ -190,8 +205,18 @@ class _ConsumerSelectPopup(QFrame):
         self._rows_layout.setSpacing(
             _PAPER_OPTION_SPACING if owner.paper_popup else 2
         )
+        self.no_results = QLabel("没有符合条件的记录")
+        self.no_results.setAlignment(Qt.AlignCenter)
+        self.no_results.setFixedHeight(_PAPER_OPTION_ROW_HEIGHT)
+        self._rows_layout.addWidget(self.no_results)
         self.scroll.setWidget(self._rows_host)
         content_layout.addWidget(self.scroll)
+        if owner.manage_label:
+            self.manage = QPushButton(owner.manage_label)
+            self.manage.setFixedHeight(36)
+            self.manage.clicked.connect(self._manage)
+            content_layout.addWidget(self.manage)
+            self._chrome_height += 36
         self.rebuild_rows()
         self.refresh_theme()
 
@@ -199,15 +224,58 @@ class _ConsumerSelectPopup(QFrame):
         while self._rows_layout.count():
             item = self._rows_layout.takeAt(0)
             widget = item.widget()
-            if widget is not None:
+            if widget is not None and widget is not self.no_results:
                 widget.deleteLater()
         self.rows = []
         for value, label in self.owner.options:
             row = _OptionRow(value, label, self)
             self.rows.append(row)
             self._rows_layout.addWidget(row)
+        self._rows_layout.addWidget(self.no_results)
         self._active_index = max(0, self.owner.index_of(self.owner.currentData()))
+        self._filter_rows(self.search.text() if self.search else "", resize=False)
         self._sync_rows()
+
+    def _manage(self):
+        self.close()
+        self.owner.manage_requested.emit()
+
+    def _filter_rows(self, text: str, *, resize: bool = True) -> None:
+        query = text.strip().casefold()
+        self._filtered_rows = [row for row in self.rows if query in row.label.casefold()]
+        visible = set(self._filtered_rows)
+        for row in self.rows:
+            row.setVisible(row in visible)
+        self.no_results.setVisible(not visible)
+        if self._filtered_rows and (not 0 <= self._active_index < len(self.rows)
+                                    or self.rows[self._active_index] not in visible):
+            self._active_index = self.rows.index(self._filtered_rows[0])
+        self._sync_rows()
+        if resize and self.isVisible():
+            self._resize_rows()
+
+    def _resize_rows(self):
+        count = max(1, len(self._filtered_rows))
+        row = _PAPER_OPTION_ROW_HEIGHT if self.owner.paper_popup else _DEFAULT_OPTION_ROW_HEIGHT
+        spacing = _PAPER_OPTION_SPACING if self.owner.paper_popup else 2
+        full_height = count * row + (count - 1) * spacing
+        visible_height = min(full_height, self._rows_height_limit)
+        self._rows_host.setFixedHeight(full_height)
+        self.scroll.setFixedHeight(visible_height)
+        self.scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAsNeeded if visible_height < full_height else Qt.ScrollBarAlwaysOff
+        )
+        if self.owner.paper_popup:
+            self.setFixedHeight(visible_height + self._popup_chrome)
+        else:
+            self.adjustSize()
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        if watched is self.search and event.type() == QEvent.KeyPress:
+            if event.key() in (Qt.Key_Escape, Qt.Key_Down, Qt.Key_Up, Qt.Key_Return, Qt.Key_Enter):
+                self.keyPressEvent(event)
+                return True
+        return super().eventFilter(watched, event)
 
     def refresh_theme(self) -> None:
         consumer = self.owner.consumer_theme()
@@ -304,8 +372,10 @@ class _ConsumerSelectPopup(QFrame):
         *,
         anchor_ready: bool = False,
     ) -> None:
-        if not self.rows:
+        if not self.rows and not self.owner.manage_label:
             return
+        if self.search is not None:
+            self.search.clear()
         if not anchor_ready and self.owner._request_anchor_visibility():
             QTimer.singleShot(
                 0,
@@ -340,8 +410,8 @@ class _ConsumerSelectPopup(QFrame):
         spacing = _PAPER_OPTION_SPACING if self.owner.paper_popup else 2
         chrome_height = (
             _PAPER_POPUP_PADDING * 2 if self.owner.paper_popup else 12
-        )
-        wanted_rows = min(len(self.rows), self.owner.max_visible_rows)
+        ) + self._chrome_height
+        wanted_rows = max(1, min(len(self.rows), self.owner.max_visible_rows))
         wanted_height = wanted_rows * row_height + max(0, wanted_rows - 1) * spacing
         theme = self.owner.consumer_theme()
         theme_max = theme.popup_max_height if theme is not None else 260
@@ -356,22 +426,10 @@ class _ConsumerSelectPopup(QFrame):
             self.owner.trigger.setChecked(False)
             return
         self.owner._set_popup_space_error(False)
-        rows_height = min(wanted_height, theme_max - chrome_height, below - chrome_height)
-        full_rows_height = (
-            len(self.rows) * row_height + max(0, len(self.rows) - 1) * spacing
-        )
-        self._rows_host.setFixedHeight(full_rows_height)
+        self._rows_height_limit = min(wanted_height, theme_max - chrome_height, below - chrome_height)
+        self._popup_chrome = chrome_height
         self.setFixedWidth(width)
-        self.scroll.setFixedHeight(max(row_height, rows_height))
-        self.scroll.setVerticalScrollBarPolicy(
-            Qt.ScrollBarAsNeeded
-            if rows_height < full_rows_height
-            else Qt.ScrollBarAlwaysOff
-        )
-        if self.owner.paper_popup:
-            self.setFixedHeight(max(row_height, rows_height) + chrome_height)
-        else:
-            self.adjustSize()
+        self._resize_rows()
         self._update_rounded_mask()
         if available is not None:
             anchor.setX(
@@ -384,7 +442,7 @@ class _ConsumerSelectPopup(QFrame):
         self.show()
         self.raise_()
         self.activateWindow()
-        self.setFocus(Qt.PopupFocusReason)
+        (self.search or self).setFocus(Qt.PopupFocusReason)
         self.owner.trigger.setChecked(True)
         _schedule_popup_anchor_settle(self, trigger)
 
@@ -418,24 +476,30 @@ class _ConsumerSelectPopup(QFrame):
     def choose(self, value: str) -> None:
         self.owner.set_value(value, emit=True)
         self.close()
+        self.owner.option_chosen.emit(value)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt API
         if event.key() == Qt.Key_Escape:
-            self.close()
+            if self.search is not None and self.search.text():
+                self.search.clear()
+            else:
+                self.close()
+                self.owner.trigger.setFocus(Qt.PopupFocusReason)
             event.accept()
             return
         if event.key() in (Qt.Key_Up, Qt.Key_Down):
-            if not self.rows:
+            if not self._filtered_rows:
                 event.accept()
                 return
             step = -1 if event.key() == Qt.Key_Up else 1
-            self._active_index = (self._active_index + step) % len(self.rows)
+            active = self._filtered_rows.index(self.rows[self._active_index])
+            self._active_index = self.rows.index(self._filtered_rows[(active + step) % len(self._filtered_rows)])
             self._sync_rows()
             self.scroll.ensureWidgetVisible(self.rows[self._active_index])
             event.accept()
             return
         if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
-            if self.rows:
+            if self._filtered_rows:
                 self.choose(self.rows[self._active_index].value)
             event.accept()
             return
@@ -460,6 +524,8 @@ class ConsumerSelect(QWidget):
     """带主题化浮层、键盘语义和稳定值 API 的互斥选择控件。"""
 
     value_changed = Signal(str)
+    option_chosen = Signal(str)
+    manage_requested = Signal()
 
     def __init__(
         self,
@@ -472,6 +538,8 @@ class ConsumerSelect(QWidget):
         clip_popup_corners: bool = False,
         paper_popup: bool = False,
         max_visible_rows: int = 6,
+        search_placeholder: str = "",
+        manage_label: str = "",
         allow_empty: bool = False,
         empty_text: str = "暂无可选项",
         consumer_theme_scope: str | None = None,
@@ -497,6 +565,8 @@ class ConsumerSelect(QWidget):
             else (self.options[0][0] if self.options else "")
         )
         self.max_visible_rows = max(1, int(max_visible_rows))
+        self.search_placeholder = search_placeholder
+        self.manage_label = manage_label
         self.corner_radius = max(6, int(corner_radius))
         self.popup_radius = max(8, int(popup_radius))
         self.option_radius = max(6, self.popup_radius - 7)
@@ -689,7 +759,7 @@ class ConsumerSelect(QWidget):
         self.set_options(options, value=requested, emit=False)
 
     def show_popup(self) -> None:
-        if self.isEnabled() and self.options:
+        if self.isEnabled() and (self.options or self.manage_label):
             self.popup.show_for(self.trigger)
 
     def _toggle_popup(self) -> None:

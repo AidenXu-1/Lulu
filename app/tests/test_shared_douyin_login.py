@@ -115,6 +115,18 @@ class SharedLoginTests(unittest.TestCase):
         self.assertTrue(state['browser'])
         self.assertTrue(state['cookie'])
 
+    def test_heartbeat_refreshes_presence_without_reading_any_credential(self):
+        self.service.index.set_setting('credential', 'configured')
+        self.service.secret_read = lambda: self.fail('heartbeat read a credential')
+        self.mark.write_text('ok')
+        reply = self.service.handle('heartbeat', {'session': self.session})
+        self.assertTrue(reply['login']['browser'])
+        self.assertTrue(reply['login']['cookie'])
+        self.mark.unlink()
+        reply = self.service.handle('heartbeat', {'session': self.session})
+        self.assertFalse(reply['login']['browser'])
+        self.assertTrue(reply['login']['cookie'])
+
     def test_profile_symlink_and_unsafe_pending_clear_cannot_delete_other_files(self):
         protected = self.root/'protected'; protected.mkdir(); (protected/'keep').write_text('keep')
         self.service.index.set_setting('login_clear_pending', '../protected')

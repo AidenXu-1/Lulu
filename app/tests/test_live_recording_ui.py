@@ -72,6 +72,20 @@ class NativeLiveTests(unittest.TestCase):
         self.app.processEvents()
         self.temp.cleanup()
 
+    def test_only_idle_hidden_session_uses_slower_heartbeat(self):
+        for active,pending,params,elapsed,expected in (
+                (False,False,None,8,False), (False,False,None,14,True),
+                (True,False,None,8,True), (False,True,None,8,True),
+                (False,False,{'page':0},8,True)):
+            fake=SimpleNamespace(connected=True,settled=False,core_stopped=False,
+                queue=[],worker=None,closing=False,active=active,has_pending_work=pending,
+                params=params,heartbeat_at=100,poll_at=200,session='isolated',_enqueue=Mock())
+            with patch('src.ui.live_controller.time.monotonic',return_value=100+elapsed):
+                LiveController._tick(fake)
+            self.assertEqual(fake._enqueue.called,expected)
+            if expected:
+                self.assertEqual(fake._enqueue.call_args.args[0],'heartbeat')
+
     def seed(self, hosts=30, recordings=120):
         now = time.time()
         for number in range(hosts):
@@ -289,7 +303,7 @@ class NativeLiveTests(unittest.TestCase):
         self.assertFalse(dialog.isVisible())
         self.assertFalse(self.page.detail_timer.isActive())
 
-    def test_archive_last_column_deletes_registered_folder_with_one_click(self):
+    def test_archive_last_column_confirms_then_moves_registered_folder(self):
         rid, folder, _ = register_recording(self.service, self.output)
         self.page._tab('recordings')
         self.until(lambda: self.page.data['recordings'] == 1)
@@ -302,6 +316,11 @@ class NativeLiveTests(unittest.TestCase):
             return True  # Actual macOS binding return, not the declared tuple.
         with patch('PySide6.QtCore.QFile.moveToTrash', side_effect=native_move):
             QTest.mouseClick(controls[1], Qt.MouseButton.LeftButton)
+            self.assertTrue(self.page.action_confirmation.isVisible())
+            self.page.action_confirmation.reject()
+            self.assertTrue(folder.exists())
+            QTest.mouseClick(controls[1], Qt.MouseButton.LeftButton)
+            self.page.action_confirmation.accept()
             self.until(lambda: self.page.data['recordings'] == 0)
         self.assertTrue((trash / rid / 'part-000000.ts').exists())
         self.assertFalse(folder.exists())
@@ -315,6 +334,7 @@ class NativeLiveTests(unittest.TestCase):
         self.until(lambda: self.page.data['recordings'] == 1)
         with patch('PySide6.QtCore.QFile.moveToTrash', side_effect=AssertionError('no file operation')):
             self.page.table.cellWidget(0, 6).findChildren(QPushButton)[1].click()
+            self.page.action_confirmation.accept()
             self.until(lambda: self.page.data['recordings'] == 0)
         self.assertTrue((preserved/'part-000000.ts').is_file())
         self.assertIn('未改动文件', self.page.message.text())
@@ -329,6 +349,7 @@ class NativeLiveTests(unittest.TestCase):
         with patch('src.core.live_recording.service.move_to_trash',
                    side_effect=lambda path: str(path.rename(trash / path.name))):
             self.page.table.cellWidget(0, 6).findChildren(QPushButton)[1].click()
+            self.page.action_confirmation.accept()
             self.until(lambda: self.page.data['recordings'] == 0)
         self.page._detail(reply)
         self.page._data_detail(reply)
@@ -350,6 +371,7 @@ class NativeLiveTests(unittest.TestCase):
         self.until(lambda: self.page.table.cellWidget(0, 6).findChildren(QPushButton)[1].isEnabled())
         with patch('src.core.live_recording.service.move_to_trash', side_effect=LiveError('暂时无法移动，文件保留')):
             self.page.table.cellWidget(0, 6).findChildren(QPushButton)[1].click()
+            self.page.action_confirmation.accept()
             self.until(lambda: bool(self.errors) and not self.page.deleting)
             self.until(lambda: self.page.table.cellWidget(0, 6).findChildren(QPushButton)[1].isEnabled())
         self.assertTrue(folder.exists())
@@ -574,12 +596,19 @@ class NativeLiveTests(unittest.TestCase):
         self.assertTrue(probe(target, self.service.ffmpeg)['audio'])
         self.assertTrue(media.exists())
 
-    def test_left_cross_removes_host_in_one_click_and_keeps_recordings(self):
+    def test_left_cross_confirms_host_removal_and_keeps_recordings(self):
         self.seed(hosts=1, recordings=1)
         cross = self.page.table.cellWidget(0,0).findChild(QPushButton)
         self.assertEqual(cross.text(), '×')
         self.assertGreaterEqual(cross.parentWidget().width(), cross.width() + 12)
         cross.click()
+        self.assertTrue(self.page.action_confirmation.isVisible())
+        self.page.action_confirmation.reject()
+        self.assertEqual(self.page.data['hosts'], 1)
+        cross.click()
+        confirm = next(button for button in self.page.action_confirmation.findChildren(QPushButton)
+                       if button.text() == '移除主播')
+        confirm.click()
         self.until(lambda:self.page.data['hosts']==0)
         self.assertEqual(self.page.data['recordings'], 1)
         self.assertIsNotNone(self.service.index.one('SELECT id FROM recordings'))
@@ -588,7 +617,7 @@ class NativeLiveTests(unittest.TestCase):
         self.assertFalse(self.page.credentials.isVisible())
         self.assertFalse(self.page.message.isVisible())
         self.assertFalse(self.page.pause_all.isEnabled())
-        self.page.settings_button.click()
+        self.page._settings()
         self.app.processEvents()
         self.assertTrue(self.page.credentials.isVisible())
         self.assertFalse(self.page.delete_credential.isEnabled())

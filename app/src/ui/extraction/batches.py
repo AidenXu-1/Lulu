@@ -6,7 +6,7 @@ import sys
 import time
 from uuid import uuid4
 
-from PySide6.QtCore import QObject, QThread, QTimer, Signal
+from PySide6.QtCore import QFileSystemWatcher, QObject, QThread, QTimer, Signal
 from PySide6.QtWidgets import QFileDialog
 
 
@@ -50,6 +50,10 @@ class WorkspaceBatches(QObject):
         self.views, self.pages, self.selections = {}, {}, {}
         self._at = 0
         self._retry_at = 0
+        self._last_full_poll = 0
+        self._poll_dirty = True
+        self._poll_watch = QFileSystemWatcher(self)
+        self._poll_watch.directoryChanged.connect(self._invalidate_poll)
         self.closing = False
         self.draining = False
         self.close_error = ''
@@ -80,6 +84,9 @@ class WorkspaceBatches(QObject):
 
     def shutdown(self):
         self.closing = True
+        paths = self._poll_watch.directories()
+        if paths:
+            self._poll_watch.removePaths(paths)
         for entry in self.commands + self.reads:
             entry[5].cancel()
         self.commands.clear(); self.reads.clear()
@@ -172,27 +179,70 @@ class WorkspaceBatches(QObject):
         worker.finished.connect(settled)
         worker.start()
 
+    def _invalidate_poll(self, _path):
+        self._poll_dirty = True
+
+    def _watch_batches(self):
+        from ...core import library
+        path = str(library.LIBRARY_DIR / '.workspace' / 'batches')
+        watched = self._poll_watch.directories()
+        if watched == [path]:
+            return True
+        if watched:
+            self._poll_watch.removePaths(watched)
+        self._poll_dirty = True
+        # Core creates this directory. Failure to watch only disables the idle
+        # optimization; it never makes records trusted or changes verification.
+        return self._poll_watch.addPath(path)
+
     def refresh(self, force=False):
+        active = any(any(view.get('counts',{}).get(state,0) for state in ('queued','running','settling'))
+                     for view in self.views.values())
+        interval = 1 if active else 3 if self.widget.isVisible() else 5
         if (not self.enabled or self.closing or self.draining or self.worker is not None or self.reads
-                or self.commands or not force and (time.monotonic()-self._at < 1
+                or self.commands or not force and (time.monotonic()-self._at < interval
                                                    or time.monotonic()<self._retry_at)):
             return
-        self._at = time.monotonic()
+        self._at = now = time.monotonic()
+        watching = self._watch_batches()
+        # Batch/state writes are atomic replacements in this directory. Watch
+        # events only request a fresh, fully verified Core read. Keep a bounded
+        # fallback for lost events and out-of-band edits, even while hidden.
+        if (watching and not active and not force and not self.error
+                and not self._poll_dirty and now-self._last_full_poll < 30):
+            return
+        self._poll_dirty = False
+        active=set(); existing=set(self.views); requested=dict(self.pages)
+        legacy_count=0; cursor=''
         def accept(value):
+            nonlocal legacy_count,cursor
             rows = value.get('batches', [])
             from ...core.engines.cloud_requests import cloud_ids
-            self.legacy_count=sum(not r.get('workspace') and r.get('engine') in cloud_ids() for r in rows)
-            active = set()
+            legacy_count+=sum(not r.get('workspace') and r.get('engine') in cloud_ids() for r in rows)
             for row in rows:
                 if not row.get('workspace'):
                     continue
                 bid = row['batch_id']; active.add(bid)
                 # Publish each batch only with its matching member details. A
                 # summary joined to stale members exposes contradictory actions.
-                self.page(bid, self.pages.get(bid, 0), total=row['total'])
-            for bid in set(self.views)-active:
+                if row.get('details_deferred'):
+                    self.page(bid,self.pages.get(bid,row['offset']),total=row['total'])
+                    continue
+                if self.pages.get(bid,0)==requested.get(bid,0):
+                    self.pages[bid] = row['offset']
+                self._accept(row)
+            next_after=value.get('next_after','')
+            if next_after:
+                if type(next_after) is not str or next_after<=cursor:
+                    raise ValueError('任务分页未能继续，原任务保留，请刷新后核对')
+                cursor=next_after
+                self._submit('batch_poll',{'pages':requested,'after':cursor},accept)
+                return
+            self.legacy_count=legacy_count
+            self._last_full_poll = now
+            for bid in existing-active:
                 self.views.pop(bid, None); self.pages.pop(bid, None); self.selections.pop(bid, None)
-        self._submit('batch_list', {}, accept)
+        self._submit('batch_poll', {'pages':requested}, accept)
 
     def _accept(self, reply):
         # Do not replace a usable card with a partial/incompatible response.
@@ -206,6 +256,12 @@ class WorkspaceBatches(QObject):
             raise ValueError('任务详情未能完整读取，原任务保留，请刷新后核对')
         bid = reply['batch_id']
         previous = self.views.get(bid)
+        new_attention = (set(reply.get('attention_keys',())) - set(previous.get('attention_keys',()))
+                         if previous is not None else set())
+        if new_attention:
+            feedback=getattr(self.main,'completion_feedback',None)
+            if feedback is not None:
+                feedback.needs_attention(app_is_active=self.main.isActiveWindow())
         own_visibility = reply.pop('previous_visibility', None)
         if (previous and previous.get('visibility_version') != reply.get('visibility_version')
                 and previous.get('visibility_version') != own_visibility

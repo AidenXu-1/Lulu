@@ -19,7 +19,7 @@ from .adapters import (
     resolve_adapter,
 )
 from .browser_shell import BrowserLaunchSpec, BrowserShell
-from .contracts import AdapterCapability, CollectRequest, CollectResult, LinkIdentity
+from .contracts import AdapterCapability, CollectRequest, CollectResult, LinkIdentity, valid_douyin_author
 from .cover_workflow import CoverWorkflowResult
 from .models import CollectedItem
 from .preferences import CollectCoverPreferenceSnapshot
@@ -87,6 +87,7 @@ class CollectionCommand:
     profile_id: str = "default"
     browser_path: str | None = None
     browser_mode: str | None = None
+    resolved_author_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -323,6 +324,15 @@ class CollectionApplicationService:
                 "invalid_input",
                 next_action="小红书当前只使用 Lulu 专用 default profile。",
             )
+
+        if command.resolved_author_id:
+            if (identity.platform != 'douyin' or command.mode != 'profile_latest'
+                    or not valid_douyin_author(command.resolved_author_id)
+                    or (identity.kind == 'homepage' and identity.extracted_id != command.resolved_author_id)):
+                return CollectResult.failed('invalid_input', next_action='原作者已无法确认，请重新开始采集。')
+            # Keep raw_input for UI/version checks. A known author is frozen as
+            # the actual target, so a short link cannot redirect the retry.
+            identity = detect_link('https://www.douyin.com/user/' + command.resolved_author_id)
 
         request = CollectRequest(
             identity=identity,

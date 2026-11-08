@@ -58,6 +58,9 @@ _DETAIL_FIELDS = frozenset(
 )
 _SAFE_VALUE = re.compile(r"^[A-Za-z0-9_.:/-]{1,160}$")
 _WORKSPACE_REQUEST_ERRORS = {
+    'RSS_FEED_UNAVAILABLE': '未读到可用的播客 RSS，请检查订阅链接或网络；已有节目与任务保留',
+    'VOICE_LIBRARY_UNREADABLE': '音色库记录无法完整读取，已暂停修改；原资料保留，请在 Lulu 音色库中核对并恢复备份或切换完整的音色库',
+    'VOICE_DELETE_INCOMPLETE': '音色删除未完成，部分参考文件可能已删除；列表记录保留，请检查文件夹权限后重试删除',
     'LULU_WINDOW_REQUIRED': '请先打开 Lulu 主窗口，等待连接后重试；关闭窗口后不后台执行设置或更新',
     'LULU_LIVE_SESSION_REQUIRED': '请先打开 Lulu 的直播录制页，建立正常会话后重试；退出 Lulu 会停止监控',
     'BATCH_NETWORK_CONSENT_REQUIRED': '本批需要联网下载或访问主页，请明确设置 network_consent=true 后再开始',
@@ -142,6 +145,13 @@ def write_cli_error(
         message = EXTRACTION_MESSAGES[reason]
     if reason in _WORKSPACE_REQUEST_ERRORS:
         message = _WORKSPACE_REQUEST_ERRORS[reason]
+    from ..core.audio.converter import INPUT_MEDIA_MESSAGES
+    local_input_messages = {**INPUT_MEDIA_MESSAGES,
+        'SOURCE_NOT_FOUND': '找不到要转录的本地文件，请重新选择；已有结果保留。',
+        'SOURCE_NOT_REGULAR': '请选择普通本地音视频文件，文件夹和符号链接不能用于转录。',
+        'SOURCE_INVALID': '请提供本地音视频文件的绝对路径。'}
+    if reason in local_input_messages:
+        message = local_input_messages[reason]
     write_json_object(
         {
             "schema_id": SCHEMA_ID,
@@ -153,6 +163,14 @@ def write_cli_error(
                 "message": message,
                 "retryable": False,
                 "human_action": (
+                    "检查播客订阅链接和网络后重试；可先用较小的 limit 读取最近几集"
+                    if reason == 'RSS_FEED_UNAVAILABLE' else
+                    "检查音色文件夹及列表文件的写入权限后重试删除，以完成剩余文件和列表清理"
+                    if reason == 'VOICE_DELETE_INCOMPLETE' else
+                    "在 Lulu 音色库核对提示，恢复备份或选择完整的音色库；不要重复添加或删除"
+                    if reason == 'VOICE_LIBRARY_UNREADABLE' else
+                    "选择存在、可正常播放且含声音的普通本地文件后重试"
+                    if reason in local_input_messages else
                     "检查绝对路径所指的普通 JSON 请求文件，修正参数后再调用"
                     if reason in _WORKSPACE_REQUEST_ERRORS else
                     "核对链接提取参数、当前安装能力和原任务状态，不要重复下载"
@@ -163,7 +181,7 @@ def write_cli_error(
                     if (details or {}).get("reason_code") in {"CORE_TRANSPORT_UNAVAILABLE", "CORE_TRANSPORT_TIMEOUT"}
                     else "先查询原任务状态与回执，不要重复执行"
                     if (details or {}).get("reason_code") == "CORE_REQUEST_OUTCOME_UNKNOWN"
-                    else "使用 help 或等待后续正式 CLI 阶段"
+                    else "查看 help 核对命令与参数；如任务已创建，先查询原任务状态和回执"
                 ),
                 "details": _closed_error_details(details),
             },

@@ -22,6 +22,7 @@ if BUILD_PROFILE != "external_candidate":
 BUILD_IDENTITY = os.environ.get("LULU_BUILD_IDENTITY_FOR_SPEC", "")
 if (BUILD_PROFILE, BUILD_IDENTITY) not in {
     ("external_candidate", "candidate"),
+    ("external_candidate", "experience"),
     ("external_candidate", "production"),
 }:
     raise SystemExit("PyInstaller 构建必须显式固定 candidate 或 production 身份")
@@ -34,6 +35,9 @@ PROFILE_META = {
 }
 if BUILD_IDENTITY == "candidate":
     PROFILE_META = dict(PROFILE_META, upload_target="none")
+if BUILD_IDENTITY == "experience":
+    EXPERIENCE_META = runpy.run_path(str(Path(SPECPATH).parent / "src/edition.py"))["EXPERIENCE_META"]
+    PROFILE_META = dict(PROFILE_META, **EXPERIENCE_META)
 APP_NAME = PROFILE_META["app_name"]
 VERSION_SOURCE = runpy.run_path(os.path.join(os.path.dirname(SPECPATH), "src", "version.py"))
 PACKAGE_VERSION = VERSION_SOURCE["__version__"]
@@ -66,6 +70,10 @@ PROFILE_GATE = runpy.run_path(os.path.join(SPECPATH, "profile_gate.py"))
 PRIVACY_GATE = runpy.run_path(os.path.join(SPECPATH, "privacy_gate.py"))
 
 datas, binaries, hiddenimports = [], [], []
+system_audio_helper = Path(os.environ.get("LULU_SYSTEM_AUDIO_HELPER_FOR_SPEC", ""))
+if not system_audio_helper.is_file() or not os.access(system_audio_helper, os.X_OK):
+    raise SystemExit("构建缺少已编译的系统声音录制组件")
+binaries.append((str(system_audio_helper), "recording_runtime"))
 
 # Mandatory anonymous download runtime: never depend on the developer's PATH.
 from importlib.metadata import version as distribution_version
@@ -381,7 +389,7 @@ gui_exe = EXE(
     _scripts_for_entry(ENTRY),
     [],
     exclude_binaries=True,
-    name=PROFILE_META["artifact_prefix"],
+    name="Lulu" if BUILD_IDENTITY == "experience" else PROFILE_META["artifact_prefix"],
     debug=False,
     bootloader_ignore_signals=False,
     strip=True,                # strip 原生库符号表,省 ~10-20%;UPX 仍关(会破坏 codesign)
@@ -470,5 +478,7 @@ app = BUNDLE(
         "NSHumanReadableCopyright": "Copyright © 2026 兆基. Lulu.",
         # 麦克风录音权限说明(缺这条 macOS 会直接杀进程)
         "NSMicrophoneUsageDescription": "Lulu 需要使用麦克风来录制音频并转写为文字(录音只在本机处理)。",
+        "NSAudioCaptureUsageDescription": "Lulu 需要录制电脑播放的声音，用于你选择的本地录音。",
+        "NSScreenCaptureUsageDescription": "Lulu 通过系统录屏与录音权限录制电脑声音，仅保存音频。",
     },
 )

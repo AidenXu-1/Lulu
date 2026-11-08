@@ -1,4 +1,6 @@
 """One-time background format compatibility, with an exception-only settings exit."""
+
+from src.edition import product_data_root
 from pathlib import Path
 import sys
 from PySide6.QtCore import QObject, QProcess, Signal
@@ -154,5 +156,5 @@ def installed_inheritance_controller(*, busy_probe, parent):
     app = Path(sys.executable).parent.parent.parent
     from ..core.agent_entry.standalone_source import uses_local_storage
     if not uses_local_storage(app): return None
-    return LegacyTaskInheritanceController(app=app, product=Path.home()/'Library/Application Support/Lulu',
+    return LegacyTaskInheritanceController(app=app, product=product_data_root(),
         busy_probe=busy_probe, parent=parent)

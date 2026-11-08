@@ -71,6 +71,14 @@ class ExtractionOutputTests(unittest.TestCase):
         result,*_=self.run_case(('video','cover'))
         self.assertTrue(Path(result.saved_media).is_file());self.assertTrue(result.meta['extraction_errors'])
 
+    def test_cover_metadata_failure_never_claims_the_work_has_no_cover(self):
+        with patch.object(extraction,'metadata',side_effect=OSError('offline')):
+            result=extraction.acquire_source('https://www.douyin.com/video/123',
+                execution_policy=self.policy(('cover',)),engine_name='local_sensevoice',
+                cover_workflow=self.localizer)
+        self.assertEqual(result.meta['extraction_errors'],['封面信息获取失败，请重试'])
+        self.assertEqual(result.meta['extraction_assets'],{})
+
 class ExtractionLedgerTests(unittest.TestCase):
     def test_draft_edit_start_freeze_late_model_binding_retry_and_reload(self):
         from src.core.job_ledger.store import JobLedgerStore

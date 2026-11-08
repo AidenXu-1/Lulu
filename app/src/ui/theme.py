@@ -5,12 +5,13 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtGui import QColor, QFont
-from PySide6.QtWidgets import QApplication, QGraphicsDropShadowEffect, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QGraphicsDropShadowEffect, QWidget
 
 
 def asset(name: str) -> str:
@@ -255,6 +256,11 @@ QFrame#titlebarPaperLeft{scope} {{
 }}
 /* These bands continue the actual Batch-1 column canvas, not a floating card. */
 QFrame#titlebarPaperCenter{scope} {{ background: {p.BG}; border: none; }}
+/* Continue the settings .sidebar tint and divider above the embedded page. */
+QFrame#settingsTitlebarSidebar {{
+    background: rgba(230, 222, 206, 89); border: none;
+    border-right: 1px solid rgba(134, 118, 93, 38);
+}}
 
 QWidget#brandRow{scope}, QLabel#brandLogo{scope} {{
     background: transparent; border: none;
@@ -907,10 +913,43 @@ QWidget{scope} QScrollBar::handle:vertical, QFrame{scope} QScrollBar::handle:ver
 """
 
 
-def apply_fonts(app) -> None:
+def scale_text_style(style: str, percent: int) -> str:
+    if percent == 100:
+        return style
+    return re.sub(
+        r"(font-size:\s*)(\d+(?:\.\d+)?)(px|pt)",
+        lambda match: f"{match[1]}{float(match[2]) * percent / 100:.2f}{match[3]}",
+        style,
+    )
+
+
+def _scale_dialog_text(dialog, percent):
+    for widget in [dialog, *dialog.findChildren(QWidget)]:
+        current = widget.styleSheet()
+        if 'font-size:' not in current:
+            continue
+        if current != getattr(widget, '_lulu_scaled_text_style', None):
+            widget._lulu_base_text_style = current
+        scaled = scale_text_style(widget._lulu_base_text_style, percent)
+        widget._lulu_scaled_text_style = scaled
+        if scaled != current:
+            widget.setStyleSheet(scaled)
+
+
+class TextScaledDialog(QDialog):
+    def showEvent(self, event):
+        _scale_dialog_text(self, QApplication.instance().property('luluFontPercent') or 100)
+        super().showEvent(event)
+
+
+def apply_fonts(app, percent: int = 100) -> None:
+    app.setProperty('luluFontPercent', percent)
     f = QFont(SANS)
-    f.setPixelSize(13)
+    f.setPixelSize(round(13 * percent / 100))
     app.setFont(f)
+    for widget in app.topLevelWidgets():
+        if isinstance(widget, QDialog):
+            _scale_dialog_text(widget, percent)
 
 
 # 当前调色板固定为宣纸，兼容现有控件读取 ACTIVE 的接口。

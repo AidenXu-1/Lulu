@@ -28,7 +28,7 @@ OPERATIONS = OPERATIONS | frozenset({'order_folders', 'export_document', 'save_o
     'batch_prepare', 'batch_start', 'batch_show', 'batch_list', 'batch_cancel',
     'rss_fetch', 'rss_feeds', 'rss_select', 'collect_prepare', 'collect_history', 'collect_select', 'collect_export'})
 OPERATIONS = OPERATIONS | frozenset({'control_poll', 'control_show', 'settings_show', 'settings_apply', 'models_list', 'models_action', 'updates', 'batch_download'})
-OPERATIONS = OPERATIONS | frozenset({'batch_stage', 'batch_configure', 'batch_control'})
+OPERATIONS = OPERATIONS | frozenset({'batch_stage', 'batch_configure', 'batch_control', 'batch_poll'})
 
 
 def _conversation_task_payloads(conversation_id, runner):
@@ -113,9 +113,9 @@ class WorkspaceService(ExpansionOperations):
         from .skill_manager import uninstall
         return uninstall(name)
 
-    def skill_configure(self, name, enabled=None, config=None):
+    def skill_configure(self, name, enabled=None, config=None, automatic=None):
         from .skill_manager import configure
-        return configure(name, enabled, config)
+        return configure(name, enabled, config, automatic)
 
     def skill_update(self, name, rollback=False):
         from .skill_manager import update

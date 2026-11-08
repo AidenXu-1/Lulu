@@ -522,6 +522,7 @@ class CollectionHistoryRepository:
         )
         self.rollback_path = self.path.with_name(f"{self.path.name}.rollback")
         self.legacy_backup_path = self.path.parent / "legacy-snapshots-v1.bak"
+        self.returned_packages = self.path.parent / "采集记录恢复"
         self._temp_prefix = f".{self.path.name}.tmp-"
         self._validate_storage_boundary()
         lock_key = self.path.resolve(strict=False)
@@ -841,7 +842,189 @@ class CollectionHistoryRepository:
                         (), (), "", (), SCHEMA_VERSION, False,
                         "corrupt_repository", hashlib.sha256(source).hexdigest(),
                     )
-            return self._maybe_import_legacy(snapshot)
+            snapshot = self._recover_pending_system_moves(self._maybe_import_legacy(snapshot))
+            return self._import_returned_packages(snapshot)
+
+    def _recover_pending_system_moves(self, snapshot: HistorySnapshot) -> HistorySnapshot:
+        """Finish the index half of a successful system move, never move again."""
+        directory = self.returned_packages
+        if not snapshot.writable or not directory.is_dir() or directory.is_symlink():
+            return snapshot
+        _validate_safe_path(directory)
+        for pending in sorted(directory.glob('Lulu-*.pending')):
+            try:
+                if pending.is_symlink() or not pending.is_file():
+                    raise HistoryError('unsafe_path')
+                payload = _read_bytes(pending)
+                records = _validate_history_bytes(payload).active_records
+                package = pending.with_suffix('.lulucollection')
+                receipt = pending.with_suffix('.sha256')
+                if package.is_symlink() or receipt.is_symlink():
+                    raise HistoryError('unsafe_path')
+                if package.exists() and (not package.is_file() or _read_bytes(package) != payload):
+                    raise HistoryError('concurrent_change')
+                digest = hashlib.sha256(payload).hexdigest().encode('ascii')
+                if not receipt.is_file() or _read_bytes(receipt) != digest:
+                    stage = _write_temp_bytes(directory, '.receipt-', digest)
+                    try:
+                        _replace_file(stage, receipt)
+                        _fsync_directory(directory)
+                    finally:
+                        _unlink(stage)
+                if not package.exists():
+                    # Only unchanged rows belong to this move. A later edit is
+                    # newer data and must survive a concurrent failed commit.
+                    moved = {row.record_id: row for row in records}
+                    active = tuple(row for row in snapshot.active_records if moved.get(row.record_id) != row)
+                    if active != snapshot.active_records:
+                        selected = snapshot.selected_record_id
+                        if not any(row.record_id == selected for row in active):
+                            selected = _newest_record_id(active)
+                        snapshot = self._store(snapshot, active=active, trash=snapshot.trashed_records,
+                            selected=selected, expected_source_hash=snapshot.source_hash)
+                # An existing package was never moved, or has been put back.
+                # Keep it readable; normal Put Back reconciliation follows.
+                _unlink(pending)
+                _fsync_directory(directory)
+            except (OSError, HistoryError):
+                return replace(snapshot, writable=False, code='system_trash_pending')
+        return snapshot
+
+    def _import_returned_packages(self, snapshot: HistorySnapshot) -> HistorySnapshot:
+        """Recognize Finder's Put Back without reading or watching the system Trash."""
+        directory = self.returned_packages
+        if not snapshot.writable or directory.is_symlink() or not directory.is_dir():
+            return snapshot
+        _validate_safe_path(directory)
+        occupied = {
+            row.record_id: row for row in snapshot.active_records + snapshot.trashed_records
+        }
+        restored = []
+        recognized = []
+        for package in sorted(directory.glob("Lulu-*.lulucollection")):
+            receipt = package.with_suffix(".sha256")
+            try:
+                if any(path.is_symlink() or not path.is_file() for path in (receipt, package)):
+                    continue
+                payload = _read_bytes(package)
+                if hashlib.sha256(payload).hexdigest().encode("ascii") != _read_bytes(receipt):
+                    continue
+                records = _validate_history_bytes(payload).active_records
+            except (OSError, HistoryError):
+                continue
+            recognized.append(receipt)
+            for row in records:
+                if row.record_id not in occupied:
+                    restored.append(row)
+                    occupied[row.record_id] = row
+        if restored:
+            active = snapshot.active_records + tuple(restored)
+            try:
+                snapshot = self._store(
+                    snapshot, active=active, trash=snapshot.trashed_records,
+                    selected=snapshot.selected_record_id or _newest_record_id(active),
+                    expected_source_hash=snapshot.source_hash,
+                )
+            except (OSError, HistoryError):
+                # Keep the existing readable index and returned package. Do not
+                # consume receipts until the index has durably accepted them.
+                return replace(snapshot, writable=False, code='restore_pending')
+        # Keep the returned file as a readable copy, but consume its receipt so
+        # that a later, intentional move of the same record stays in the Trash.
+        pending = False
+        for receipt in recognized:
+            try:
+                _unlink(receipt)
+            except OSError:
+                pending = True
+        try:
+            # Also retry a previous failed directory flush after its receipt
+            # disappeared from the current process's filesystem view.
+            _fsync_directory(directory)
+        except OSError:
+            pending = True
+        # Prevent another removal until stale receipts can no longer restore it.
+        return replace(snapshot, writable=False, code='restore_pending') if pending else snapshot
+
+    def move_records_to_system_trash(
+        self, record_ids: Iterable[str], *, expected_source_hash: str, move=None,
+    ) -> HistorySnapshot:
+        """One system move for the whole selection, followed by an index update."""
+        if move is None:
+            from ..trash_cleanup import move_to_system_trash
+            move = move_to_system_trash
+        wanted = set(record_ids)
+        with self._lock:
+            snapshot = self.load()
+            if not snapshot.writable:
+                raise HistoryError(snapshot.code)
+            if snapshot.source_hash != expected_source_hash:
+                raise HistoryError("concurrent_change")
+            records = tuple(row for row in snapshot.active_records if row.record_id in wanted)
+            if not records or len(records) != len(wanted):
+                raise HistoryError("record_not_found")
+            payload = _encode_snapshot(records, (), records[0].record_id, ())
+            directory = self.returned_packages
+            _validate_safe_path(directory)
+            title = "".join(
+                char if char.isalnum() or char in " _-" else "_" for char in records[0].name
+            )[:40].strip() or "采集记录"
+            suffix = f"等{len(records)}份" if len(records) > 1 else ""
+            package = directory / f"Lulu-{title}{suffix}-{uuid4().hex}.lulucollection"
+            receipt = package.with_suffix(".sha256")
+            pending = package.with_suffix('.pending')
+            receipt_stage = None
+            try:
+                directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+                receipt_stage = _write_temp_bytes(
+                    directory, ".receipt-", hashlib.sha256(payload).hexdigest().encode("ascii")
+                )
+                stage = _write_temp_bytes(directory, ".package-", payload)
+                try:
+                    _replace_file(stage, package)
+                finally:
+                    _unlink(stage)
+                stage = _write_temp_bytes(directory, '.pending-', payload)
+                try:
+                    _replace_file(stage, pending)
+                finally:
+                    _unlink(stage)
+                _fsync_directory(directory)
+                self._assert_current_hash(expected_source_hash)
+                move(package)
+                if package.exists() or package.is_symlink():
+                    raise OSError("系统未移走采集记录包")
+                _replace_file(receipt_stage, receipt)
+                _fsync_directory(directory)
+                active = tuple(row for row in snapshot.active_records if row.record_id not in wanted)
+                selected = snapshot.selected_record_id
+                if selected in wanted:
+                    selected = _newest_record_id(active)
+                result = self._store(snapshot, active=active, trash=snapshot.trashed_records,
+                    selected=selected, expected_source_hash=expected_source_hash)
+                _unlink(pending)
+                _fsync_directory(directory)
+                return result
+            except (OSError, HistoryError) as exc:
+                # The durable intent survives a moved package and failed index
+                # or receipt write. Reopening finishes it without another move.
+                if not package.exists() and pending.is_file():
+                    if isinstance(exc, HistoryError) and exc.code == 'concurrent_change':
+                        raise
+                    raise HistoryError('system_trash_pending') from exc
+                if package.is_file() and not package.is_symlink():
+                    try:
+                        if _read_bytes(package) == payload:
+                            _unlink(package)
+                            _unlink(pending)
+                    except OSError:
+                        pass
+                if isinstance(exc, HistoryError):
+                    raise
+                raise HistoryError(_error_code(exc, "system_trash_failed")) from exc
+            finally:
+                if receipt_stage is not None:
+                    _unlink(receipt_stage)
 
     def _store(
         self,
@@ -999,6 +1182,21 @@ class CollectionHistoryRepository:
                 selected=selected,
                 expected_source_hash=expected_source_hash,
             )
+
+    def restore_legacy_removed(self, *, expected_source_hash: str) -> HistorySnapshot:
+        """Explicit one-time recovery of records/items retained by old releases."""
+        with self._lock:
+            snapshot = self.load()
+            active = []
+            stamp = _aware_iso(None)
+            for record in snapshot.active_records + snapshot.trashed_records:
+                if record.trashed_at or record.item_trash:
+                    record = replace(record, items=record.items + record.item_trash,
+                                     item_trash=(), trashed_at='', updated_at=stamp)
+                active.append(record)
+            return self._store(snapshot, active=tuple(active), trash=(),
+                selected=snapshot.selected_record_id or _newest_record_id(active),
+                expected_source_hash=expected_source_hash)
 
     def restore_records(
         self,

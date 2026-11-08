@@ -101,15 +101,17 @@ def project_component_identity(
         or adapter_id not in {"agent_cli", "agent_core"}
     ):
         raise RuntimeError("AGENT_ENTRY_VERSION_MISMATCH")
+    from ...edition import profile_is_experience
+    development = profile_is_experience(profile)
     shared = {
         "schema_id": "lulu.product-identity/v1",
         "product_family": "Lulu",
         "product_version": manifest["product_version"],
         "product_build": manifest["product_build"],
         "profile": "external_candidate",
-        "channel": channel_for_profile("external_candidate"),
-        "display_name": "Lulu",
-        "bundle_id": "com.lulu.transcribe",
+        "channel": "development-experience" if development else channel_for_profile("external_candidate"),
+        "display_name": profile.get("app_name", "Lulu"),
+        "bundle_id": profile.get("bundle_id", "com.lulu.transcribe"),
         "source_commit": profile["source_commit"],
         "source_tree": profile["source_tree"],
         "product_source_sha256": profile["product_source_sha256"],

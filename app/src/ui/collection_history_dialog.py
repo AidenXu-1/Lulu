@@ -1,13 +1,14 @@
-"""主页采集任务管理浮层。"""
+"""主页管理采集记录浮层。"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from PySide6.QtCore import QEvent, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal, QThread, QTimer
 from PySide6.QtGui import QColor, QKeySequence, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -236,7 +237,8 @@ class _HistoryRecordRow(QFrame):
     """Presentation-only row; the QListWidgetItem remains selection truth."""
 
     toggle_requested = Signal(str)
-    rename_requested = Signal(str)
+    rename_requested = Signal(str, str)
+    move_requested = Signal(str)
 
     def __init__(
         self,
@@ -274,81 +276,88 @@ class _HistoryRecordRow(QFrame):
         row.addWidget(self.check)
 
         copy = QVBoxLayout()
-        copy.setContentsMargins(0, 9, 0, 9)
-        copy.setSpacing(4)
-        heading = QHBoxLayout()
-        heading.setContentsMargins(0, 0, 0, 0)
-        heading.setSpacing(6)
+        copy.setContentsMargins(0, 6, 0, 6)
+        copy.setSpacing(3)
         self.name_label = _ElidedLabel(record.name, self)
         self.name_label.setObjectName("historyRecordName")
-        self.name_label.setProperty(
-            "searchMatch",
-            bool(needle and needle in record.name.casefold()),
-        )
+        self.name_label.setProperty("searchMatch", bool(needle and needle in record.name.casefold()))
+        self.name_label.setAccessibleDescription(_record_markers(record))
         self.name_label.installEventFilter(self)
-        heading.addWidget(self.name_label, 1)
-
-        markers = _record_markers(record).split(" · ") if _record_markers(record) else []
-        self.marker_labels: list[QLabel] = []
-        for marker in markers:
-            label = QLabel(marker, self)
-            label.setObjectName("historyRecordMarker")
-            label.setProperty(
-                "markerKind",
-                (
-                    "warning"
-                    if marker == "部分结果" or marker.startswith("封面失败")
-                    or marker == "封面待恢复"
-                    else "neutral"
-                ),
-            )
-            label.setFixedHeight(20)
-            self.marker_labels.append(label)
-            heading.addWidget(label)
-        copy.addLayout(heading)
-
+        copy.addWidget(self.name_label)
+        self.name_edit = QLineEdit(record.name)
+        self.name_edit.setMaxLength(120)
+        self.name_edit.setAccessibleName(f"采集记录名称：{record.name}")
+        self.name_edit.returnPressed.connect(self._submit_name)
+        self.name_edit.installEventFilter(self)
+        self.name_edit.hide()
+        copy.addWidget(self.name_edit)
         author = record.author_name or "未知作者"
         self.author_label = _ElidedLabel(author, self)
         self.author_label.setObjectName("historyRecordAuthor")
-        self.author_label.setProperty(
-            "searchMatch",
-            bool(needle and needle in author.casefold()),
-        )
+        self.author_label.setProperty("searchMatch", bool(needle and needle in author.casefold()))
         copy.addWidget(self.author_label)
         row.addLayout(copy, 1)
 
-        self.edit_button: QPushButton | None = None
-        if editable:
-            self.edit_button = QPushButton("编辑", self)
-            adopt_button(
-                self.edit_button,
-                role="tertiary",
-                size="sm",
-                accessible_name=f"编辑任务名称：{record.name}",
-                tooltip="编辑这项任务的名称",
-            )
-            self.edit_button.setProperty("historyRowEdit", True)
-            self.edit_button.setFixedWidth(46)
-            self.edit_button.clicked.connect(
-                lambda: self.rename_requested.emit(self.record_id)
-            )
-            row.addWidget(self.edit_button)
-
-        meta = QVBoxLayout()
-        meta.setContentsMargins(0, 9, 0, 9)
-        meta.setSpacing(4)
-        self.count_label = QLabel(f"{_item_count(record)} 条", self)
+        self.count_label = QLabel(str(_item_count(record)), self)
         self.count_label.setObjectName("historyRecordCount")
-        self.count_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.time_label = QLabel(
-            record.created_at[:16].replace("T", " "),
-            self,
-        )
+        self.count_label.setFixedWidth(46)
+        self.count_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        row.addWidget(self.count_label)
+        stamp = record.created_at[:16].replace("T", " ")
+        self.time_label = QLabel(stamp, self)
         self.time_label.setObjectName("historyRecordTime")
-        self.time_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        meta.addWidget(self.count_label)
-        meta.addWidget(self.time_label)
-        row.addLayout(meta)
+        self.time_label.setFixedWidth(124)
+        row.addWidget(self.time_label)
+
+        operations = QWidget()
+        operations.setFixedWidth(136)
+        actions = QHBoxLayout(operations)
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setSpacing(4)
+        self.edit_button = QPushButton("改名")
+        self.edit_button.setFixedWidth(44)
+        self.move_button = QPushButton("移入废纸篓")
+        for button, title in ((self.edit_button, "改名"), (self.move_button, "移入废纸篓")):
+            adopt_button(button, role="tertiary", size="sm", accessible_name=f"{title}：{record.name}")
+            button.setEnabled(editable)
+            actions.addWidget(button)
+        self.edit_button.clicked.connect(self._edit_name)
+        self.move_button.clicked.connect(lambda: self.move_requested.emit(self.record_id))
+        row.addWidget(operations)
+        self.editable = editable
+        self._stamp = stamp
+        self._author = author
+
+    def set_compact(self, compact: bool) -> None:
+        self.time_label.setVisible(not compact)
+        self.author_label.set_full_text(f"{self._author} · {self._stamp}" if compact else self._author)
+
+    def _edit_name(self):
+        if not self.editable:
+            return
+        if not self.name_edit.isHidden():
+            self._submit_name()
+            return
+        self.name_edit.setText(self.name_label.full_text)
+        self.name_label.hide()
+        self.name_edit.show()
+        self.edit_button.setText("保存")
+        self.name_edit.selectAll()
+        self.name_edit.setFocus()
+
+    def _submit_name(self):
+        name = self.name_edit.text().strip()
+        if not name:
+            self.name_edit.setPlaceholderText("名称不能为空")
+            self.name_edit.setFocus()
+            return
+        self.rename_requested.emit(self.record_id, name)
+
+    def _cancel_name(self):
+        self.name_edit.hide()
+        self.name_label.show()
+        self.edit_button.setText("改名")
+        self.edit_button.setFocus()
 
     def set_checked(self, checked: bool) -> None:
         selected = bool(checked)
@@ -359,12 +368,15 @@ class _HistoryRecordRow(QFrame):
         _repolish(self.check)
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
+        if watched is self.name_edit and event.type() == QEvent.KeyPress and event.key() == Qt.Key_Escape:
+            self._cancel_name()
+            return True
         if (
             watched is self.name_label
             and event.type() == QEvent.Type.MouseButtonDblClick
             and event.button() == Qt.MouseButton.LeftButton
         ):
-            self.rename_requested.emit(self.record_id)
+            self._edit_name()
             event.accept()
             return True
         return super().eventFilter(watched, event)
@@ -377,8 +389,35 @@ class _HistoryRecordRow(QFrame):
         super().mouseReleaseEvent(event)
 
 
+class _MoveRecords(QThread):
+    saved = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, repository, selected, expected, parent):
+        super().__init__(parent)
+        self.repository, self.selected, self.expected = repository, selected, expected
+
+    def run(self):
+        try:
+            self.saved.emit(self.repository.move_records_to_system_trash(
+                self.selected, expected_source_hash=self.expected,
+            ))
+        except HistoryError as exc:
+            self.failed.emit(exc.code)
+        except OSError:
+            self.failed.emit("system_trash_failed")
+
+
+class _HistoryFontWatcher(QObject):
+    def eventFilter(self, watched, event):
+        if (watched is QApplication.instance() and event.type() == QEvent.Type.DynamicPropertyChange
+                and event.propertyName() == b'luluFontPercent'):
+            self.parent()._font_scale_timer.start(0)
+        return False
+
+
 class CollectionHistoryDialog(QFrame):
-    """主窗口内容区内嵌的 680×500 任务管理卡片。"""
+    """主窗口内容区内嵌的 740×500 任务管理卡片。"""
 
     finished = Signal(int)
     accepted = Signal()
@@ -390,15 +429,19 @@ class CollectionHistoryDialog(QFrame):
         snapshot: HistorySnapshot,
         *,
         on_changed: Callable[[HistorySnapshot], None] | None = None,
+        can_move: Callable[[], bool] = lambda: True,
         parent: QWidget | None = None,
     ) -> None:
         if parent is None:
-            raise ValueError("采集任务管理必须嵌入现有 Lulu 窗口。")
+            raise ValueError("管理采集记录必须嵌入现有 Lulu 窗口。")
         super().__init__(parent)
         self.repository = repository
         self.snapshot = snapshot
         self.on_changed = on_changed
-        self._show_trash = False
+        self.can_move = can_move
+        self._moving = None
+        self._checked_ids = set()
+        self._compact = False
         self._visible_records: list[CollectionRecord] = []
         self._previous_focus: QWidget | None = None
         self._result = 0
@@ -417,6 +460,10 @@ class CollectionHistoryDialog(QFrame):
         self.setProperty("historyOverlayColor", overlay)
         self._history_local_qss = self._dialog_qss(consumer)
         self.setStyleSheet(T.QSS + self._history_local_qss)
+        self._font_scale_timer = QTimer(self)
+        self._font_scale_timer.setSingleShot(True)
+        self._font_scale_timer.timeout.connect(self._sync_text_scale)
+        self._font_watcher = _HistoryFontWatcher(self)
         self.backdrop = _HistoryBackdrop(
             fallback_color=QColor(consumer.surface_work),
             overlay_color=QColor(*overlay_rgba),
@@ -439,10 +486,10 @@ class CollectionHistoryDialog(QFrame):
         self.card.setProperty("surface", "card")
         self.card.setProperty("surfaceVariant", "historyDialog")
         adopt_consumer_theme_scope(self.card, "coreWorkspace")
-        initial_width = 680
+        initial_width = 740
         initial_height = 500
         if parent is not None and parent.width() > 0 and parent.height() > 0:
-            initial_width = max(320, min(680, parent.width() - 48))
+            initial_width = max(320, min(740, parent.width() - 48))
             initial_height = max(300, min(500, parent.height() - 48))
         self.card.setFixedSize(initial_width, initial_height)
         T.shadow(
@@ -467,9 +514,9 @@ class CollectionHistoryDialog(QFrame):
         title_rule.setObjectName("studioTitleRule")
         title_rule.setFixedSize(3, 22)
         title_row.addWidget(title_rule)
-        self.title_label = QLabel("采集任务管理")
+        self.title_label = QLabel("管理采集记录")
         self.title_label.setObjectName("historyDialogTitle")
-        self.title_label.setAccessibleName("采集任务管理")
+        self.title_label.setAccessibleName("管理采集记录")
         title_row.addWidget(self.title_label)
         title_row.addStretch(1)
         self.close_button = QPushButton("×")
@@ -477,7 +524,7 @@ class CollectionHistoryDialog(QFrame):
             self.close_button,
             role="icon",
             size="md",
-            accessible_name="关闭采集任务管理",
+            accessible_name="关闭管理采集记录",
         )
         self.close_button.setFixedWidth(32)
         self.close_button.clicked.connect(self.reject)
@@ -488,7 +535,7 @@ class CollectionHistoryDialog(QFrame):
         tools.setContentsMargins(0, 0, 0, 0)
         tools.setSpacing(10)
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("搜索任务名称 / 作者")
+        self.search_edit.setPlaceholderText("搜索记录名称 / 作者")
         adopt_text_field(self.search_edit, accessible_name="搜索采集任务")
         self.search_edit.textChanged.connect(self.refresh)
         tools.addWidget(self.search_edit, 1)
@@ -505,34 +552,43 @@ class CollectionHistoryDialog(QFrame):
         tools.addWidget(self.sort_select)
         layout.addLayout(tools)
 
-        tabs_frame = QFrame()
-        tabs_frame.setObjectName("historyTabs")
-        tabs = QHBoxLayout(tabs_frame)
-        tabs.setContentsMargins(0, 0, 0, 1)
-        tabs.setSpacing(4)
-        self.active_button = QPushButton("当前任务")
-        self.trash_button = QPushButton("任务回收站")
-        for button in (self.active_button, self.trash_button):
-            button.setCheckable(True)
-            adopt_button(button, role="tertiary", size="sm", accessible_name=button.text())
-            button.setProperty("historyTab", True)
-            tabs.addWidget(button)
-        self.active_button.setChecked(True)
-        self.active_button.clicked.connect(lambda: self._set_bucket(False))
-        self.trash_button.clicked.connect(lambda: self._set_bucket(True))
-        tabs.addStretch(1)
         self.readonly_label = QLabel("")
         self.readonly_label.setObjectName("pageMeta")
-        tabs.addWidget(self.readonly_label)
-        layout.addWidget(tabs_frame)
+        layout.addWidget(self.readonly_label)
+        self.header = QFrame()
+        self.header.setObjectName("historyTableHeader")
+        self.header.setFixedHeight(36)
+        headings = QHBoxLayout(self.header)
+        headings.setContentsMargins(18, 0, 24, 0)
+        headings.setSpacing(10)
+        self.select_all = QCheckBox()
+        self.select_all.setAccessibleName("选择当前搜索结果")
+        self.select_all.setFixedWidth(22)
+        self.select_all.clicked.connect(self._set_all_items_checked)
+        headings.addWidget(self.select_all)
+        headings.addWidget(QLabel("记录名称"), 1)
+        count = QLabel("作品")
+        count.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        count.setFixedWidth(46)
+        headings.addWidget(count)
+        self.time_heading = QLabel("采集时间")
+        self.time_heading.setFixedWidth(124)
+        headings.addWidget(self.time_heading)
+        operations = QLabel("操作")
+        operations.setFixedWidth(136)
+        operations.setAlignment(Qt.AlignCenter)
+        headings.addWidget(operations)
+        layout.addWidget(self.header)
+        layout.setSpacing(7)
 
         self.list = _HistoryListWidget()
         self.list.setObjectName("historyList")
         self.list.setSelectionMode(QAbstractItemView.NoSelection)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.list.setSpacing(0)
-        self.list.setAccessibleName("采集任务列表")
+        self.list.setAccessibleName("采集记录列表")
         self.list.setProperty("historyBucket", "active")
         self.list.toggle_requested.connect(self._toggle_item)
         self.list.set_all_requested.connect(self._set_all_items_checked)
@@ -542,25 +598,17 @@ class CollectionHistoryDialog(QFrame):
 
         self.summary = QLabel("")
         self.summary.setObjectName("pageMeta")
-        self.legacy_item_trash_label = QLabel("")
-        self.legacy_item_trash_label.setObjectName("pageMeta")
-        layout.addWidget(self.legacy_item_trash_label)
 
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
         actions.setSpacing(8)
         actions.addWidget(self.summary)
         actions.addStretch(1)
-        self.move_button = QPushButton("移入回收站")
-        self.purge_button = QPushButton("永久删除")
-        for button in (self.move_button, self.purge_button):
-            adopt_button(button, role="secondary", size="sm", accessible_name=button.text())
-            actions.addWidget(button)
+        self.move_button = QPushButton("移入废纸篓")
+        adopt_button(self.move_button, role="secondary", size="sm")
+        actions.addWidget(self.move_button)
         self.move_button.clicked.connect(self.move_selected)
-        self.purge_button.clicked.connect(self.purge_selected)
         self.move_button.setProperty("historyAction", "danger")
-        self.purge_button.setProperty("historyAction", "danger")
-        self.purge_button.hide()
         layout.addLayout(actions)
         self.refresh()
         self._install_focus_filter()
@@ -591,6 +639,9 @@ QFrame#collectionHistoryOverlay QLabel#historyDialogTitle {{
     font-family: "{t.font_display}";
     font-size: 19px;
     font-weight: 650;
+}}
+QFrame#collectionHistoryOverlay QFrame#historyTableHeader {{
+    background: {t.surface_work}; border-bottom: 1px solid {t.line}; font-weight: 650;
 }}
 QFrame#collectionHistoryOverlay QLabel#pageMeta {{
     color: {t.ink_muted};
@@ -770,7 +821,7 @@ QFrame#collectionHistoryOverlay QScrollBar::sub-line:vertical {{
     def open(self) -> None:
         parent = self.parentWidget()
         if parent is None:
-            raise RuntimeError("采集任务管理缺少嵌入宿主。")
+            raise RuntimeError("管理采集记录缺少嵌入宿主。")
         if self._opened:
             self.raise_()
             self._focus_first_control()
@@ -797,6 +848,8 @@ QFrame#collectionHistoryOverlay QScrollBar::sub-line:vertical {{
         self._focus_first_control()
 
     def showEvent(self, event) -> None:  # noqa: N802 - Qt API
+        QApplication.instance().installEventFilter(self._font_watcher)
+        self._sync_text_scale()
         parent = self.parentWidget()
         if parent is not None:
             self.setGeometry(parent.rect())
@@ -806,6 +859,15 @@ QFrame#collectionHistoryOverlay QScrollBar::sub-line:vertical {{
         self.backdrop.lower()
         self._fit_card()
         super().showEvent(event)
+
+    def hideEvent(self, event):
+        QApplication.instance().removeEventFilter(self._font_watcher)
+        self._font_scale_timer.stop()
+        super().hideEvent(event)
+
+    def _sync_text_scale(self):
+        T._scale_dialog_text(self, QApplication.instance().property('luluFontPercent') or 100)
+        self._fit_card()
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
         self.backdrop.setGeometry(self.rect())
@@ -825,6 +887,10 @@ QFrame#collectionHistoryOverlay QScrollBar::sub-line:vertical {{
             return False
         if event.type() == QEvent.Type.KeyPress:
             if event.key() == Qt.Key.Key_Escape:
+                row = watched.parentWidget() if isinstance(watched, QLineEdit) else None
+                if isinstance(row, _HistoryRecordRow) and watched is row.name_edit:
+                    row._cancel_name()
+                    return True
                 self.reject()
                 event.accept()
                 return True
@@ -854,7 +920,7 @@ QFrame#collectionHistoryOverlay QScrollBar::sub-line:vertical {{
         super().keyPressEvent(event)
 
     def done(self, result: int) -> None:
-        if not self._opened:
+        if not self._opened or self._moving is not None:
             return
         self._opened = False
         self._result = int(result)
@@ -890,9 +956,15 @@ QFrame#collectionHistoryOverlay QScrollBar::sub-line:vertical {{
         super().mousePressEvent(event)
 
     def _fit_card(self) -> None:
-        width = max(320, min(680, self.width() - 48))
+        width = max(320, min(740, self.width() - 48))
         height = max(300, min(500, self.height() - 48))
         self.card.setFixedSize(width, height)
+        compact = width < 580
+        if compact != self._compact:
+            self._compact = compact
+            self.time_heading.setVisible(not compact)
+            for row in self.list.findChildren(_HistoryRecordRow):
+                row.set_compact(compact)
 
     def _capture_backdrop(self) -> None:
         parent = self.parentWidget()
@@ -932,67 +1004,40 @@ QFrame#collectionHistoryOverlay QScrollBar::sub-line:vertical {{
                 return
         self._focus_first_control()
 
-    def _set_bucket(self, trash: bool) -> None:
-        self._show_trash = bool(trash)
-        self.title_label.setText("采集任务管理")
-        self.active_button.setChecked(not trash)
-        self.trash_button.setChecked(trash)
-        self.move_button.setText("恢复任务" if trash else "移入任务回收站")
-        self.move_button.setAccessibleName(self.move_button.text())
-        self.move_button.setProperty("historyAction", "secondary" if trash else "danger")
-        _repolish(self.move_button)
-        self.purge_button.setVisible(trash)
-        self.list.setProperty("historyBucket", "trash" if trash else "active")
-        _repolish(self.list)
-        self.refresh()
-
     def refresh(self) -> None:
-        source = self.snapshot.trashed_records if self._show_trash else self.snapshot.active_records
+        source = self.snapshot.active_records
+        self._checked_ids.intersection_update(row.record_id for row in source)
         needle = self.search_edit.text().strip().casefold()
         filtered = tuple(
-            row
-            for row in source
+            row for row in source
             if not needle or needle in row.name.casefold() or needle in row.author_name.casefold()
         )
         self._visible_records = _sorted_records(filtered, self.sort_select.currentData())
+        scroll = self.list.verticalScrollBar().value()
         self.list.blockSignals(True)
         self.list.clear()
         for record in self._visible_records:
             item = _HistoryListItem()
             item.setData(Qt.UserRole, record.record_id)
-            item.setFlags(
-                item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable
-            )
-            item.setCheckState(Qt.Unchecked)
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+            checked = record.record_id in self._checked_ids
+            item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
             item.setSizeHint(QSize(0, 66))
             item.setToolTip(record.name)
             self.list.addItem(item)
-            row = _HistoryRecordRow(
-                record,
-                needle=needle,
-                editable=not self._show_trash and self.snapshot.writable,
-                parent=self.list,
-            )
+            row = _HistoryRecordRow(record, needle=needle, editable=self.snapshot.writable, parent=self.list)
+            row.set_compact(self._compact)
+            row.set_checked(checked)
             row.toggle_requested.connect(self._toggle_record)
             row.rename_requested.connect(self._rename_record)
+            row.move_requested.connect(lambda key: self._confirm_move([key]))
             self.list.setItemWidget(item, row)
         self.list.blockSignals(False)
-        total = len(source)
-        self.summary.setText(f"显示 {len(self._visible_records)} / {total} 项任务")
-        legacy_count = sum(
-            len(record.item_trash)
-            for record in self.snapshot.active_records + self.snapshot.trashed_records
-        )
-        self.legacy_item_trash_label.setText(
-            f"检测到旧版回收作品 {legacy_count} 条，数据已只读保留。"
-            if legacy_count
-            else ""
-        )
-        self.legacy_item_trash_label.setVisible(bool(legacy_count))
-        readonly = not self.snapshot.writable
-        self.readonly_label.setText("只读：文件版本过高或数据异常" if readonly else "")
-        for button in (self.move_button, self.purge_button):
-            button.setEnabled(not readonly)
+        self.list.verticalScrollBar().setValue(scroll)
+        self.readonly_label.setText(self._error_text(self.snapshot.code)
+            if self.snapshot.code == 'system_trash_pending' else "只读：文件版本过高或数据异常")
+        self.readonly_label.setVisible(not self.snapshot.writable)
+        self._sync_selection()
         self._install_focus_filter()
 
     def _toggle_item(self, item: QListWidgetItem) -> None:
@@ -1014,87 +1059,110 @@ QFrame#collectionHistoryOverlay QScrollBar::sub-line:vertical {{
                 return
 
     def _sync_item_row(self, item: QListWidgetItem) -> None:
+        key = str(item.data(Qt.UserRole))
+        checked = item.checkState() == Qt.Checked
+        if checked:
+            self._checked_ids.add(key)
+        else:
+            self._checked_ids.discard(key)
         row = self.list.itemWidget(item)
         if isinstance(row, _HistoryRecordRow):
-            row.set_checked(item.checkState() == Qt.Checked)
+            row.set_checked(checked)
+        self._sync_selection()
+
+    def _sync_selection(self):
+        visible = {record.record_id for record in self._visible_records}
+        shown = len(visible & self._checked_ids)
+        hidden = len(self._checked_ids - visible)
+        self.select_all.setCheckState(
+            Qt.PartiallyChecked if 0 < shown < len(visible) else
+            Qt.Checked if shown else Qt.Unchecked
+        )
+        suffix = f"（含 {hidden} 项搜索外记录）" if hidden else ""
+        self.summary.setText(f"已选 {len(self._checked_ids)} 项{suffix}" if self._checked_ids else
+                             f"显示 {len(visible)} / {len(self.snapshot.active_records)} 份记录")
+        self.move_button.setEnabled(bool(self._checked_ids) and self.snapshot.writable)
 
     def selected_ids(self) -> list[str]:
-        return [
-            str(self.list.item(index).data(Qt.UserRole))
-            for index in range(self.list.count())
-            if self.list.item(index).checkState() == Qt.Checked
-        ]
+        return [record.record_id for record in self.snapshot.active_records
+                if record.record_id in self._checked_ids]
 
     def _apply(self, operation: Callable[[], HistorySnapshot]) -> bool:
         try:
-            self.snapshot = operation()
+            snapshot = operation()
         except HistoryError as exc:
-            dialogs.alert(self, "任务未修改", self._error_text(exc.code))
+            dialogs.alert(self, "记录未修改", self._error_text(exc.code))
             return False
-        if self.on_changed is not None:
-            self.on_changed(self.snapshot)
-        self.refresh()
+        self._changed(snapshot)
         return True
 
-    def rename_selected(self) -> None:
-        selected = self.selected_ids()
-        if len(selected) != 1:
-            dialogs.alert(self, "请选择一项任务", "改名时请只勾选一项任务。")
-            return
-        self._rename_record(selected[0])
+    def _changed(self, snapshot):
+        self.snapshot = snapshot
+        if self.on_changed is not None:
+            self.on_changed(snapshot)
+        self.refresh()
 
-    def _rename_record(self, record_id: str) -> None:
-        if self._show_trash or not self.snapshot.writable:
-            return
-        record = next(
-            (row for row in self.snapshot.active_records if row.record_id == record_id),
-            None,
-        )
-        if record is None:
-            return
-        name = dialogs.prompt(self, "修改任务名称", text=record.name, ok="保存")
-        if name is None:
-            return
-        expected = self.snapshot.source_hash
-        self._apply(lambda: self.repository.rename(record.record_id, name, expected_source_hash=expected))
+    def _rename_record(self, record_id: str, name: str) -> None:
+        if self.snapshot.writable and self.can_move():
+            if self._apply(lambda: self.repository.rename(
+                record_id, name, expected_source_hash=self.snapshot.source_hash,
+            )):
+                for row in self.list.findChildren(_HistoryRecordRow):
+                    if row.record_id == record_id:
+                        row.edit_button.setFocus(Qt.OtherFocusReason)
+                        break
 
     def move_selected(self) -> None:
-        selected = self.selected_ids()
-        if not selected:
-            dialogs.alert(self, "请选择任务", "请先勾选要处理的完整任务。")
-            return
-        expected = self.snapshot.source_hash
-        if self._show_trash:
-            self._apply(lambda: self.repository.restore_records(selected, expected_source_hash=expected))
-            return
-        if not dialogs.confirm(
-            self,
-            "移入任务回收站",
-            f"将 {len(selected)} 项完整采集任务移入任务回收站？任务内作品会一起移动。",
-            ok="移入任务回收站",
-        ):
-            return
-        self._apply(lambda: self.repository.trash_records(selected, expected_source_hash=expected))
+        self._confirm_move(self.selected_ids())
 
-    def purge_selected(self) -> None:
-        selected = self.selected_ids()
-        if not selected:
-            dialogs.alert(self, "请选择任务", "请先勾选要永久删除的完整任务。")
+    def _confirm_move(self, selected: list[str]) -> None:
+        if self._moving is not None or not selected or not self.snapshot.writable:
             return
-        if not dialogs.confirm(
-            self,
-            "永久删除任务",
-            f"永久删除 {len(selected)} 项完整任务？此操作无法撤销。",
-            ok="永久删除",
-        ):
+        if not self.can_move():
+            dialogs.alert(self, "暂时无法移动", "请等待当前采集完成再试。")
             return
         expected = self.snapshot.source_hash
-        self._apply(lambda: self.repository.purge_records(selected, expected_source_hash=expected))
+        records = [record for record in self.snapshot.active_records if record.record_id in selected]
+        names = "、".join(record.name for record in records[:3])
+        if len(records) > 3:
+            names += f"等 {len(records)} 份记录"
+        works = sum(_item_count(record) for record in records)
+        if not dialogs.confirm(
+            self, "移入 macOS 废纸篓",
+            f"将「{names}」移入系统废纸篓？其中有 {works} 条作品信息。"
+            "已保存的音视频、封面和文稿会保留。可在废纸篓选择「放回原处」，再返回主页采集。",
+            ok="移入废纸篓",
+        ):
+            return
+        if not self.can_move():
+            dialogs.alert(self, "暂时无法移动", "采集已开始，请等待任务完成再试。")
+            return
+        self.card.setEnabled(False)
+        self.summary.setText("正在移入系统废纸篓…")
+        worker = _MoveRecords(self.repository, selected, expected, self)
+        self._moving = worker
+        worker.saved.connect(self._changed)
+        worker.failed.connect(self._move_failed)
+        worker.finished.connect(self._finish_move)
+        worker.start()
+
+    def _move_failed(self, code: str):
+        self._sync_selection()
+        self.readonly_label.setText(self._error_text(code))
+        self.readonly_label.show()
+
+    def _finish_move(self):
+        self._moving.deleteLater()
+        self._moving = None
+        self.card.setEnabled(True)
+        self._focus_first_control()
 
     @staticmethod
     def _error_text(code: str) -> str:
         return {
+            "system_trash_pending": "移入废纸篓尚未完成，续办记录已保留；请稍后重开采集页重试，不会再次移动已完成的包。",
             "concurrent_change": "任务文件已被其他窗口更新，请关闭并重新打开后再试。",
+            "system_trash_failed": "系统废纸篓未确认移动，活动记录已保留。请检查磁盘权限后重试。",
             "disk_full": "磁盘空间不足，原任务没有改变。",
             "permission_denied": "当前目录不可写，原任务没有改变。",
             "unsafe_path": "任务路径不安全，已停止写入。",

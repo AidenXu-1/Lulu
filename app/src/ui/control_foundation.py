@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
-    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -33,6 +32,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .theme import TextScaledDialog as QDialog
 
 from . import icons
 
@@ -91,7 +91,7 @@ def adopt_consumer_theme_scope(widget, scope: str):
 
 def build_consumer_page_header(
     title: str,
-    subtitle: str,
+    subtitle: str = "",
     *,
     trailing: QWidget | None = None,
     parent: QWidget | None = None,
@@ -108,11 +108,11 @@ def build_consumer_page_header(
     header.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
     row = QHBoxLayout(header)
     row.setContentsMargins(0, 0, 0, 0)
-    row.setSpacing(12)
+    row.setSpacing(12 if subtitle else 15)
 
     rule = QFrame(header)
     rule.setObjectName("studioTitleRule")
-    rule.setFixedSize(3, 46)
+    rule.setFixedSize(3, 46 if subtitle else 37)
     rule.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     rule.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
     row.addWidget(rule, 0, Qt.AlignmentFlag.AlignTop)
@@ -126,6 +126,10 @@ def build_consumer_page_header(
     subtitle_label = QLabel(subtitle, header)
     subtitle_label.setObjectName("pageMeta")
     subtitle_label.setWordWrap(True)
+    if not subtitle:
+        title_label.setMinimumHeight(37)
+        title_label.setStyleSheet('font-size: 27px; font-weight: 600;')
+        subtitle_label.hide()
     copy.addWidget(title_label)
     copy.addWidget(subtitle_label)
     row.addLayout(copy, 1)
@@ -1275,7 +1279,9 @@ class LuluCheckBox(QCheckBox):
         from . import theme as T
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        indicator = QRectF(5, 5, 18, 18)
+        top = (self.height() - 18) / 2
+        indicator = QRectF(5, top, 18, 18)
+        outline = bool(self.property("outlineCheck"))
         accent, accent_soft = self._accent_colors()
         # A visually consistent placeholder can remain non-interactive while an
         # independent feature TASK supplies its business wiring.  The opt-in
@@ -1292,19 +1298,20 @@ class LuluCheckBox(QCheckBox):
         if self.hasFocus() and self._keyboard_focus:
             painter.setPen(QPen(QColor(T.INK_FAINT), 1.5))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(QRectF(0.75, 1.75, self.width() - 1.5, 24.5), 7, 7)
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.75, 1.75, -0.75, -1.75), 7, 7)
         painter.setPen(QPen(border, 1))
         painter.setBrush(
             accent
-            if self.isChecked() and visual_enabled
+            if self.isChecked() and visual_enabled and not outline
             else QColor(T.CARD if visual_enabled else T.BG_DEEP)
         )
         painter.drawRoundedRect(indicator, 4, 4)
         if self.isChecked():
-            path = QPainterPath(QPointF(9, 14))
-            path.lineTo(QPointF(13, 18))
-            path.lineTo(QPointF(20, 10))
-            painter.setPen(QPen(QColor("#FFFFFF" if visual_enabled else T.INK_FAINT), 2))
+            path = QPainterPath(QPointF(9, top + 9))
+            path.lineTo(QPointF(13, top + 13))
+            path.lineTo(QPointF(20, top + 5))
+            mark = (accent if outline else QColor("#FFFFFF")) if visual_enabled else QColor(T.INK_FAINT)
+            painter.setPen(QPen(mark, 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(path)
         painter.setPen(QColor(T.INK if visual_enabled else T.INK_FAINT))

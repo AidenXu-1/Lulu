@@ -45,12 +45,13 @@ class LocalSkillDropZone(QPushButton):
     rejected = Signal(str)
 
     def __init__(self, parent=None):
-        super().__init__('拖入本地技能，或点击选择文件\n支持完整技能文件夹或 ZIP；选择 SKILL.md 时一并导入所在文件夹', parent)
+        super().__init__('拖入本地技能，或点击选择文件\n支持文件夹、ZIP 或 SKILL.md', parent)
         self.setAcceptDrops(True)
         self.setMinimumHeight(112)
         self.setMinimumWidth(0)
         self.setCursor(Qt.PointingHandCursor)
         self.setAccessibleName('安装本地技能，点击选择 ZIP 或 SKILL.md')
+        self.setToolTip('选择 SKILL.md 时会检查所在文件夹中的完整技能。')
         c = T.consumer_theme(T.ACTIVE.name)
         self.setStyleSheet(f'''
             QPushButton {{ background:{c.accent_wash}; color:{c.ink};
@@ -139,7 +140,7 @@ class SkillsPage(QWidget):
         heading = QLabel('技能')
         heading.setObjectName('pageTitle')
         root.addWidget(heading)
-        note = QLabel('系统技能随 Lulu 提供。其他技能请自行下载后拖入安装，在文稿库 AI 对话中使用。关闭开关可卸载。')
+        note = QLabel('把常用的处理方法交给 Lulu，在创作时按需使用。')
         note.setWordWrap(True)
         note.setObjectName('pageMeta')
         root.addWidget(note)
@@ -281,7 +282,7 @@ class SkillsPage(QWidget):
             button.setEnabled(not busy)
         for switch in self.findChildren(ConsumerSwitch):
             row = next((r for r in self.entries if r['name'] == switch.property('skillName')), {})
-            switch.setEnabled(not busy and bool(row.get('installed') or row.get('recoverable')))
+            switch.setEnabled(not busy and bool(row.get('installed')))
         for button in self.findChildren(QPushButton):
             if button.property('skillFolder'):
                 button.setEnabled(not busy and Path(button.property('skillFolder')).is_dir())
@@ -370,7 +371,7 @@ class SkillsPage(QWidget):
             desc.setObjectName('pageMeta')
             text.addWidget(desc)
             source = {'system':'Lulu 系统', 'user':'用户安装'}[row['origin']]
-            state = '已安装' if row['installed'] else '未安装'
+            state = ('已启用' if row['enabled'] else '已停用') if row['installed'] else '未安装'
             if row['enabled'] and not row.get('automatic', True):
                 state += ' · 仅手动指定'
             meta = QLabel(' · '.join(filter(None, [source, row.get('author') if row['origin'] != 'system' else '', state])))
@@ -394,13 +395,14 @@ class SkillsPage(QWidget):
                     progress.setAccessibleName(feedback['phase'])
                     text.addWidget(progress)
             horizontal.addLayout(text, 1)
-            toggle = ConsumerSwitch(accessible_name=f"安装或卸载 {row['title']}")
-            toggle.setProperty('skillName', row['name'])
-            toggle.setChecked(row['installed'])
-            toggle.setEnabled(not self.busy and bool(row['installed'] or row.get('recoverable')))
-            toggle.setToolTip('关闭以卸载' if row['installed'] else '打开以重新安装')
-            toggle.toggled.connect(lambda checked, row=row: self.change_installation(row, checked))
-            horizontal.addWidget(toggle)
+            if row['installed']:
+                toggle = ConsumerSwitch(accessible_name=f"启用 {row['title']}")
+                toggle.setProperty('skillName', row['name'])
+                toggle.setChecked(row['enabled'])
+                toggle.setEnabled(not self.busy)
+                toggle.setToolTip('停用后保留文件和偏好')
+                toggle.toggled.connect(lambda checked, row=row: self.change_enabled(row, checked))
+                horizontal.addWidget(toggle)
             detail = self.button('详情', lambda row=row: self.show_detail(row))
             detail.setAccessibleName(row['title'] + '的详情')
             detail.setEnabled(not self.busy and not row['name'].startswith(('incoming:', 'pending:')))
@@ -414,6 +416,12 @@ class SkillsPage(QWidget):
             folder.setToolTip('在访达中打开技能文件夹' if row['installed'] else '安装后可打开技能文件夹')
             folder.setEnabled(not self.busy and row['installed'])
             horizontal.addWidget(folder)
+            if row['installed'] or row.get('recoverable'):
+                installed = row['installed']
+                action = self.button('卸载' if installed else '恢复',
+                                     lambda row=row: self.confirm_installation_change(row))
+                action.setAccessibleName(('卸载 ' if installed else '恢复 ') + row['title'])
+                horizontal.addWidget(action)
             column.addWidget(card)
         if not rows:
             empty = QLabel('没有符合条件的技能。调整筛选，或安装你自己的技能。')
@@ -444,7 +452,8 @@ class SkillsPage(QWidget):
         self.show_pending()
 
     def show_pending(self):
-        from PySide6.QtWidgets import QDialog
+
+        from .theme import TextScaledDialog as QDialog
         dialog = QDialog(self)
         dialog.setWindowTitle('选择要安装的技能')
         dialog.resize(560, 440)
@@ -487,13 +496,23 @@ class SkillsPage(QWidget):
     def show_drafts(self):
         self.run('skill_drafts', self.preview_packages)
 
-    def change_installation(self, row, checked):
-        # Display only persisted state; a click is a request until I/O succeeds.
+    def change_enabled(self, row, checked):
         for switch in self.scroll.widget().findChildren(ConsumerSwitch):
             if switch.property('skillName') == row['name']:
                 switch.blockSignals(True)
-                switch.setChecked(row['installed'])
+                switch.setChecked(row['enabled'])
                 switch.blockSignals(False)
+        self.run('skill_configure', lambda _: self.refresh(), name=row['name'], enabled=checked)
+
+    def confirm_installation_change(self, row):
+        from . import dialogs
+        if row['installed'] and not dialogs.confirm(
+            self, '卸载技能', f"卸载「{row['title']}」？之后可以从技能列表恢复。", ok='卸载',
+        ):
+            return
+        self.change_installation(row, not row['installed'])
+
+    def change_installation(self, row, checked):
         operation = 'skill_install' if checked else 'skill_uninstall'
         self.run(operation, lambda _: self.refresh(), name=row['name'])
         self.status.setText(('正在安装 ' if checked else '正在卸载 ') + row['title'] + '…')

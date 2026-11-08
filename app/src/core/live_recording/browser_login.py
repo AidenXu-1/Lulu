@@ -41,7 +41,7 @@ def cookie_header(cookies, now=None):
 
 
 def login_cookie(app_data, *, is_cancelled=lambda: False, progress=lambda text: None,
-                 timeout=300, shell=None):
+                 timeout=300, shell=None, browser_path=None):
     if is_cancelled():
         return ''
     shell = shell or BrowserShell(ProfileRegistry(app_data))
@@ -49,7 +49,8 @@ def login_cookie(app_data, *, is_cancelled=lambda: False, progress=lambda text: 
     try:
         # Same owned identity and leases as homepage collection. Contention is
         # rejected by BrowserShell; no second process attaches to a busy profile.
-        page = shell.open(BrowserLaunchSpec(platform_id='douyin'), is_cancelled=is_cancelled)
+        page = shell.open(BrowserLaunchSpec(platform_id='douyin', browser_path=browser_path),
+                          is_cancelled=is_cancelled)
         if page is None:
             return ''
         page.close_timeout = .5

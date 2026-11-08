@@ -34,7 +34,7 @@ class BasicStabilityTests(fixture.TaskQueueUiRecoveryTests):
         text='本轮稳定性检查🙂\n\n保存后重开，正文应逐字保留。'
         with patch.object(library,'FOLDERS_FILE',self.root/'library/folders.json'):
             document=library.save_document(text,'临时稳定性检查')
-            for iteration in range(3):
+            for iteration in range(10):
                 with self.subTest(iteration=iteration):
                     window=self._window();window.show()
                     self.assertEqual(len(window.tasks),iteration)
@@ -46,6 +46,9 @@ class BasicStabilityTests(fixture.TaskQueueUiRecoveryTests):
                         self.app.processEvents()
                     window._switch_page(2)
                     window._switch_page(6)
+                    self.assertIs(window.models_page.profile.parent(), self.app)
+                    self.assertIs(window.library_page.profile.parent(), self.app)
+                    self.assertIs(window.extraction_workspace.profile.parent(), self.app)
                     window._switch_page(0)
                     self.assertEqual(library.load_markdown(document),text)
                     path=self.root/f'pending-{iteration}.wav'
@@ -55,5 +58,13 @@ class BasicStabilityTests(fixture.TaskQueueUiRecoveryTests):
                     window.close()
                     self.until(lambda:not window.isVisible())
                     self.assertFalse(any(worker.isRunning() for worker in window.models_page.owned_workers()))
+                    # Late page readiness and requests must not restart work
+                    # while the channel remains alive for Chromium teardown.
+                    with patch.object(window.extraction_workspace, 'dispatch') as dispatch, \
+                            patch.object(window.extraction_workspace, 'publish') as publish:
+                        window.extraction_workspace.bridge.ready()
+                        window.extraction_workspace.bridge.request('late', 'files', '{}')
+                        dispatch.assert_not_called()
+                        publish.assert_not_called()
             self.assertEqual(library.load_markdown(document),text)
-            self.assertEqual(len(fixture.TaskQueueStore(self.path).load().tasks),3)
+            self.assertEqual(len(fixture.TaskQueueStore(self.path).load().tasks),10)

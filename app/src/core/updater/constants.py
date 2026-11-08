@@ -1,3 +1,5 @@
+
+from src.edition import product_data_root
 from pathlib import Path
 
 CANONICAL_RELEASE_REPOSITORY = "AidenXu-1/Lulu"
@@ -45,4 +47,4 @@ UPDATE_READY_TIMEOUT_SECONDS = PREPARATION_TIMEOUT_SECONDS + 60
 
 
 def default_updates_root() -> Path:
-    return Path.home() / "Library" / "Application Support" / "Lulu" / "updates"
+    return product_data_root() / "updates"

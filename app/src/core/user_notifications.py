@@ -13,6 +13,8 @@ COMPLETION_TITLE = "任务已完成"
 COMPLETION_BODY = "Lulu 已完成一个处理任务。"
 FAILURE_TITLE = "任务处理失败"
 FAILURE_BODY = "Lulu 有一个任务未能完成。"
+ATTENTION_TITLE = "任务需要你处理"
+ATTENTION_BODY = "请在 Lulu 查看需要处理的任务。"
 
 
 class AuthorizationStatus(str, Enum):
@@ -199,6 +201,12 @@ class UserNotificationService:
         self._identifier_factory = identifier_factory
         self._timeout_seconds = float(timeout_seconds)
 
+    def check_authorization(self, callback: Callable[[AuthorizationStatus], None]) -> None:
+        def start(finish):
+            self._adapter.get_authorization_status(lambda status: finish(_authorization_status(status)))
+        self._run_once(start, timeout=AuthorizationStatus.TIMEOUT,
+                       failed=AuthorizationStatus.UNAVAILABLE, callback=callback)
+
     def request_enable(self, callback: Callable[[PermissionResult], None]) -> None:
         timeout = PermissionResult(False, AuthorizationStatus.TIMEOUT, "permission_timeout")
         unavailable = PermissionResult(False, AuthorizationStatus.UNAVAILABLE, "bridge_unavailable")
@@ -261,6 +269,18 @@ class UserNotificationService:
             body=FAILURE_BODY,
             play_sound=False,
             callback=callback,
+        )
+
+    def notify_task_needs_attention(
+        self,
+        policy: NotificationPolicy | str,
+        *,
+        app_is_active: bool,
+        play_sound: bool,
+    ) -> None:
+        self._notify(
+            policy, app_is_active=app_is_active, title=ATTENTION_TITLE,
+            body=ATTENTION_BODY, play_sound=play_sound, callback=None,
         )
 
     def _notify(

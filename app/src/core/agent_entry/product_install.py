@@ -1,5 +1,7 @@
 """Formal v2 product install and independent optional Skill action."""
 from __future__ import annotations
+
+from src.edition import product_data_root
 from dataclasses import dataclass
 import hashlib
 import json
@@ -466,13 +468,13 @@ def build_default_product_installer():
         from ..license.store import StrictKeyringStore
         from .standalone_source import uses_local_storage
         from ..local_integrity import product_local_store
-        keys = product_local_store(Path.home()/'Library/Application Support/Lulu') if uses_local_storage(app) else StrictKeyringStore()
+        keys = product_local_store(product_data_root()) if uses_local_storage(app) else StrictKeyringStore()
         return StandaloneInstallation(installed_app(app), keys)
     from .task_handover import canonical_cli
     from ..license.store import StrictKeyringStore
     from .effects import CurrentUserLaunchctlService
     from .product_lifecycle import stop_clients,clients_stopped,product_service_controller
-    home=Path.home();state=home/'Library/Application Support/Lulu/AgentEntry'
+    home=Path.home();state=product_data_root()/'AgentEntry'
     return ProductInstaller(ProductPaths(Path('/Applications/Lulu.app'),state,
         home/'Library/LaunchAgents/com.lulu.transcribe.agent-core.plist',
         home/'.agents/skills/lulu-agent',home/'.local/bin/lulu'),key_store=StrictKeyringStore(),

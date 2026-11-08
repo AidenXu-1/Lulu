@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import random
 import re
 import socket
@@ -20,6 +21,7 @@ import urllib.error
 import urllib.request
 from http import cookiejar
 from http.client import IncompleteRead
+from dataclasses import dataclass
 
 from ._abogus import ABogus
 from .models import CollectedItem, dedupe, from_aweme
@@ -30,6 +32,9 @@ _SSL = ssl.create_default_context()
 
 _DESKTOP_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
                "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+# Same Mac/Chrome identity and screen as the session headers and API parameters.
+# Do not let ABogus's Windows/Edge defaults silently replace that identity.
+_DESKTOP_FP = "1920|969|1920|1080|0|0|0|0|1920|1080|1920|1055|1920|969|24|24|MacIntel"
 _MOBILE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
               "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")
 _SEC_UID_RE = re.compile(r"MS4w[\w-]+")
@@ -196,7 +201,13 @@ def resolve_sec_uid(profile_url: str, *, is_cancelled=None) -> str:
     raise DouyinCollectError(_NEED_PROFILE_MSG, code="DOUYIN_INVALID_PROFILE")
 
 
-def _register_ttwid(*, is_cancelled=None) -> str:
+@dataclass(frozen=True)
+class _AnonymousSession:
+    cookie: str
+    uifid: str
+
+
+def _register_ttwid(*, is_cancelled=None) -> _AnonymousSession:
     """匿名调字节公开 ttwid 注册接口换真 ttwid(无登录、无账号)。"""
     _check_cancelled(is_cancelled)
     payload = json.dumps({
@@ -213,6 +224,7 @@ def _register_ttwid(*, is_cancelled=None) -> str:
         with op.open(urllib.request.Request(
             "https://www.douyin.com/",
             headers={"User-Agent": _DESKTOP_UA}), timeout=15) as resp:
+            visitor = resp.headers.get('x-tt-trace-host', '')
             _read_anonymous_response(resp, 300_000, is_cancelled=is_cancelled, deadline=deadline)
         _check_cancelled(is_cancelled)
         deadline = time.monotonic() + 15
@@ -230,7 +242,26 @@ def _register_ttwid(*, is_cancelled=None) -> str:
     cookie = "; ".join(f"{c.name}={c.value}" for c in cj)
     if "ttwid=" not in cookie:
         raise DouyinCollectError("抖音未能建立匿名访问会话，请稍后重试。", code="DOUYIN_EMPTY_RESPONSE")
-    return cookie
+    # The visitor identity belongs to this memory-only anonymous session, not
+    # the user's browser. A current API request also signs its exact query.
+    visitor = next((c.value for c in cj if c.name.lower().replace('_', '')
+                    in {'uifid', 'uifidtemp'}), visitor)
+    return _AnonymousSession(cookie, visitor if isinstance(visitor, str) else '')
+
+
+def _signed_anonymous_params(params: str, session: _AnonymousSession) -> tuple[str, str]:
+    if not session.uifid or len(session.uifid) > 2048 or any(ord(c) < 33 for c in session.uifid):
+        raise DouyinCollectError('抖音未能建立匿名访客会话，请稍后重试。', code='DOUYIN_EMPTY_RESPONSE')
+    query = dict(urllib.parse.parse_qsl(params, keep_blank_values=True))
+    query.update(uifid=session.uifid, timestamp=str(int(time.time())))
+    _, bogus, ua, _ = ABogus(user_agent=_DESKTOP_UA, fp=_DESKTOP_FP).generate_abogus(urllib.parse.urlencode(query))
+    query['a_bogus'] = bogus
+    encoded = urllib.parse.urlencode(query)
+    # Public web protocol; the salt is not a credential. See the verified
+    # upstream analysis linked in docs/verification/homepage-session-repair-20261108.md.
+    value = f'{session.uifid}_{query["timestamp"]}_A96D855A08C0A9707F8BEF0D9A527E4E_{encoded}'
+    query['x-secsdk-web-signature'] = hashlib.md5(value.encode()).hexdigest()
+    return urllib.parse.urlencode(query), ua
 
 
 def _build_params(sec_uid: str, count: int) -> str:
@@ -326,17 +357,17 @@ def fetch_item(work_id: str, *, is_cancelled=None) -> CollectedItem:
     if _WORK_ID_RE.fullmatch(identity) is None:
         raise DouyinCollectError("作品身份无效，无法刷新音视频地址。", code="DOUYIN_INVALID_PROFILE")
     options = {"is_cancelled": is_cancelled} if is_cancelled is not None else {}
-    cookie = _register_ttwid(**options)
+    session = _register_ttwid(**options)
     _check_cancelled(is_cancelled)
     params = _build_detail_params(identity)
-    _, a_bogus, ua, _ = ABogus().generate_abogus(params)
-    url = f"{_DETAIL_API}?{params}&a_bogus={urllib.parse.quote(a_bogus)}"
+    params, ua = _signed_anonymous_params(params, session)
+    url = f"{_DETAIL_API}?{params}"
     try:
         req = urllib.request.Request(url, headers={
             "User-Agent": ua,
             "Referer": f"https://www.douyin.com/video/{identity}",
             "Accept": "application/json, text/plain, */*",
-            "Cookie": cookie,
+            "Cookie": session.cookie,
         })
         deadline = time.monotonic() + _ANONYMOUS_REQUEST_TIMEOUT_S
         with urllib.request.urlopen(req, timeout=_ANONYMOUS_REQUEST_TIMEOUT_S, context=_SSL) as resp:
@@ -361,12 +392,15 @@ def fetch_item(work_id: str, *, is_cancelled=None) -> CollectedItem:
     return parse_aweme_detail(payload, identity)
 
 
-def fetch_item_with_page_fallback(work_id, progress):
+def fetch_item_with_page_fallback(work_id, progress, *, is_cancelled=None):
     try:
-        return fetch_item(work_id)
+        if is_cancelled is None:
+            return fetch_item(work_id)
+        return fetch_item(work_id, is_cancelled=is_cancelled)
     except DouyinCollectError as exc:
         if exc.code not in {"DOUYIN_ACCESS_RESTRICTED", "DOUYIN_EMPTY_DETAIL"}:
             raise
+        _check_cancelled(is_cancelled)
         from .douyin_public_page import fetch_rendered_item
         return fetch_rendered_item(work_id, progress)
 
@@ -375,15 +409,23 @@ def fetch_latest(profile_url: str, count: int = 20, *, is_cancelled=None) -> lis
     """路 A:抓该作者最新一页作品(约 15~20 条,抖音返回数不定)+ 9 项数据。匿名、不登录。"""
     _check_cancelled(is_cancelled)
     sec_uid = resolve_sec_uid(profile_url, is_cancelled=is_cancelled)
-    cookie = _register_ttwid(is_cancelled=is_cancelled)
+    try:
+        return _fetch_author_latest(sec_uid, count, is_cancelled=is_cancelled)
+    except DouyinCollectError as exc:
+        exc.resolved_author_id = sec_uid
+        raise
+
+
+def _fetch_author_latest(sec_uid, count, *, is_cancelled=None):
+    session = _register_ttwid(is_cancelled=is_cancelled)
     _check_cancelled(is_cancelled)
     params = _build_params(sec_uid, count)
-    _, a_bogus, ua, _ = ABogus().generate_abogus(params)
-    url = f"{_POST_API}?{params}&a_bogus={urllib.parse.quote(a_bogus)}"
+    params, ua = _signed_anonymous_params(params, session)
+    url = f"{_POST_API}?{params}"
     try:
         req = urllib.request.Request(url, headers={
             "User-Agent": ua, "Referer": f"https://www.douyin.com/user/{sec_uid}",
-            "Accept": "application/json, text/plain, */*", "Cookie": cookie})
+            "Accept": "application/json, text/plain, */*", "Cookie": session.cookie})
         deadline = time.monotonic() + _ANONYMOUS_REQUEST_TIMEOUT_S
         with urllib.request.urlopen(req, timeout=_ANONYMOUS_REQUEST_TIMEOUT_S, context=_SSL) as resp:
             raw_body = _read_anonymous_response(resp, _MAX_RESPONSE_BYTES + 1,

@@ -4,9 +4,10 @@ import sys
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, Qt
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QApplication, QButtonGroup, QDialog, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
+    QAbstractSpinBox, QApplication, QButtonGroup, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
+from .theme import TextScaledDialog as QDialog
 
 from ..core.synthesis.indextts2_worker import INDEX2_GENERATION_FIELDS, INDEX25_GENERATION_FIELDS, validate_index_generation
 from .control_foundation import LuluCheckBox, adopt_button

@@ -58,7 +58,9 @@ def _fmt_dur(item: ET.Element) -> str:
         return raw
     try:                    # 纯秒数
         sec = int(float(raw))
-    except ValueError:
+    except (ValueError, OverflowError):
+        return ""
+    if sec < 0:
         return ""
     h, rem = divmod(sec, 3600)
     m, s = divmod(rem, 60)
@@ -67,38 +69,54 @@ def _fmt_dur(item: ET.Element) -> str:
 
 def fetch_feed(url: str, *, timeout: int = 20, limit: int = 300) -> Feed | None:
     """抓取并解析 RSS;不是播客 RSS 则返回 None(让上层回退到普通链接处理)。"""
+    if type(limit) is not int or not 1 <= limit <= 300:
+        return None
+    parser = ET.XMLPullParser(events=("start", "end"))
+    stack, episodes = [], []
+    channel, title, consumed = None, "播客", 0
+    maximum = 8 * 1024 * 1024
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
         with urllib.request.urlopen(req, timeout=timeout) as response:
-            raw = response.read(8 * 1024 * 1024 + 1)
-        if len(raw) > 8 * 1024 * 1024:
-            return None
-    except Exception:  # noqa: BLE001
+            while True:
+                raw = response.read(min(64 * 1024, maximum + 1 - consumed))
+                consumed += len(raw)
+                if consumed > maximum:
+                    return None
+                if not raw:
+                    parser.close()
+                    break
+                parser.feed(raw)
+                for event, element in parser.read_events():
+                    if event == "start":
+                        stack.append(element)
+                        if len(stack) == 2 and element.tag == "channel":
+                            channel = element
+                        continue
+                    parent = stack[-2] if len(stack) > 1 else None
+                    if parent is channel and channel is not None:
+                        if element.tag == "title":
+                            title = (element.text or "播客").strip() or "播客"
+                        elif element.tag == "item":
+                            enc = element.find("enclosure")
+                            audio = (enc.get("url") or "").strip() if enc is not None else ""
+                            kind = (enc.get("type") or "").lower() if enc is not None else ""
+                            if audio and (not kind or kind.startswith("audio")):
+                                episodes.append(Episode(
+                                    title=(element.findtext("title") or "(无标题)").strip(),
+                                    audio_url=audio,
+                                    date=_fmt_date(element.findtext("pubDate") or ""),
+                                    duration=_fmt_dur(element),
+                                ))
+                                # Large archives need not be downloaded to read
+                                # the requested prefix. Closing the response also
+                                # bounds transfer; the 8 MiB input ceiling remains.
+                                if len(episodes) >= limit:
+                                    return Feed(title=title, episodes=episodes)
+                        channel.remove(element)
+                    stack.pop()
+    except Exception:  # noqa: BLE001 - caller can fall back from non-podcast URLs.
         return None
-    try:
-        root = ET.fromstring(raw)
-    except ET.ParseError:
-        return None
-    chan = root.find("channel")
-    if chan is None:        # 只认 RSS(播客几乎都是 RSS,不是 Atom)
-        return None
-    title = (chan.findtext("title") or "播客").strip()
-    episodes: list[Episode] = []
-    for it in chan.findall("item"):
-        enc = it.find("enclosure")
-        if enc is None or not enc.get("url"):
-            continue
-        typ = (enc.get("type") or "").lower()
-        if typ and not typ.startswith("audio"):  # 跳过视频/图文条目
-            continue
-        episodes.append(Episode(
-            title=(it.findtext("title") or "(无标题)").strip(),
-            audio_url=enc.get("url").strip(),
-            date=_fmt_date(it.findtext("pubDate") or ""),
-            duration=_fmt_dur(it),
-        ))
-        if len(episodes) >= limit:
-            break
     if not episodes:
         return None
     return Feed(title=title, episodes=episodes)

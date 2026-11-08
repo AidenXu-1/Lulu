@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' qrc:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Lulu · 直播录制</title>
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="../shared/select-controls.css">
+  <link rel="stylesheet" href="workspace.css?v=3">
+  <link rel="stylesheet" href="live-data.css?v=4">
+  <link rel="stylesheet" href="embedded.css">
+</head>
+<body>
+  <div class="app-window"><div class="app-body">
+      <main class="main">
+        <header class="page-header">
+          <h1>直播录制</h1>
+        </header>
+        <section class="live-overview" aria-label="录制概况与设置">
+          <div class="metrics" aria-label="直播概况">
+            <div><span>监控中</span><strong id="monitor-count">0<small>位</small></strong></div>
+            <div class="recording-metric"><span><i></i>录制中</span><strong id="recording-count">0<small>场</small></strong></div>
+            <div><span>可用空间</span><strong id="disk-space">—</strong></div>
+          </div>
+          <div class="panel-options" aria-label="录制设置">
+            <div class="capture-setting">
+              <span id="comments-label" class="capture-label">保存弹幕</span>
+              <button id="comments-toggle" type="button" role="switch" aria-checked="false" aria-labelledby="comments-label"><span class="switch-track" aria-hidden="true"><span></span></span></button>
+            </div>
+            <span class="option-divider"></span>
+            <button id="storage-button" class="text-button" aria-haspopup="dialog" aria-expanded="false"><span data-icon="folder"></span><span class="storage-caption">保存位置</span><span data-icon="chevron" class="small-icon"></span></button>
+          </div>
+          <p class="storage-warning" id="storage-warning" hidden><span data-icon="info"></span>可用空间低于 5 GB，低于 2 GB 时将暂停监控。</p>
+        </section>
+        <section class="workspace-panel" aria-label="直播工作台">
+          <div class="panel-nav">
+            <div class="tabs" role="tablist" aria-label="直播内容">
+              <button class="tab active" id="tab-hosts" role="tab" aria-selected="true" aria-controls="live-panel">主播监控 <span id="hosts-badge">0</span></button>
+              <button class="tab" id="tab-recordings" role="tab" aria-selected="false" aria-controls="live-panel" tabindex="-1">录像库 <span id="records-badge">0</span></button>
+              <span class="tab-indicator" aria-hidden="true"></span>
+            </div>
+          </div>
+          <div id="live-panel" class="live-panel" role="tabpanel" aria-labelledby="tab-hosts">
+            <div class="table-toolbar">
+              <div class="search-controls">
+                <label class="search-box"><span data-icon="search"></span><input id="search" type="search" placeholder="搜索主播名称或链接" aria-label="搜索主播名称或链接" maxlength="300"></label>
+                <select id="filter" aria-label="筛选直播状态"></select>
+              </div>
+              <div class="table-actions">
+                <button id="pause-all" class="button secondary" hidden><span data-icon="pause"></span>暂停全部</button>
+                <button id="add-host" class="button primary"><span data-icon="plus"></span>添加主播</button>
+              </div>
+            </div>
+            <div id="list-area" class="list-area">
+              <div class="table-scroll" id="table-scroll" tabindex="0" role="region" aria-label="主播监控列表">
+                <table id="host-table">
+                  <colgroup><col class="remove-col"><col class="name-col"><col class="status-col"><col class="checked-col"><col class="progress-col"><col class="room-col"><col class="action-col"></colgroup>
+                  <thead><tr><th scope="col" aria-label="移除"></th><th scope="col">主播</th><th scope="col">直播状态</th><th scope="col">最近检查</th><th scope="col">录制进度</th><th scope="col">直播间</th><th scope="col">操作</th></tr></thead>
+                  <tbody id="host-rows"></tbody>
+                </table>
+                <table id="record-table" hidden>
+                  <colgroup><col class="record-host-col"><col class="record-time-col"><col class="record-duration-col"><col class="record-file-col"><col class="record-state-col"><col class="record-data-col"><col class="record-actions-col"></colgroup>
+                  <thead><tr><th scope="col">主播</th><th scope="col">录制时间</th><th scope="col">已录时长</th><th scope="col">文件</th><th scope="col">状态</th><th scope="col">直播数据</th><th scope="col">操作</th></tr></thead>
+                  <tbody id="record-rows"></tbody>
+                </table>
+                <div class="empty-state" id="empty-state" hidden>
+                  <div class="empty-icon" data-icon="video"></div><h2>还没有添加主播</h2><p></p>
+                  <button class="button secondary" id="empty-add"><span data-icon="plus"></span>添加第一位主播</button>
+                  <button class="button secondary" id="clear-filters" hidden>清除筛选</button>
+                </div>
+              </div>
+            </div>
+            <footer class="table-footer">
+              <span id="list-count" role="status"></span>
+              <span class="footer-hint" id="footer-hint"><i></i><span class="local-caption">录像保存在本机</span><span class="scroll-caption">横向滚动查看更多</span></span>
+              <form id="pager" hidden aria-label="分页">
+                <button type="button" class="icon-button" id="prev-page" aria-label="上一页"><span data-icon="left"></span></button>
+                <input id="page-jump" aria-label="跳转页码" inputmode="numeric" maxlength="5">
+                <span id="page-number"></span>
+                <button type="button" class="icon-button" id="next-page" aria-label="下一页"><span data-icon="right"></span></button>
+              </form>
+            </footer>
+            <div class="table-footer" id="export-status" hidden>
+              <span id="export-progress" role="status"></span>
+              <button class="button" id="cancel-exports">取消导出</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div id="popover" class="popover" hidden></div>
+  <div id="modal-layer" class="modal-layer" hidden><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-header"><div><span id="modal-eyebrow"></span><h2 id="modal-title"></h2></div><button id="modal-close" class="icon-button" aria-label="关闭窗口"><span data-icon="close"></span></button></div><div id="modal-content"></div></section></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script src="../shared/select-controls.js"></script>
+  <script src="qrc:/qtwebchannel/qwebchannel.js"></script>
+  <script src="../shared/channel.js"></script>
+  <script src="live.js"></script>
+</body>
+</html>

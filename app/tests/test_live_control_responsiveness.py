@@ -13,6 +13,54 @@ from src.core.live_recording.contracts import LiveError, validate_request
 from tests import test_live_recording_ui as fixtures
 
 
+class ApprovedControlResponsivenessTests(unittest.TestCase):
+    setUpClass = classmethod(fixtures.NativeLiveTests.setUpClass.__func__)
+    tearDown = fixtures.NativeLiveTests.tearDown
+    until = fixtures.NativeLiveTests.until
+    seed = fixtures.NativeLiveTests.seed
+
+    def setUp(self):
+        from src.ui.approved_live_workspace import ApprovedLiveWorkspace
+        with patch.object(fixtures, 'LiveRecordingPage', ApprovedLiveWorkspace):
+            fixtures.NativeLiveTests.setUp(self)
+
+    def test_pause_all_remains_available_while_first_start_is_pending(self):
+        self.seed(hosts=1, recordings=0)
+        hid = self.page.data['rows'][0]['id']
+        entered, release = threading.Event(), threading.Event()
+        original = self.controller.dispatcher
+
+        def delayed(operation, arguments):
+            if operation == 'start':
+                entered.set()
+                release.wait(5)
+            return original(operation, arguments)
+
+        def js(source):
+            result = []
+            self.page.approved.page().runJavaScript(source, result.append)
+            self.until(lambda: bool(result))
+            return result[0]
+
+        self.until(lambda: js("Boolean(document.querySelector('.row-action'))"))
+        with patch.object(self.controller, 'dispatcher', delayed):
+            try:
+                js("document.querySelector('.row-action').click()")
+                self.until(entered.is_set)
+                self.assertTrue(js("!document.querySelector('#pause-all').hidden"))
+                js("document.querySelector('#pause-all').click()")
+                self.assertEqual(js("document.querySelector('#modal-title').textContent"), '暂停全部监控？')
+                js("document.querySelector('#action-confirm').click()")
+                self.until(lambda: self.service.pause_sequence > 0)
+                self.assertFalse(release.is_set())
+                self.assertFalse(self.service._host(hid)['enabled'])
+            finally:
+                release.set()
+            self.until(lambda: self.controller.start_worker is None)
+        self.assertFalse(self.service._host(hid)['enabled'])
+        self.assertEqual(self.service.control.list(), ())
+
+
 class ControlResponsivenessTests(unittest.TestCase):
     setUpClass = classmethod(fixtures.NativeLiveTests.setUpClass.__func__)
     setUp = fixtures.NativeLiveTests.setUp
@@ -28,6 +76,14 @@ class ControlResponsivenessTests(unittest.TestCase):
         self.service.scheduler.join(2)
         return self.page.data['rows'][0]['id']
 
+    def confirm_pause_all(self):
+        QTest.mouseClick(self.page.pause_all, Qt.LeftButton)
+        confirmation = self.page.action_confirmation
+        self.assertIsNotNone(confirmation)
+        confirm = next(button for button in confirmation.findChildren(QPushButton)
+                       if button.text() == '暂停全部')
+        QTest.mouseClick(confirm, Qt.LeftButton)
+
     def test_click_pause_all_cancels_slow_start_before_disk_returns(self):
         hid = self.steady()
         entered, release = threading.Event(), threading.Event()
@@ -41,7 +97,7 @@ class ControlResponsivenessTests(unittest.TestCase):
                 self.until(entered.is_set)
                 self.assertTrue(self.page.pause_all.isEnabled())
                 began = time.monotonic()
-                QTest.mouseClick(self.page.pause_all, Qt.LeftButton)
+                self.confirm_pause_all()
                 self.until(lambda: not self.page.pending_hosts and not self.page._pausing_all, timeout=1)
                 self.assertLess(time.monotonic() - began, .25)
                 self.assertFalse(self.service._host(hid)['enabled'])
@@ -77,7 +133,7 @@ class ControlResponsivenessTests(unittest.TestCase):
                 action.trigger()
                 self.page._storage_popup.close()
                 self.until(entered.is_set)
-                QTest.mouseClick(self.page.pause_all, Qt.LeftButton)
+                self.confirm_pause_all()
                 self.until(lambda: not self.service._host(hid)['enabled'], timeout=.25)
                 old_deadline = self.service.deadline
                 self.controller.heartbeat_at = 0
@@ -107,7 +163,7 @@ class ControlResponsivenessTests(unittest.TestCase):
         try:
             QTest.mouseClick(self.page.table.cellWidget(0, 6).findChild(QPushButton), Qt.LeftButton)
             self.until(entered.is_set)
-            QTest.mouseClick(self.page.pause_all, Qt.LeftButton)
+            self.confirm_pause_all()
             self.until(lambda: not self.page._pausing_all and not self.page.pending_hosts)
             self.assertGreater(self.service.pause_sequence, 0)
         finally:
@@ -132,7 +188,7 @@ class ControlResponsivenessTests(unittest.TestCase):
             QTest.mouseClick(self.page.table.cellWidget(0, 6).findChild(QPushButton), Qt.LeftButton)
             self.until(entered.is_set)
             self.assertTrue(self.service._host(hid)['enabled'])
-            QTest.mouseClick(self.page.pause_all, Qt.LeftButton)
+            self.confirm_pause_all()
             self.until(lambda: not self.page._pausing_all)
             self.assertFalse(self.service._host(hid)['enabled'])
         finally:
@@ -262,7 +318,7 @@ class ControlResponsivenessTests(unittest.TestCase):
             return original(operation, arguments)
         self.controller.dispatcher = delayed
         try:
-            QTest.mouseClick(self.page.pause_all, Qt.LeftButton)
+            self.confirm_pause_all()
             self.until(entered.is_set)
             other_button = self.page.table.cellWidget(1, 6).findChild(QPushButton)
             self.assertFalse(other_button.isEnabled())

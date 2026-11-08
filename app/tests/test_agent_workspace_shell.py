@@ -106,6 +106,23 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(self.window.sidebar_paper.styleSheet(),before)
         self.assertNotIn('border-bottom',self.window.titlebar_paper_center.styleSheet())
 
+    def test_settings_sidebar_continues_to_window_top_at_responsive_widths(self):
+        band = self.window.settings_titlebar_sidebar
+        titlebar = self.window.titlebar_paper_center
+        self.assertTrue(band.isHidden())
+        self.window._switch_page(6)
+
+        for width, sidebar_width in ((1680, 206), (1200, 182), (960, 148)):
+            with self.subTest(width=width):
+                self.window.resize(width, 760)
+                self.until(lambda: band.width() == sidebar_width)
+                self.assertTrue(band.isVisible())
+                self.assertEqual(band.geometry().getRect(), (0, 0, sidebar_width, titlebar.height()))
+                self.assertEqual(titlebar.x(), self.window.center_wrap.x())
+
+        self.window._switch_page(0)
+        self.assertTrue(band.isHidden())
+
     def test_workbench_chrome_restored_after_each_library_kind(self):
         from src.ui import theme
         from src.ui.voice_page import VoicePage
@@ -141,7 +158,7 @@ class WorkspaceShellTests(unittest.TestCase):
                 self.assertEqual(self.window.sidebar_paper.styleSheet(), '')
                 self.assertTrue(all(frame.styleSheet()=='' for frame in self.window._titlebar_paper_frames()))
                 self.assertEqual(self.window.sidebar_paper.property('paperTextureStrength'),original.paper_rail_opacity)
-                self.assertEqual(self.window.center_wrap.property('paperTextureStrength'),original.paper_canvas_opacity if index==0 else 0.0)
+                self.assertEqual(self.window.center_wrap.property('paperTextureStrength'),original.paper_canvas_opacity if index in (0,5) else 0.0)
                 self.assertEqual([frame.property('paperTextureStrength') for frame in self.window._titlebar_paper_frames()],
                                  [original.paper_rail_opacity,original.paper_canvas_opacity])
                 self.assertEqual(self.window.window_title_label.property('immersiveTitlebar'),index==0)

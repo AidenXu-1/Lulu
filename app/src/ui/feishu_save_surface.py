@@ -168,7 +168,8 @@ class ChoiceStrip(QWidget):
                 button.setText(title)
                 button.setMinimumHeight(32)
             self.group.addButton(button, index)
-            button.clicked.connect(lambda _, i=index: self.setCurrentIndex(i))
+            # Native accessibility toggles checked state without emitting clicked.
+            button.toggled.connect(lambda checked, i=index: self.setCurrentIndex(i) if checked else None)
             self.buttons.append(button)
             layout.addWidget(button, 1)
         self.buttons[0].setChecked(True)
@@ -429,8 +430,10 @@ class SaveSurface:
         root.addLayout(footer)
         for button in self.findChildren(QPushButton):
             button.setAutoDefault(False)
-        for control in (self.format, self.mode, self.location, self.template, self.repeat):
+        for control in (self.location, self.template, self.repeat):
             control.currentIndexChanged.connect(self._layout)
+        for control in (self.format, self.mode):
+            control.currentIndexChanged.connect(self._save_kind_changed)
         self.target.currentIndexChanged.connect(self._target_changed)
         self.url.textEdited.connect(self._url_edited)
         self.table.currentIndexChanged.connect(self._load_fields)

@@ -21,7 +21,6 @@ from PySide6.QtMultimedia import QMediaPlayer
 from .audio_output import create_audio_output as QAudioOutput
 from PySide6.QtWidgets import (
     QApplication,
-    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -36,6 +35,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .theme import TextScaledDialog as QDialog
 
 from ..core import library
 from ..core.output.writer import write_transcript

@@ -88,8 +88,8 @@ class LiveHoverTests(unittest.TestCase):
 
     def test_workspace_button_variants_have_visible_pointer_feedback(self):
         for control in (self.page.storage_button, self.page.record_tab, self.page.host_tab,
-                        self.page.comments_toggle, self.page.add_button, self.page.settings_button,
-                        self.page.host_filter):
+                        self.page.comments_toggle, self.page.add_button,
+                        self.page.host_filter.trigger):
             with self.subTest(control=control.text()):
                 self.assert_feedback(control)
 

@@ -30,6 +30,13 @@ class UpdateService:
         self.store = StateStore(root)
         self.client = client or SecureHttpClient()
         self.public_keys = dict(_default_public_keys() if public_keys is None else public_keys)
+        from ...edition import is_experience
+        if is_experience():
+            self.snapshot = UpdateSnapshot(state='idle', ui_state='development_edition',
+                error_code='development_edition', message='开发体验版请使用单独安装包更新。',
+                current_version=__version__, current_build=__build__)
+            self.manifest = None
+            return
         try:
             self.snapshot = self.store.load()
             cleanup_stale_on_startup(self.store.root, self.snapshot)
@@ -111,6 +118,10 @@ class UpdateService:
         return self.snapshot
 
     def check(self, *, manual: bool) -> UpdateSnapshot:
+        from ...edition import is_experience
+        if is_experience():
+            return self._save(state="idle", ui_state="development_edition", error_code="development_edition",
+                message="开发体验版使用单独安装包，不会替换稳定版。", update_available=False, verified_manifest=False)
         # Completion is durable before the helper finishes its cleanup. Keep a
         # new check/download from racing with that still-owned installation.
         if os.path.lexists(self.store.root / 'transactions/update.lock'):
@@ -146,6 +157,9 @@ class UpdateService:
         return self._save(state="available", ui_state="update_available", update_available=True, **common)
 
     def download(self, *, progress: Callable[[int, int], None] | None = None, cancelled: Callable[[], bool] | None = None) -> Path:
+        from ...edition import is_experience
+        if is_experience():
+            raise UpdateError("development_edition", "开发体验版请使用单独安装包")
         if not self.manifest or not self.snapshot.verified_manifest:
             checked = self.check(manual=True)
             if checked.ui_state not in {"update_available", "download_paused"} or not self.manifest:
@@ -255,6 +269,9 @@ class UpdateService:
         return final
 
     def stage(self, zip_path: Path, *, verify_system: bool = True) -> Path:
+        from ...edition import is_experience
+        if is_experience():
+            raise UpdateError("development_edition", "开发体验版请使用单独安装包")
         if not self.manifest or not self.snapshot.verified_manifest:
             raise UpdateError("unverified", "更新清单尚未验证")
         txn = secrets.token_hex(32)

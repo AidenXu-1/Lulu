@@ -16,6 +16,7 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QEvent,
+    QEventLoop,
     QObject,
     Property,
     QEasingCurve,
@@ -37,7 +38,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QComboBox,
-    QDialog,
     QFileDialog,
     QFrame,
     QGraphicsBlurEffect,
@@ -58,6 +58,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .theme import TextScaledDialog as QDialog
 
 from ..core import library, textfile
 from ..core.synthesis import glossary, local_models, style_presets, voices
@@ -1102,6 +1103,7 @@ class _VoiceRecordingDialog(QDialog):
         self._mixed_system_result = None
         self._mixed_paths: dict[str, Path] = {}
         self._cancel_requested = False
+        self._preparing_recording = False
         self._elapsed = 0
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -1193,6 +1195,8 @@ class _VoiceRecordingDialog(QDialog):
         return "建议录 3-10 秒、有明显情绪的短音频。它只影响情绪表达，音色仍以上方选择的音色为准。"
 
     def _set_source(self, source: str) -> None:
+        if self._preparing_recording:
+            return
         self._source = source
         self._buttons[source].setChecked(True)
         if source == "microphone":
@@ -1206,6 +1210,8 @@ class _VoiceRecordingDialog(QDialog):
             self.start_btn.setIcon(QIcon(icons.pixmap("waveform", "#FFFFFF", 13)))
 
     def _toggle(self) -> None:
+        if self._preparing_recording:
+            return
         if self._mic_rec is not None and self._mic_rec.is_recording():
             self._stop()
             return
@@ -1215,11 +1221,14 @@ class _VoiceRecordingDialog(QDialog):
         self._start()
 
     def _recording_path(self, prefix: str) -> Path:
+        from uuid import uuid4
         root = Path(tempfile.gettempdir()) / "lulu-voice-recordings"
         root.mkdir(parents=True, exist_ok=True)
-        return root / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.m4a"
+        return root / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex}.m4a"
 
     def _start(self) -> None:
+        if self._preparing_recording:
+            return
         self._cancel_requested = False
         try:
             if self._source == "microphone":
@@ -1232,7 +1241,50 @@ class _VoiceRecordingDialog(QDialog):
                 output = self._recording_path("混合样本" if self.purpose == "voice_sample" else "混合参考")
                 self._start_mixed(output)
         except Exception as exc:
-            self._fail(self._friendly_recording_error(exc))
+            if self._cancel_requested:
+                self.reject()
+            else:
+                self._fail(self._friendly_recording_error(exc))
+
+    def _prepare_system_session(self, request):
+        # Reuse only the window's worker boundary. The native backend owns its
+        # bounded startup/timeout and process cleanup; the GUI retains cancel.
+        from .main_window import _RecordingCallWorker
+        from ..core.recording import MacOSSystemAudioBackend
+
+        self._preparing_recording = True
+        self.status.setText('正在准备录音…')
+        self.start_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(True)
+        for button in self._buttons.values():
+            button.setEnabled(False)
+        worker = _RecordingCallWorker(lambda: MacOSSystemAudioBackend().start(request), self)
+        loop = QEventLoop(self)
+        worker.finished.connect(loop.quit)
+        worker.start()
+        try:
+            loop.exec()
+            worker.wait()
+            if worker.error is not None:
+                raise worker.error
+            session = worker.value
+            if self._cancel_requested:
+                session.cancel()
+                self._cleanup(request.output_path)
+                self._cleanup(request.output_path.with_suffix('.stop'))
+                return None
+            return session
+        except Exception:
+            self._cleanup(request.output_path)
+            self._cleanup(request.output_path.with_suffix('.stop'))
+            raise
+        finally:
+            self._preparing_recording = False
+            worker.deleteLater()
+            loop.deleteLater()
+            if self._cancel_requested:
+                self._cleanup_mixed()
+                self.reject()
 
     def _start_microphone(self, path: Path) -> None:
         from .recorder import MicRecorder
@@ -1251,7 +1303,9 @@ class _VoiceRecordingDialog(QDialog):
         from ..core.recording import MacOSSystemAudioBackend, RecordingRequest, RecordingSource, RecordingUse
 
         request = RecordingRequest(source=RecordingSource.SYSTEM_AUDIO, output_path=path, use=RecordingUse.VOICE_SAMPLE)
-        self._system_session = MacOSSystemAudioBackend().start(request)
+        self._system_session = self._prepare_system_session(request)
+        if self._system_session is None:
+            return
         self._set_running_ui("系统声音录制中")
 
     def _start_mixed(self, output: Path) -> None:
@@ -1264,8 +1318,10 @@ class _VoiceRecordingDialog(QDialog):
         mic_path = output.with_name(f"{output.stem}_麦克风轨.m4a")
         system_path = output.with_name(f"{output.stem}_系统声音轨.m4a")
         request = RecordingRequest(source=RecordingSource.SYSTEM_AUDIO, output_path=system_path, use=RecordingUse.VOICE_SAMPLE)
-        self._system_session = MacOSSystemAudioBackend().start(request)
         self._mixed_paths = {"mic": mic_path, "system": system_path, "output": output}
+        self._system_session = self._prepare_system_session(request)
+        if self._system_session is None:
+            return
         rec.tick.connect(self._on_mic_tick)
         rec.finished.connect(lambda p: self._finish_mixed(Path(p)))
         rec.failed.connect(lambda _msg: self._fail("麦克风录制失败，请检查麦克风权限后重试。"))
@@ -1274,6 +1330,7 @@ class _VoiceRecordingDialog(QDialog):
         self._set_running_ui("混合录制中")
 
     def _set_running_ui(self, text: str) -> None:
+        self.start_btn.setEnabled(True)
         for btn in self._buttons.values():
             btn.setEnabled(False)
         self.start_btn.setText("  停止并保存")
@@ -1361,7 +1418,9 @@ class _VoiceRecordingDialog(QDialog):
             self._fail("没有录到清晰的麦克风声音，请重新录制。")
             return
         try:
-            stats = self.page._mix_voice_recording_tracks(mic_path, system_path, output)
+            stats = self.page._mix_voice_recording_tracks(mic_path, system_path, output,
+                microphone_started_at=self._mic_rec.capture_started_monotonic,
+                system_started_at=self._mixed_system_result.metadata.get("capture_started_monotonic"))
         except Exception:
             self._fail("混合录音保存失败，请重新录制。")
             return
@@ -1374,6 +1433,9 @@ class _VoiceRecordingDialog(QDialog):
 
     def _cancel(self) -> None:
         self._cancel_requested = True
+        if self._preparing_recording:
+            self.status.setText('正在取消录音…')
+            return
         if self._system_session is not None and self._system_session.is_active():
             self._system_session.cancel()
         if self._mic_rec is not None and self._mic_rec.is_recording():
@@ -1381,6 +1443,12 @@ class _VoiceRecordingDialog(QDialog):
         self._cleanup_mixed()
         self._timer.stop()
         self.reject()
+
+    def reject(self) -> None:
+        if self._preparing_recording:
+            self._cancel()
+            return
+        super().reject()
 
     def _fail(self, text: str) -> None:
         self._timer.stop()
@@ -1399,6 +1467,9 @@ class _VoiceRecordingDialog(QDialog):
         self.status.setText(text)
 
     def _friendly_recording_error(self, exc: Exception) -> str:
+        from ..core.recording import RecordingBackendError
+        if isinstance(exc, RecordingBackendError):
+            return str(exc)
         text = str(exc) or "录音失败"
         if "权限" in text or "permission" in text.lower() or "not authorized" in text.lower():
             if self._source == "microphone":
@@ -1730,10 +1801,7 @@ class VoicePage(QWidget):
         header_tools_layout.setSpacing(12)
         header_tools_layout.addWidget(self._build_engine_switch(), 0, Qt.AlignTop)
         header_tools_layout.addWidget(self.page_privacy_badge, 0, Qt.AlignTop)
-        header, self.page_title, self.page_meta = build_consumer_page_header(
-            "文案配音",
-            "把文案变成可试听、可导出的声音",
-        )
+        header, self.page_title, self.page_meta = build_consumer_page_header("文案配音")
         self.page_header = header
         self.page_header_tools = header_tools
         self.page_header_shell = QWidget()
@@ -5064,10 +5132,12 @@ QLabel#srcEmpty {{ font-size:12px; color:{T.INK_FAINT}; }}
 
         return analyze_recording_file(path)
 
-    def _mix_voice_recording_tracks(self, mic_path: Path, system_path: Path, output_path: Path) -> dict[str, object]:
+    def _mix_voice_recording_tracks(self, mic_path: Path, system_path: Path, output_path: Path, *,
+                                   microphone_started_at: float | None, system_started_at: float | None) -> dict[str, object]:
         from ..core.recording import mix_recording_tracks
 
-        return mix_recording_tracks(mic_path, system_path, output_path)
+        return mix_recording_tracks(mic_path, system_path, output_path,
+            microphone_started_at=microphone_started_at, system_started_at=system_started_at)
 
     def _new_voice_from_path(
         self,

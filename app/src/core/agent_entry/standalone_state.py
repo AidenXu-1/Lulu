@@ -5,6 +5,8 @@ helper can restore its App without having to undo this generation's preparation.
 """
 from __future__ import annotations
 
+from src.edition import product_data_root
+
 import base64
 import hashlib
 import hmac
@@ -35,7 +37,7 @@ _BINDING_FIELDS = ('source_kind', 'source_app_sha256', 'component_manifest_sha25
 
 def install_state_root(app, product_root=None):
     app = Path(app)
-    root = Path(product_root) if product_root is not None else Path.home()/'Library/Application Support/Lulu'
+    root = Path(product_root) if product_root is not None else product_data_root()
     if not app.is_absolute() or app.resolve() != app or root.resolve() != root:
         raise RuntimeError('PRODUCT_PATH_UNSAFE')
     descriptor, _ = _read_regular(app/DESCRIPTOR, reason_code='APP_INSTALL_DESCRIPTOR_REQUIRED')

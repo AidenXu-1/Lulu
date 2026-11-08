@@ -176,6 +176,16 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(DouyinProvider(lambda: session).check({'source': 'https://live.douyin.com/123'}).state, 'access_limited')
 
 class ServiceTests(unittest.TestCase):
+    def test_interrupted_recording_attention_uses_recording_reason_until_resolved(self):
+        hid=self.add()
+        self.service.index.write('INSERT INTO recordings(id,host_id,name,job_id,directory,started,ended,reason) VALUES(?,?,?,?,?,?,?,?)',
+            ('fixture-recovery',hid,'恢复样例','fixture-job',str(self.output),1,2,'recovery_required'))
+        snapshot=self.call('snapshot',tab='hosts',query='',filter='all',page=1)
+        self.assertIn('recording:fixture-recovery:recovery_required',snapshot['attention_keys'])
+        self.service.index.write("UPDATE recordings SET reason='recovery_checked' WHERE id=?",('fixture-recovery',))
+        self.assertNotIn('recording:fixture-recovery:recovery_required',
+            self.call('snapshot',tab='hosts',query='',filter='all',page=1)['attention_keys'])
+
     def setUp(self):
         self.temp = TemporaryDirectory()
         self.root = Path(self.temp.name).resolve()

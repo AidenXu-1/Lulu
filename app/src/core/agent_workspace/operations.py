@@ -22,14 +22,8 @@ def checked_voice_store():
     voices.configure_voice_library_dir(AppConfig.load().voice_library_dir)
     folder = voices.current_voice_library_dir()
     if any(p.is_symlink() for p in [folder, *folder.parents, voices.INDEX]):
-        raise ValueError('音色库位置已变化，未修改资料')
-    if voices.INDEX.exists():
-        try:
-            items = json.loads(voices.INDEX.read_text(encoding='utf-8'))
-        except (OSError, ValueError, UnicodeError):
-            raise ValueError('音色目录无法完整读取，未修改原音色') from None
-        if type(items) is not list or any(type(i) is not dict for i in items):
-            raise ValueError('音色目录格式异常，未修改原音色')
+        raise voices.VoiceLibraryError('音色库位置已变化，未修改资料')
+    return voices.list_voices(strict=True)
 
 
 def actual_file(value, *, maximum=None):
@@ -223,6 +217,10 @@ class ExpansionOperations:
         """List persistent batches, including interrupted batches from an earlier run."""
         return dict(batches=self.runtime.expansion_batches().list())
 
+    def batch_poll(self, pages=None, after=''):
+        """Read visible pages together through one authenticated connection."""
+        return self.runtime.expansion_batches().poll(pages,after)
+
     def batch_cancel(self, batch_id,force=False):
         """Stop new items and cancel the current item while preserving prior results."""
         return self.runtime.expansion_batches().cancel(batch_id,force)
@@ -236,7 +234,8 @@ class ExpansionOperations:
             raise ValueError('每次最多读取 300 集')
         feed = fetch_feed(source, limit=limit)
         if feed is None:
-            raise ValueError('未读到可用的播客 RSS，请检查订阅链接或网络')
+            from ..transcription_job_application import LocalTranscriptionJobError
+            raise LocalTranscriptionJobError('EXTERNAL_RESPONSE_INVALID', 'RSS_FEED_UNAVAILABLE')
         value = dict(feed_id='feed-' + documents.digest(source), source=source, title=feed.title,
                      episodes=[dict(asdict(e), episode_id='episode-' + documents.digest(encode([source, e.audio_url]))) for e in feed.episodes])
         # Snapshot identity keeps selections stable if the feed changes later.
@@ -423,10 +422,8 @@ class ExpansionOperations:
 
     def voice_list(self):
         """List local reference voices and their model identities."""
-        from ..synthesis.voices import list_voices
         with _lock:
-            checked_voice_store()
-            return dict(voices=[asdict(v) for v in list_voices()])
+            return dict(voices=[asdict(v) for v in checked_voice_store()])
 
     def voice_create(self, request_id, name, source_path, reference_text='', engine='local_voxcpm2'):
         """Copy an explicit reference recording into the existing voice library."""
@@ -486,9 +483,9 @@ class ExpansionOperations:
         with _lock:
             checked_voice_store()
             voice = voices.get_voice(voice_id)
-            if voice is None:
-                return dict(voice_id=voice_id, deleted=True, reused=True)
             folder = voices.current_voice_library_dir() / voice_id
+            if voice is None and not os.path.lexists(folder):
+                return dict(voice_id=voice_id, deleted=True, reused=True)
             if any(p.is_symlink() for p in [folder, *folder.parents]):
                 raise ValueError('音色文件夹已变化，未删除')
             if self.runtime and any(j.state.value in {'prepared', 'queued', 'running', 'cancel_requested'}

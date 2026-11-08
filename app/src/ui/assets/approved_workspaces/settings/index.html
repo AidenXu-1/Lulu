@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' qrc:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Lulu · 设置</title>
+  <link rel="icon" href="../shared/lulu.png" type="image/png">
+  <link rel="stylesheet" href="preview.css">
+  <link rel="stylesheet" href="controls.css">
+  <link rel="stylesheet" href="embedded.css">
+</head>
+<body>
+  <div class="settings-shell">
+    <aside class="sidebar" aria-labelledby="settings-title">
+      <h2 id="settings-title" class="settings-title" aria-label="设置"></h2>
+      <div class="search-wrap"><span id="search-icon"></span><input id="global-search" type="search" placeholder="查找设置" aria-label="查找所有设置" autocomplete="off"><kbd>⌘ F</kbd></div>
+      <nav id="navigation" aria-label="设置分类"></nav>
+      <div class="sidebar-bottom"><span class="status-dot"></span>本地优先，安心创作<div>宣纸里的每一处，都为顺手。</div></div>
+    </aside>
+    <main id="workspace" class="workspace">
+      <header class="page-header"><div><div class="eyebrow">LULU SETTINGS</div><h1 id="page-title"></h1></div></header>
+      <div id="page-scroll" class="page-scroll"><div id="page-content" class="page-content"></div></div>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <dialog id="modal" aria-labelledby="modal-title"><div id="modal-body"></div></dialog>
+  <script src="qrc:/qtwebchannel/qwebchannel.js"></script>
+  <script src="../shared/channel.js"></script>
+  <script src="controls.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>

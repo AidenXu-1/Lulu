@@ -10,7 +10,6 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QButtonGroup,
-    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -21,6 +20,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .theme import TextScaledDialog as QDialog
 
 from ..core import library
 from . import icons, theme as T

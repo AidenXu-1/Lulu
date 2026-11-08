@@ -111,7 +111,7 @@ def create_page(options, page_factory):
     from DrissionPage._functions.browser import get_launch_args, set_prefs, set_flags
 
     executable = Path(options.browser_path).expanduser()
-    if not executable.is_absolute():
+    if not executable.is_absolute() or executable == system._CHROME_EXECUTABLE:
         installation = system._system_chrome()
         if installation is None:
             raise ChromeLaunchError('browser_missing', '请先安装 Google Chrome，或手动填写 Cookie。')

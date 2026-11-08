@@ -1,7 +1,8 @@
 """Compact native controls for the approved live workspace."""
 from PySide6.QtCore import QEasingCurve, QEvent, QRectF, Qt, QTimer, QVariantAnimation
 from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPen
-from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from .theme import TextScaledDialog as QDialog
 
 from .control_foundation import PaperTextureFrame
 from .indextts2_settings import reduced_motion
@@ -9,10 +10,10 @@ from .indextts2_settings import reduced_motion
 
 class CommentsSwitch(QCheckBox):
     def __init__(self, parent=None):
-        super().__init__('保存弹幕', parent)
+        super().__init__(parent)
         self.setAccessibleName('同时保存弹幕')
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(120, 34)
+        self.setFixedSize(42, 34)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
     def enterEvent(self, event):
@@ -34,11 +35,6 @@ class CommentsSwitch(QCheckBox):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor('#e3eceb' if self.isDown() else '#f5f0e6'))
             painter.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 6, 6)
-        painter.setPen(QColor('#6f685d'))
-        font = self.font()
-        font.setPixelSize(13)
-        painter.setFont(font)
-        painter.drawText(self.rect().adjusted(5, 0, -43, 0), Qt.AlignmentFlag.AlignVCenter, self.text())
         track = QRectF(self.width()-38, (self.height()-19)/2, 32, 19)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor('#437f96' if self.isChecked() else '#d8d1c5'))
@@ -57,7 +53,7 @@ class WorkspaceTab(QPushButton):
         self.setToolTip(text.replace('  ', '：', 1))
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(104, 34)
+        self.setFixedSize(104, 52)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
     def enterEvent(self, event):
@@ -115,16 +111,16 @@ class WorkspaceTabBar(QFrame):
     def __init__(self, buttons, parent=None):
         super().__init__(parent)
         self.buttons = tuple(buttons)
-        self.setFixedSize(212, 38)
+        self.setFixedSize(232, 52)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(24)
         for button in self.buttons:
             layout.addWidget(button)
             button.toggled.connect(lambda checked, b=button: checked and self.slide_to(b))
-        self.indicator_x = 2.0
+        self.indicator_x = 0.0
         self.animation = QVariantAnimation(self)
-        self.animation.setDuration(200)
+        self.animation.setDuration(260)
         self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.animation.valueChanged.connect(self._set_indicator_x)
 
@@ -145,15 +141,9 @@ class WorkspaceTabBar(QFrame):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor('#ded5c7'), 1))
-        painter.setBrush(QColor('#e8e2d7'))
-        painter.drawRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 8, 8)
-        selected = QRectF(self.indicator_x, 2, 104, 34)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(64, 53, 38, 10))
-        painter.drawRoundedRect(selected.translated(0, 1), 7, 7)
-        painter.setBrush(QColor('#fffdf8'))
-        painter.drawRoundedRect(selected, 7, 7)
+        painter.setBrush(QColor('#4d788b'))
+        painter.drawRoundedRect(QRectF(self.indicator_x, self.height() - 2, 104, 2), 1, 1)
 
 
 class WorkspaceDialog(QDialog):

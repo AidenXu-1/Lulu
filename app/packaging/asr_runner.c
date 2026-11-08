@@ -14,6 +14,15 @@ int main(int argc, char **argv) {
     pid_t parent = (pid_t)strtol(argv[1], NULL, 10);
     if (parent <= 1 || getppid() != parent) return 65;
     signal(SIGTERM, stop); signal(SIGINT, stop); signal(SIGHUP, stop);
+    /* Core's dispatch thread may block these signals. exec preserves its mask;
+       without unblocking, Python's timeout kills only this helper's group and
+       the child in its own session survives with the inherited resource lock. */
+    sigset_t cancellation_signals;
+    sigemptyset(&cancellation_signals);
+    sigaddset(&cancellation_signals, SIGTERM);
+    sigaddset(&cancellation_signals, SIGINT);
+    sigaddset(&cancellation_signals, SIGHUP);
+    if (sigprocmask(SIG_UNBLOCK, &cancellation_signals, NULL) < 0) return 69;
     pid_t child = fork();
     if (child < 0) return 66;
     if (child == 0) {

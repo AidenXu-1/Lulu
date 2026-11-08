@@ -3,8 +3,9 @@ from copy import deepcopy
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
+from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QStackedWidget, QWidget, QPlainTextEdit, QSlider, QFileDialog)
+from .theme import TextScaledDialog as QDialog
 
 from ..core.synthesis.indextts2_presets import EMOTION_VECTOR_LABELS, normalize_emotion_vector
 from .control_foundation import adopt_button

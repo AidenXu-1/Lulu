@@ -211,7 +211,6 @@ class FirstVersionShellTests(unittest.TestCase):
                 window.library_page.shutdown()
             if window.models_page is not None:
                 window.models_page.shutdown_workers(500)
-                window.models_page.page.setWebChannel(None)
             window.hide()
             self.app.processEvents()
             window.deleteLater()
@@ -379,6 +378,28 @@ class FirstVersionShellTests(unittest.TestCase):
             finally:
                 if window.collection_page is not None:window.collection_page.shutdown_workers()
 
+
+    def test_approved_workspaces_release_profiles_after_closing_pages(self):
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from shiboken6 import isValid
+        from src.ui.approved_workspaces import ApprovedWorkspaceView
+
+        for _ in range(3):
+            window = QWidget()
+            pages = [
+                ApprovedWorkspaceView(window, area, (), (), lambda: None, {})
+                for area in ('settings', 'collection', 'live')
+            ]
+            profiles = [view.page().profile() for view in pages]
+            window.show()
+            self.app.processEvents()
+            owners = [profile.parent() for profile in profiles]
+            window.deleteLater()
+            for _ in range(3):
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                self.app.processEvents()
+            self.assertTrue(all(owner is self.app for owner in owners))
+            self.assertTrue(all(not isValid(profile) for profile in profiles))
 
     def test_library_rows_share_the_same_indicator_and_switch_kind_immediately(self):
         window=MainWindow(task_queue_store=None,defer_core_startup=True)

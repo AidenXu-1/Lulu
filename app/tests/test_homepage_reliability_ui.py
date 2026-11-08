@@ -107,18 +107,18 @@ class HomepageUiReliabilityTests(unittest.TestCase):
             self.assertIs(self.page._worker, worker)
             self.assertEqual(self.page._run_token, token)
 
-    def test_pinned_source_order_is_default_but_explicit_date_sort_is_preserved(self):
+    def test_date_is_default_but_explicit_source_order_is_preserved(self):
         items = [CollectedItem("1", title="置顶旧作", create_time=100),
                  CollectedItem("2", title="较新作品", create_time=200)]
         _, worker, _ = self.fixture.deliver(result=CollectResult.complete(items))
         self.fixture.finish(worker)
-        self.assertEqual([x.work_id for x in self.page._view], ["1", "2"])
-        self.assertEqual(self.page.sort_combo.currentData(), "0")
-        self.page._on_sort_clicked(3)
         self.assertEqual([x.work_id for x in self.page._view], ["2", "1"])
+        self.assertEqual(self.page.sort_combo.currentData(), "3")
+        self.page.sort_combo.set_value("0", emit=True)
+        self.assertEqual([x.work_id for x in self.page._view], ["1", "2"])
         _, worker, _ = self.fixture.deliver(result=CollectResult.complete(items))
         self.fixture.finish(worker)
-        self.assertEqual([x.work_id for x in self.page._view], ["2", "1"])
+        self.assertEqual([x.work_id for x in self.page._view], ["1", "2"])
 
     def test_hidden_failure_and_later_hide_never_promise_absent_button(self):
         self.page.hide()

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -18,6 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .theme import TextScaledDialog as QDialog
 
 from . import theme as T
 from . import icons

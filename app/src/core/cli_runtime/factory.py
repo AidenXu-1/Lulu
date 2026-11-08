@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.edition import product_data_root
+
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 import hashlib
@@ -679,7 +681,7 @@ def build_measured_core_runtime(
     installed_app(app_bundle)
     if Path(sys.executable) != core_path:
         raise _trust_error("INSTALLATION_TARGET_AUTHORITY_REQUIRED")
-    support = Path.home() / "Library/Application Support/Lulu"
+    support = product_data_root()
     from .core_task_native import measured_core
     generation = measured_core(core_path)
     from ..agent_entry.standalone_source import uses_local_storage

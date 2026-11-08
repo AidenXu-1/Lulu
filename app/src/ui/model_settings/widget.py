@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
-from PySide6.QtCore import QObject, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QCoreApplication, QObject, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import QWidget, QVBoxLayout
 from PySide6.QtWebChannel import QWebChannel
@@ -112,12 +112,11 @@ class ModelsPage(QWidget):
             model_in_use=model_in_use,relocation_busy=relocation_busy,storage_activity_changed=storage_activity_changed)
         prepare_webengine_runtime()
         self.view=QWebEngineView(self)
-        self.profile=QWebEngineProfile(self)
-        self.resources=Resources(self)
+        self.profile=QWebEngineProfile(QCoreApplication.instance())
+        self.resources=Resources(self.profile)
         self.profile.setUrlRequestInterceptor(self.resources)
         self.page=Page(self.profile,self)
-        # Match the manuscript workspace: release the page adapter before its profile.
-        self.profile.setParent(self.page)
+        self.page.destroyed.connect(self.profile.deleteLater)
         # The shared native canvas owns the same paper background as the workbench.
         self.page.setBackgroundColor(QColor(Qt.GlobalColor.transparent))
         settings=self.page.settings()

@@ -14,7 +14,7 @@ import tempfile
 
 
 # Accepted public 4.2.1 product baseline, available in a normal clone.
-COMPLETE_PRODUCT_BASELINE = "8ae31a76e1e135e6e016c46e270e9992c7162a51"
+COMPLETE_PRODUCT_BASELINE = "9ddb651ec0693417dbb27ff84f9cae0106a90c22"
 _SOURCE_REPOSITORY = runpy.run_path(str(Path(__file__).with_name("source_repository.py")))
 _OBJECT_RE = re.compile(r"^[0-9a-f]{40}$")
 

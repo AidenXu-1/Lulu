@@ -53,7 +53,8 @@ class SharedProductStorageLayout:
         application_support_root: Path,
     ) -> "SharedProductStorageLayout":
         root = _validate_explicit_root(application_support_root)
-        product_root = root / "Lulu"
+        from ..edition import product_data_root
+        product_root = root / product_data_root().name
         return cls(
             application_support_root=root,
             product_root=product_root,

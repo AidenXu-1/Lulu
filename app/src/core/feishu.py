@@ -76,6 +76,25 @@ def _credential_binding(config):
     return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
 
 
+def needs_reauthorization(config):
+    """Report a rejection of these saved credentials without contacting Feishu."""
+    relevant = {key: (config.get(key) or '').strip()
+                for key in ('app_id', 'app_secret', 'refresh_token')}
+    binding = _credential_binding(relevant)
+    return bool(relevant['refresh_token'] and (
+        _user_cache.get('rejected_binding') == binding or
+        secrets.get_config(CONFIG_KEY).get('rejected_binding') == binding))
+
+
+def authorization_verified(config):
+    """Only a live token verified in this process is a current connection."""
+    relevant = {key: (config.get(key) or '').strip()
+                for key in ('app_id', 'app_secret', 'refresh_token')}
+    with _auth_lock:
+        return bool(_user_cache.get('token') and _user_cache.get('exp',0)>time.time()
+                    and _user_cache.get('binding') == _credential_binding(relevant))
+
+
 @contextmanager
 def user_session():
     """Pin the authenticated identity for the entire operation, including retries.
@@ -100,6 +119,7 @@ def save_app_credentials(app_id, app_secret):
         value.update(app_id=app_id, app_secret=app_secret)
         if changed:
             value.pop('refresh_token', None)
+            value.pop('rejected_binding', None)
             _user_cache.clear()
             _user_cache.update(token='', exp=0.0)
         secrets.set_key_verified(CONFIG_KEY, json.dumps(value))
@@ -143,6 +163,10 @@ class FeishuApiError(RuntimeError):
         self.code = code
         self.retry_after = max(0.0, float(retry_after or 0.0))
         super().__init__(message)
+
+
+class _RefreshTokenRejected(FeishuApiError):
+    """The authorization server explicitly rejected the saved refresh token."""
 
 
 class FeishuTransportError(RuntimeError):
@@ -224,6 +248,10 @@ def _oauth_token(body: dict, timeout: int = 20) -> dict:
     _reject_post_redirect(r)
     data = _json(r)
     if not data.get("access_token"):
+        if body.get('grant_type') == 'refresh_token' and (
+                data.get('error') == 'invalid_grant' or str(data.get('code')) == '99991669'):
+            raise _RefreshTokenRejected(data.get('code') or data.get('error'),
+                                        '飞书授权已失效，请在设置中重新连接。')
         err = (data.get("error_description") or data.get("msg")
                or data.get("error") or "未知错误")
         raise RuntimeError(f"飞书授权失败:{err}")
@@ -234,13 +262,15 @@ def _store(data: dict) -> None:
     """access_token 存内存,refresh_token 落 keyring(保留 app 凭据)。"""
     with _auth_lock:
         rt = data.get("refresh_token")
+        c = secrets.get_config(CONFIG_KEY)
+        rejected = c.pop('rejected_binding', None)
         if rt:
-            c = secrets.get_config(CONFIG_KEY)
             c["refresh_token"] = rt
+        if rt or rejected:
             secrets.set_config(CONFIG_KEY, c)
         _user_cache.update(token=data["access_token"],
                            exp=time.time() + float(data.get("expires_in", 7200)),
-                           binding=_credential_binding(_cfg()))
+                           binding=_credential_binding(_cfg()), rejected_binding='')
 
 
 def exchange_code(code: str, redirect: str = REDIRECT_URI, *, cancelled=lambda: False) -> dict:
@@ -263,9 +293,10 @@ def exchange_code(code: str, redirect: str = REDIRECT_URI, *, cancelled=lambda: 
 
 def logout() -> None:
     with _auth_lock:
-        _user_cache.update(token="", exp=0.0)
+        _user_cache.update(token="", exp=0.0, rejected_binding='')
         c = secrets.get_config(CONFIG_KEY)
         c.pop("refresh_token", None)
+        c.pop('rejected_binding', None)
         secrets.set_config(CONFIG_KEY, c)
 
 
@@ -273,12 +304,20 @@ def _refresh() -> str:
     c = _cfg()
     if not c["refresh_token"]:
         raise RuntimeError("还没登录授权飞书。请到「集成 → 飞书知识库」点「登录授权」。")
-    data = _oauth_token({
-        "grant_type": "refresh_token",
-        "client_id": c["app_id"],
-        "client_secret": c["app_secret"],
-        "refresh_token": c["refresh_token"],
-    })
+    try:
+        data = _oauth_token({
+            "grant_type": "refresh_token",
+            "client_id": c["app_id"],
+            "client_secret": c["app_secret"],
+            "refresh_token": c["refresh_token"],
+        })
+    except _RefreshTokenRejected:
+        _user_cache['rejected_binding'] = _credential_binding(c)
+        saved = secrets.get_config(CONFIG_KEY)
+        if all((saved.get(key) or '').strip() == value for key, value in c.items()):
+            saved['rejected_binding'] = _user_cache['rejected_binding']
+            secrets.set_config(CONFIG_KEY, saved)
+        raise
     _store(data)
     return data["access_token"]
 

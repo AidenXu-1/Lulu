@@ -7,10 +7,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
-from ..contracts import CollectRequest, CollectResult
+from ..contracts import CollectRequest, CollectResult, valid_douyin_author
 from ..models import CollectedItem
 
 ProgressCallback = Callable[[str, int], None]
@@ -170,9 +170,10 @@ def _exception_result(exc: Exception) -> CollectResult:
     elif (reason == "network_error" and code != "DOUYIN_NETWORK_ERROR"
             and not any(marker in message for marker in ("网络", "超时"))):
         action = _UNEXPECTED_FAILURE_ACTION
-    if items:
-        return CollectResult.partial(items, reason_code=reason, next_action=action)
-    return CollectResult.failed(reason, next_action=action)
+    result = (CollectResult.partial(items, reason_code=reason, next_action=action)
+              if items else CollectResult.failed(reason, next_action=action))
+    author = getattr(exc, 'resolved_author_id', '')
+    return replace(result, resolved_author_id=author) if valid_douyin_author(author) else result
 
 
 @dataclass

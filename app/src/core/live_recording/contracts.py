@@ -75,7 +75,9 @@ def recording_message(recording):
             raise ValueError()
     except (ValueError, TypeError):
         return '录制状态待检查'
-    return '录制有缺口' if gaps else '已保存'
+    if gaps:
+        return '录制有缺口'
+    return '已保存，来源时间有跳跃' if recording.get('timestamp_warning') else '已保存'
 
 def public_link(value):
     if type(value) is not str or len(value) > 4096:

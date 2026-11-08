@@ -54,3 +54,24 @@ class SkillManagerTests(unittest.TestCase):
         self.assertNotIn('lulu-summary', [r['name'] for r in skills.catalog()['entries']])
         manager.configure('lulu-summary', enabled=True)
         self.assertIn('lulu-summary', [r['name'] for r in skills.catalog()['entries']])
+
+    def test_automatic_preference_survives_restore_and_cannot_override_package(self):
+        source = self.install_user()
+        identity = 'my-writing'
+        manager.configure(identity, automatic=False)
+        manager.uninstall(identity)
+        manager.install(identity)
+        catalog = skills.catalog()['entries']
+        with self.assertRaisesRegex(ValueError, '显式选择'):
+            skills.load(identity, catalog)
+        self.assertEqual(skills.load(identity, catalog, explicit_name=identity)['state'], 'completed')
+        self.assertEqual((self.root / 'skills' / identity / 'SKILL.md').read_bytes(),
+                         (source / 'SKILL.md').read_bytes())
+
+        manual = self.user_skill('manual')
+        manifest = manual / 'SKILL.md'
+        manifest.write_text(manifest.read_text().replace('description:', 'disable-model-invocation: true\ndescription:'))
+        inspected = manager.inspect_source(str(manual))['entries'][0]
+        manager.install(token=inspected['token'])
+        with self.assertRaisesRegex(ValueError, '自动'):
+            manager.configure('manual', automatic=True)

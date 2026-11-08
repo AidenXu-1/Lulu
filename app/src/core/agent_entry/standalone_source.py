@@ -86,7 +86,8 @@ class AppInstallSource:
 
 def inspect_install_source(app: Path) -> AppInstallSource:
     app = Path(app)
-    if app.resolve(strict=True) != app or app.name != "Lulu.app":
+    from ...edition import valid_app_basename
+    if app.resolve(strict=True) != app or not valid_app_basename(app):
         raise RuntimeError("PRODUCT_PATH_UNSAFE")
     if not (app/DESCRIPTOR).exists():
         raise RuntimeError("APP_INSTALL_DESCRIPTOR_REQUIRED")

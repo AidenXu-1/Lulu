@@ -28,11 +28,12 @@ class CompletionFeedback:
 
     def success(self, target: CompletionTarget | None, *, app_is_active: bool) -> None:
         try:
-            self.notifications.notify_task_completed(
-                str(getattr(self.cfg, "notification_policy", "never")),
-                app_is_active=bool(app_is_active),
-                play_sound=bool(getattr(self.cfg, "notification_sound_enabled", True)),
-            )
+            if bool(getattr(self.cfg, "notify_on_completion", True)):
+                self.notifications.notify_task_completed(
+                    str(getattr(self.cfg, "notification_policy", "never")),
+                    app_is_active=bool(app_is_active),
+                    play_sound=bool(getattr(self.cfg, "notification_sound_enabled", True)),
+                )
         except Exception:  # noqa: BLE001 - 系统反馈不能改变已完成业务状态
             pass
 
@@ -52,6 +53,18 @@ class CompletionFeedback:
                 app_is_active=bool(app_is_active),
             )
         except Exception:  # noqa: BLE001 - 系统反馈不能覆盖原业务错误
+            pass
+
+    def needs_attention(self, *, app_is_active: bool) -> None:
+        if not bool(getattr(self.cfg, "notify_on_attention", False)):
+            return
+        try:
+            self.notifications.notify_task_needs_attention(
+                str(getattr(self.cfg, "notification_policy", "never")),
+                app_is_active=bool(app_is_active),
+                play_sound=bool(getattr(self.cfg, "notification_sound_enabled", True)),
+            )
+        except Exception:  # System notification is separate from the task state.
             pass
 
 

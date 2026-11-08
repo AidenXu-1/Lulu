@@ -1,0 +1,65 @@
+/* Collection refinement, following the approved paper settings controls. */
+:root{--accent:#537d96;--wash:#e8eef0;--muted:#827764;--line:#dfd5c5;--blue:#537d96;--ease:cubic-bezier(.22,1,.36,1)}
+.workspace{gap:20px;padding-top:25px}
+.page-heading h1{font-size:32px;font-weight:600;letter-spacing:.3px}
+.page-heading p{font-size:13px;color:#7f7463}
+.collect-card{padding:15px 19px 3px}
+.input-line input{font-size:14px;min-height:42px}
+.input-line .start-button{min-width:150px;height:42px;font-size:13px}
+.platform-hint{font-size:12px}
+.collect-options{padding:8px 0 5px;gap:15px;min-height:56px}
+.collect-options .segmented{flex:none}
+.mode-copy{font-size:12px}
+.collection-status{font-size:12px;min-height:38px;height:auto;line-height:1.6;padding:7px 0;gap:12px}
+.collection-status[data-active=false]{display:none}
+.collection-status #collectStop{min-height:32px;white-space:nowrap}
+.btn{height:38px;font-size:13px}
+.btn.compact{height:34px;font-size:12px}
+.btn.quiet{color:#64777c}
+.material-options .check-option{min-height:44px;font-size:13px;gap:8px;padding:8px 3px;color:#5f5a50}
+.app-shell input[type=checkbox],.popover input[type=checkbox],dialog input[type=checkbox]{width:20px;height:20px;border:1px solid #ac9f8a;border-radius:4px;background:#fffaf2}
+.app-shell input[type=checkbox]:checked,.popover input[type=checkbox]:checked,dialog input[type=checkbox]:checked{border-color:#7d9bad;background:#f9fbf7}
+.app-shell input[type=checkbox]:checked:after,.popover input[type=checkbox]:checked:after,dialog input[type=checkbox]:checked:after{width:9px;height:5px;border-color:var(--accent);border-width:1.8px}
+.app-shell input[type=checkbox]:indeterminate{border-color:#7d9bad;background:#f9fbf7}
+.app-shell input[type=checkbox]:indeterminate:after{height:1.5px;width:9px;border:0;background:var(--accent)}
+.results-top{padding:16px 19px 10px;min-height:62px}
+.section-eyebrow{font-size:12px}
+.record-trigger{font-size:16px;font-weight:500;min-height:38px;gap:12px;padding:4px 8px}
+.record-trigger svg{width:15px;height:15px}
+.subtle-tag{font-size:12px}
+.filter-bar{padding:0 19px 13px;gap:7px}
+.filter-button{height:35px;font-size:12px;padding:0 11px;gap:8px;border-color:#dfd7c9;background:rgba(255,252,246,.5)}
+.filter-button svg:last-child:not(:first-child){width:13px;height:13px}
+.search-wrap input{font-size:12px}
+.table-scroller table{min-width:1040px;font-size:13px}
+.check-col{width:44px}.work-col{width:auto}.date-col{width:96px}.duration-col{width:64px}.stat-col{width:70px}.asset-col{width:78px}
+thead{z-index:5}thead th{font-size:12px;height:41px;color:#847763}
+td{height:74px;padding:9px 5px;color:#665d50}
+td:first-child,th:first-child{position:sticky;left:0;z-index:2;background:#faf7ef}
+thead th:first-child{z-index:6;background:#eee8dc}
+tr.selected td{background:#e8eef0}tr.selected td:first-child:before{display:none}
+tr.selected:hover td{background:#e0e9ec}tr:not(.selected):hover td:first-child{background:#f3efe5}
+.work-title{font-size:14px;line-height:1.55;font-weight:500;color:#3c3832}
+.work-meta{font-size:11px;margin-top:5px;color:#8c7e69;gap:8px}
+.number{font-size:13px}.date-text{font-size:12px}
+.results-actions .icon-only{width:36px;height:36px;color:#757865}
+.asset-status{font-size:11px;min-height:34px}
+.selection-bar{min-height:70px;padding:12px 19px;background:#f4efe4;gap:12px}
+.selection-info{font-size:13px;gap:12px}.selection-info>span{font-size:12px;color:#8a7c66}.selection-info strong{font-weight:500}
+.selection-actions .btn{height:40px;font-size:13px}.results-foot{min-height:25px;font-size:11px;padding:5px 19px}
+.popover{background:#fcf8ef;border-color:#d1c5af;border-radius:12px;padding:6px;max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain;font-size:13px}
+.menu-option{min-height:40px;font-size:13px;padding:10px 12px;border-radius:7px}
+.menu-caption{font-size:11px}.popover-title{font-size:14px}.popover .setting-row{font-size:13px;gap:14px}
+.metric-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.metric-fields label{display:flex;flex-direction:column;gap:7px;font-size:12px;color:#847763}.metric-fields .select-field{display:flex;width:100%;font-size:13px}.metric-fields .select-trigger{font-size:12px;gap:10px;padding:8px 10px}.metric-popover .metric-input{margin-bottom:16px}
+.select-field{font-size:14px;max-width:100%}.setting-row>.select-field{width:145px}.select-trigger{min-height:40px}
+.select-menu{font-size:13px}.select-menu::backdrop{backdrop-filter:none}
+.dialog-input+.select-field{width:100%}.standard-dialog .select-field{display:flex;width:100%;margin:8px 0 15px}
+dialog .check-option{min-height:44px;font-size:13px;gap:8px}
+.manage-tabs{margin-bottom:16px;min-width:255px}.manage-tabs button{min-height:36px;font-size:13px}
+.history-manage-row>div:first-child{min-width:0;flex:1}.history-manage-row strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.history-manage-row .actions{gap:5px;flex-wrap:wrap;justify-content:flex-end}.history-manage-row .actions .btn{font-size:12px}
+.management-empty{padding:42px 10px;text-align:center;color:#92836c;font-size:13px}.btn.danger{color:#a16050}
+@media(max-width:1250px){.workspace{padding:24px 22px 14px}.material-options{gap:12px}.mode-copy{display:none}}
+@media(max-width:1030px){.workspace{padding:22px 17px 12px}.filter-bar{flex-wrap:wrap}.selection-info>span{display:none}.table-scroller .work-col{width:auto}}
+@media(max-width:760px){.workspace{padding:19px 13px 12px;gap:15px}.collect-card{padding:12px 13px 3px}.input-line{flex-wrap:wrap;gap:8px}.input-line input{font-size:13px;min-width:100px}.input-line .start-button{min-width:125px;font-size:12px}.collect-options{gap:9px;flex-wrap:wrap}.material-options{gap:10px}.material-options .check-option{font-size:12px}.collect-options>.btn{font-size:12px;width:auto;padding:0 9px}.results-top{padding:12px 13px 9px}.record-trigger{font-size:14px}.section-eyebrow{display:none}.subtle-tag{font-size:11px}.filter-bar{padding:0 13px 12px;gap:6px}.filter-button{font-size:11px;padding:0 9px}.filter-button svg:first-child{display:block}.selection-bar{padding:10px 12px;min-height:65px;flex-wrap:wrap;gap:8px}.selection-info{font-size:12px;gap:8px}.selection-actions{margin-left:auto}.selection-actions .btn{font-size:12px;padding:0 10px}.collection-status{font-size:11px}.prototype-tools{gap:8px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{transition-duration:0ms!important;animation-duration:.01ms!important}}

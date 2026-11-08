@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."          # 切到 app/
 
 BUILD_IDENTITY=""
+EDITION_ARGS=()
 VENV_PATH=""
 BASELINE_REVISION=""
 while [[ "$#" -gt 0 ]]; do
@@ -31,7 +32,7 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 if [[ -z "$BUILD_IDENTITY" || -z "$VENV_PATH" ]]; then
-  echo "错误：必须显式提供 --identity candidate|production 与 --venv /absolute/path。" >&2
+  echo "错误：必须显式提供 --identity candidate|experience|production 与 --venv /absolute/path。" >&2
   exit 2
 fi
 if [[ "$VENV_PATH" != /* || ! -d "$VENV_PATH" || -L "$VENV_PATH" ]]; then
@@ -63,12 +64,17 @@ case "$BUILD_IDENTITY" in
     BUILD_PROFILE="external_candidate"
     APP_PREFIX="Lulu"
     ;;
+  experience)
+    BUILD_PROFILE="external_candidate"
+    APP_PREFIX="Lulu 开发体验版"
+    EDITION_ARGS=(--edition development-experience)
+    ;;
   production)
     BUILD_PROFILE="external_candidate"
     APP_PREFIX="Lulu"
     ;;
   *)
-    echo "错误：未知构建身份；只接受 candidate 或 production。" >&2
+    echo "错误：未知构建身份；只接受 candidate、experience 或 production。" >&2
     exit 2
     ;;
 esac
@@ -82,7 +88,7 @@ SOURCE_CHANNEL="$($VENV/python packaging/version_value.py channel)"
   --identity "$BUILD_IDENTITY" \
   --version "$VERSION" \
   --build "$BUILD" >/dev/null
-if [[ "$BUILD_IDENTITY" == "candidate" ]]; then
+if [[ "$BUILD_IDENTITY" == "candidate" || "$BUILD_IDENTITY" == "experience" ]]; then
   if [[ "$SOURCE_CHANNEL" != "candidate" || "${LULU_UPDATE_RELEASE:-0}" != "0" || -n "${LULU_UPDATE_PUBLIC_KEY_PATH:-}" ]]; then
     echo "错误：candidate 只接受 candidate/non-release 源码，且禁止更新发布输入。" >&2
     exit 1
@@ -190,7 +196,7 @@ echo "==> 2/5 校验 macOS 15 MLX 构建输入"
 "$VENV/python" packaging/macos_compatibility.py verify-build-env
 
 "$VENV/python" packaging/profile_gate.py create \
-  --profile "$BUILD_PROFILE" --version "$VERSION" --build "$BUILD" \
+  --profile "$BUILD_PROFILE" "${EDITION_ARGS[@]}" --version "$VERSION" --build "$BUILD" \
   --build-venv-root "$VENV_PATH" \
   --output build_profile.json --product-source-output product_source.json
 cleanup_build_profile=1
@@ -244,6 +250,8 @@ BUILD_GIT_COMMIT="${SOURCE_COMMIT:0:7}"
 echo "==> 4/5 PyInstaller 打包(较慢,在打包 torch)"
 export LULU_BUILD_PROFILE_FOR_SPEC="$BUILD_PROFILE"
 export LULU_BUILD_IDENTITY_FOR_SPEC="$BUILD_IDENTITY"
+"$VENV/python" packaging/build_system_audio_helper.py --output "$BUILD_ROOT/system-audio-helper"
+export LULU_SYSTEM_AUDIO_HELPER_FOR_SPEC="$BUILD_ROOT/system-audio-helper/SystemAudioCapture"
 if [[ "$BUILD_PROFILE" == "external_candidate" ]]; then
   AGENT_XPC_BRIDGE="$BUILD_ROOT/liblulu_agent_xpc_bridge.dylib"
   MACOSX_DEPLOYMENT_TARGET=15.0 /usr/bin/xcrun clang \

@@ -5,9 +5,10 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
+    QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
     QSizePolicy, QVBoxLayout, QWidget,
 )
+from .theme import TextScaledDialog as QDialog
 
 from . import dialogs, icons
 from .control_foundation import adopt_button, adopt_dialog

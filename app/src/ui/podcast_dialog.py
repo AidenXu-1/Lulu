@@ -6,7 +6,6 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -15,6 +14,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
+from .theme import TextScaledDialog as QDialog
 
 from ..core import podcast
 from . import icons, theme as T

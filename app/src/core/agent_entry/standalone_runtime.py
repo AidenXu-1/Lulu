@@ -1,4 +1,6 @@
 """Installed App preparation and its deterministic, per-generation service."""
+
+from src.edition import product_data_root
 from pathlib import Path
 import os
 import plistlib
@@ -83,11 +85,11 @@ def prepare_current_app(*, backup_app=None):
     from .standalone_source import uses_local_storage
     if uses_local_storage(app):
         from .local_task_storage import prepare_local_app
-        return prepare_local_app(app, Path.home()/'Library/Application Support/Lulu')
+        return prepare_local_app(app, product_data_root())
     from ..cli_runtime.core_task_keychain import CoreTaskKeyringStore
     from .standalone_history import capture_history, merge_history, previous_core_identity
     keys = CoreTaskKeyringStore()
-    product = Path.home()/'Library/Application Support/Lulu'
+    product = product_data_root()
     target = install_state_root(app, product)
     sources = previous_states(product, target=target, keys=keys)
     previous = find_previous_state(product, target=target, keys=keys, backup_app=backup_app)
@@ -148,8 +150,8 @@ class StandaloneInstallation:
     def __init__(self, app, keys):
         from .product_install import ProductPaths
         state = state_for_app(app)
-        self.paths = ProductPaths(app, state, state/'core.plist',
-            Path.home()/'.agents/skills/lulu-agent', Path.home()/'.local/bin/lulu')
+        from ...edition import optional_integration_targets
+        self.paths = ProductPaths(app, state, state/'core.plist', *optional_integration_targets())
         self.keys = keys
 
     def skill_status(self):
@@ -191,7 +193,7 @@ def backup_from_plan(arguments, app):
         raise RuntimeError('PRODUCT_UPDATE_PLAN_INVALID')
     from ..updater.install import InstallTransaction
     path = Path(arguments[1])
-    root = Path.home()/'Library/Application Support/Lulu/updates'
+    root = product_data_root()/'updates'
     # load_plan validates the private plan and all transaction-owned paths.
     if path.resolve() != path or not path.is_relative_to(root):
         raise RuntimeError('PRODUCT_UPDATE_PLAN_INVALID')
@@ -226,7 +228,7 @@ def prepare_entry(arguments):
         from ..diagnostics import record_failure, failure_code
         from .standalone_bootstrap import _PREPARATION_FAILURES
         record_failure('installation_preparation', exc,
-            root=Path.home()/'Library/Application Support/Lulu/AgentEntry')
+            root=product_data_root()/'AgentEntry')
         # One closed status for the owning GUI; never serialize exception text,
         # a traceback, user paths or secret values into this process channel.
         code = failure_code(exc)

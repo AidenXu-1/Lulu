@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Iterable, Mapping
+import re
 
 from .models import CollectedItem
 
@@ -16,6 +17,11 @@ PLATFORMS = frozenset({"douyin", "xiaohongshu", "bilibili"})
 LINK_KINDS = frozenset({"homepage", "work", "unknown"})
 CONFIDENCES = frozenset({"exact", "probable", "unknown"})
 COMPLETIONS = frozenset({"complete", "partial", "cancelled", "failed"})
+
+
+def valid_douyin_author(value):
+    return type(value) is str and re.fullmatch(r'MS4w[\w-]+', value) is not None
+
 REASON_CODES = frozenset({
     "invalid_input",
     "ambiguous_link",
@@ -97,9 +103,12 @@ class CollectResult:
     next_action: str = ""
     cursor: Mapping[str, object] | None = None
     confirmed_empty: bool = False
+    resolved_author_id: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "items", tuple(self.items))
+        if self.resolved_author_id and not valid_douyin_author(self.resolved_author_id):
+            raise ValueError('采集作者身份无效')
         if self.cursor is not None:
             object.__setattr__(self, "cursor", MappingProxyType(dict(self.cursor)))
         if self.completion not in COMPLETIONS:

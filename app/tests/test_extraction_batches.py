@@ -14,6 +14,45 @@ from tests.test_live_recording import until
 
 
 class ExtractionBatchTests(unittest.TestCase):
+    def test_combined_poll_reads_each_batch_once_and_keeps_requested_page(self):
+        service=BatchService(None)
+        first=service.stage_extraction('poll-first',[dict(source=f'https://example.com/{i}.mp4',outputs=['text']) for i in range(120)],group=True)
+        second=service.stage_extraction('poll-second',[dict(source='https://example.com/second.mp4',outputs=['text'])])
+        with patch.object(service,'show',wraps=service.show) as read:
+            rows=service.poll({first['batch_id']:75})['batches']
+        self.assertEqual(read.call_count,2)
+        row=next(row for row in rows if row['batch_id']==first['batch_id'])
+        self.assertEqual(row['offset'],75)
+        self.assertEqual([i['index'] for i in row['items']],list(range(75,120)))
+        self.assertEqual(row['total'],120)
+        self.assertEqual(next(row for row in rows if row['batch_id']==second['batch_id'])['items'][0]['index'],0)
+        self.assertFalse(service.workers)
+        with self.assertRaises(ValueError):service.poll({first['batch_id']:True})
+
+    def test_combined_poll_bounds_transport_size_without_losing_later_batches(self):
+        import json
+        service=BatchService(None)
+        expected=set()
+        for batch in range(40):
+            reply=service.stage_extraction(f'large-poll-{batch}',[dict(
+                source=f'https://example.com/{batch}/{i}.mp4',title='中文'*200,outputs=['text'])
+                for i in range(50)],group=True)
+            expected.add(reply['batch_id'])
+        seen=[];after='';chunks=0
+        while True:
+            reply=service.poll(after=after);chunks+=1
+            self.assertLess(len(json.dumps({'result':reply}).encode()),600*1024)
+            for row in reply['batches']:
+                self.assertEqual(len(row['items']),50)
+                seen.append(row['batch_id'])
+            after=reply['next_after']
+            if not after:break
+            self.assertLess(chunks,40)
+        self.assertGreater(chunks,1)
+        self.assertEqual(set(seen),expected)
+        self.assertEqual(len(seen),40)
+        self.assertFalse(service.workers)
+
     def setUp(self):
         workspace_fixtures.AgentWorkspaceTests.setUp(self)
         data_patch=patch('src.core.models_manager.app_data_dir', return_value=self.root/'appdata')
@@ -43,6 +82,28 @@ class ExtractionBatchTests(unittest.TestCase):
         self.assertEqual(plan['items'][1]['selection']['outputs'],['video','cover'])
         self.assertFalse(plan['items'][1]['selection']['prefer_subtitles'])
         self.assertFalse(runtime.expansion_batches().workers)
+
+    def test_collected_batch_reuses_one_repository_read_for_identity_and_assets(self):
+        from src.core.collect.models import CollectedItem
+        from src.core.collect.repository import CollectionRepository
+
+        media = self.root / 'saved.mp4'
+        media.write_bytes(b'fixture video')
+        items = [CollectedItem(str(12345+i), title=f'作品 {i}',
+                               media_local_path=str(media), media_status='downloaded')
+                 for i in range(64)]
+        self.assertTrue(CollectionRepository().upsert_collected(items).success)
+        service = BatchService(None)
+        load = CollectionRepository.load
+        with patch.object(CollectionRepository, 'load', autospec=True, side_effect=load) as read:
+            result = service.stage_extraction('one-read', [
+                dict(source=item.work_url, stable_key=item.stable_key, outputs=['text'])
+                for item in items
+            ], group=True)
+        read.assert_called_once()
+        self.assertEqual(result['total'], 64)
+        self.assertEqual(result['items'][0]['assets']['video']['path'], str(media))
+        self.assertFalse(service.workers)
 
     invoke = cli_fixtures.ExpansionTests.invoke
 

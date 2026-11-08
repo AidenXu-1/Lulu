@@ -70,7 +70,6 @@ def _show_link_approval_dialog(plan: dict[str, object]) -> dict[str, object]:
     from PySide6.QtCore import Qt, QTimer
     from PySide6.QtWidgets import (
         QApplication,
-        QDialog,
         QHBoxLayout,
         QLabel,
         QPushButton,
@@ -78,6 +77,7 @@ def _show_link_approval_dialog(plan: dict[str, object]) -> dict[str, object]:
         QVBoxLayout,
         QWidget,
     )
+    from .theme import TextScaledDialog as QDialog
 
     app = QApplication.instance() or QApplication(["Lulu"])
     gate = PointerConfirmationGate()

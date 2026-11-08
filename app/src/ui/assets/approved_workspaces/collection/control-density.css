@@ -1,0 +1,32 @@
+/* Collection preview density: readable type, compact mouse targets, bounded menus. */
+.select-trigger{min-height:36px;padding:7px 11px;font-size:13px;line-height:20px;gap:14px;border-radius:7px}
+.select-chevron{flex-basis:13px;width:13px;height:13px}.select-chevron svg{width:13px;height:13px}
+.select-menu{padding:5px;max-width:360px;min-width:132px;font-size:13px;line-height:20px}
+.select-option-text{flex:1;min-width:0}.select-option-check{width:15px;height:15px}.select-option-check svg{width:14px;height:14px}
+.filter-panel .select-trigger,.filter-editor .select-trigger,.standard-dialog .select-trigger{height:36px;min-height:36px;padding:7px 11px;font-size:13px;line-height:20px;gap:14px}
+.filter-main>[data-select-for=dateMode]{width:154px}.filter-main>[data-select-for=fieldName]{width:120px}
+.filter-editor .condition-input{height:36px;font-size:13px}.filter-editor>.select-field{min-width:110px}
+.select-menu-with-footer{width:344px}.select-menu-with-footer .custom-range{padding:12px 7px 7px;margin-top:6px;gap:8px}
+.select-menu-with-footer .date-input{height:36px}.select-menu-with-footer .date-input input{font-size:13px;padding:7px 0 7px 10px}.select-menu-with-footer .date-input button{height:34px;width:32px}
+
+.history-popover{width:320px}.record-search{min-height:36px;margin:9px 9px 0}.record-search input{height:34px;font-size:13px}
+.record-list-caption{padding:9px 14px 4px;font-size:11px}.history-option{min-height:54px;padding:8px 10px;margin-bottom:2px}
+.history-option-copy{gap:3px}.history-option strong{font-size:13px;line-height:18px}.history-option small{font-size:11px;line-height:15px}
+.record-picker-footer{padding:4px 5px}.record-picker-footer .menu-option{min-height:36px;font-size:12px;padding:7px 10px}
+
+#settingsPopover{width:320px;padding:14px;overflow:visible}
+.settings-heading{margin-bottom:4px}.settings-heading>strong{display:block;font-size:14px;line-height:20px;font-weight:600;color:#504739}
+.settings-heading>p{margin:5px 0 0;font-size:12px;line-height:18px;color:#94846e}
+#settingsPopover .setting-row{min-height:52px;padding:8px 0;gap:12px;border:0;font-size:13px;line-height:20px}
+#settingsPopover .browser-row{border-bottom:1px solid #e9e1d3}
+#settingsPopover .setting-row>label,#settingsPopover .login-row>span{color:#675b49;white-space:nowrap}
+#settingsPopover [data-select-for=browserChoice]{width:128px;flex:none}
+#settingsPopover .select-trigger{min-height:36px;height:36px;font-size:13px;padding:7px 11px;line-height:20px}
+.session-controls{display:flex;align-items:center;gap:9px;min-width:0}
+.session-state{display:inline-flex;align-items:center;gap:6px;min-width:54px;font-size:12px;color:#9b8d77;white-space:nowrap}
+.session-state>i{width:5px;height:5px;flex:none;border-radius:50%;background:#b2a792}
+.session-state[data-connected=true]{color:#6c8975}.session-state[data-connected=true]>i{background:#79937e}
+#settingsPopover .session-controls .btn{min-width:68px;height:30px;min-height:30px;padding:0 8px;font-size:12px;border-radius:6px;justify-content:center}
+#settingsPopover #clearLogin{color:#827460}#settingsPopover #clearLogin:hover{color:#a56856;background:#aa715b0a}
+#settingsPopover .setting-notice{display:flex;align-items:flex-start;gap:7px;border-top:1px solid #e9e1d3;margin:0;padding-top:12px;font-size:12px;line-height:18px;color:#95866f}
+#settingsPopover .setting-notice>i{flex:none;width:13px;height:18px}#settingsPopover .setting-notice svg{width:13px;height:13px;vertical-align:-2px}

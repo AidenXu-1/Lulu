@@ -195,7 +195,7 @@ class BatchService(ExtractionBatchMixin):
         if cloud:
             plan['cloud_tracking_version'] = 1
         if extraction_options is not None:
-            self._initialize_extraction(plan, extraction_options)
+            self._initialize_extraction(plan, extraction_options, collected_by_key or {})
         plan_hash = documents.digest(encode(plan))
         with self.lock:
             path = self._path(plan['batch_id'])
@@ -333,6 +333,39 @@ class BatchService(ExtractionBatchMixin):
     def list(self):
         return [self.show(p.stem,limit=0) for p in self._batch_paths()
                 if not p.name.endswith(('.result.json','.state.json','.extract-result.json'))]
+
+    def poll(self, pages=None, after=''):
+        pages = {} if pages is None else pages
+        if (type(after) is not str or len(after)>128 or
+                type(pages) is not dict or len(pages)>10000 or
+                any(type(key) is not str or len(key)>128 or type(offset) is not int or offset<0
+                    for key,offset in pages.items())):
+            raise ValueError('批次分页范围无效')
+        rows=[]; size=0
+        paths=[path for path in self._batch_paths() if path.stem>after
+               and not path.name.endswith(('.result.json','.state.json','.extract-result.json'))]
+        for position,path in enumerate(paths):
+            row=self.show(path.stem,offset=pages.get(path.stem,0),limit=50)
+            if row.get('workspace'):
+                offset=min(pages.get(path.stem,0),max(0,row['total']-1))//25*25
+                if offset!=row['offset']:
+                    row=self.show(path.stem,offset=offset,limit=50)
+            else:
+                row['items']=[]
+            encoded=len(json.dumps(row).encode())
+            # The native transport has a 4 MiB response ceiling, including its
+            # JSON envelope. Leave room for escaping and never combine an
+            # unbounded number of member pages in a single response.
+            if encoded>512*1024 and row.get('workspace'):
+                row=dict(row,items=[],details_deferred=True)
+                encoded=len(json.dumps(row).encode())
+            if rows and size+encoded>512*1024:
+                return dict(batches=rows,next_after=rows[-1]['batch_id'])
+            rows.append(row)
+            size+=encoded
+            if len(rows)>=32 and position+1<len(paths):
+                return dict(batches=rows,next_after=row['batch_id'])
+        return dict(batches=rows,next_after='')
 
     def cancel(self, batch_id, force=False):
         if type(force) is not bool:

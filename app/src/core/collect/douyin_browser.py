@@ -580,6 +580,8 @@ def collect_latest(
             return items, ""
         raise DouyinCollectError("抖音暂未返回作品首页，请检查浏览器中的登录或验证状态后重试。", code="DOUYIN_EMPTY_RESPONSE")
     except DouyinCollectError as exc:
+        if sec_uid and _SEC_UID_RE.fullmatch(sec_uid):
+            exc.resolved_author_id = sec_uid
         if exc.code in {"DOUYIN_LOGIN_REQUIRED", "DOUYIN_LOGIN_EXPIRED"}:
             _page_login_marker(page, clear=True)
         raise

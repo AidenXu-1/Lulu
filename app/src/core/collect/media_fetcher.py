@@ -51,7 +51,7 @@ def media_fetch_error(exc):
     return ManagedMediaFetchError(code, message)
 
 
-def fetch_managed_media(item, download_mode, destination, is_cancelled):
+def fetch_managed_media(item, download_mode, destination, is_cancelled, *, on_progress=None):
     """生产网络取材边界；只由用户显式素材动作的后台任务调用。"""
     from ..audio.extractor import (
         download_douyin_video_cdn,
@@ -63,6 +63,8 @@ def fetch_managed_media(item, download_mode, destination, is_cancelled):
     def progress(_message, _fraction):
         if is_cancelled():
             raise InterruptedError("素材下载已取消")
+        if on_progress is not None:
+            on_progress(_message, _fraction)
 
     # 主页的「音视频文件」始终代表完整视频。保留入参仅为与
     # ManagedMediaFetcher 协议兼容，不让内容提取页的「仅音频」偏好泄漏到主页。

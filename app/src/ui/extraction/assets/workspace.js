@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-let skippedGroups=[],tasks=[],filter='single',page='extract',urlText='',recording=false,source='麦克风',recordFolder='',recSeconds=0;
+let skippedGroups=[],tasks=[],filter='single',page='extract',urlText='',recording=false,recordBusy='',source='麦克风',recordFolder='',recSeconds=0;
 let modelOptions=[],chosenModel='',modelMenuOpen=false,modelTab='local',modalTaskTarget=null,folderTarget=null;
 let expanded=new Set(),bridge=null,sequence=0,pending=new Map(),toastTimer,previousFocus;
 paths.monitor='M3 4h18v12H3z M12 16v5 M8 21h8';paths.mix='M3 8h3l4 8h4l4-8h3 M3 16h3l4-8h4l4 8h3';
@@ -160,12 +160,12 @@ function receive(s){
  expanded=new Set(s.expanded||[]);skippedGroups=s.skippedGroups||[];
  const next=batchError+legacyBatchCount+JSON.stringify(workspaceBatches)+JSON.stringify(skippedGroups)+JSON.stringify(s.tasks.map(t=>[...taskStructure(t),(s.expanded||[]).includes(t.group)]));
  tasks=s.tasks;
- const rec=JSON.stringify([s.recording,s.recordFolder]);
- recording=s.recording;source=s.source;recordFolder=s.recordFolder;recSeconds=s.recSeconds;
+ const rec=JSON.stringify([s.recording,s.recordFolder,s.recordBusy]);
+ recording=s.recording;recordBusy=s.recordBusy||'';source=s.source;recordFolder=s.recordFolder;recSeconds=s.recSeconds;
  if(rec!==intakeState){intakeState=rec;renderIntake()}
  else{
   syncRecordSource(source);
-  if($('#recTime')){$('#recTime').textContent=recordTime();document.querySelector('.record-trigger')?.setAttribute('aria-label',`结束录音，已录制${recordTime()}`)}
+  if($('#recTime')&&!recordBusy){$('#recTime').textContent=recordTime();document.querySelector('.record-trigger')?.setAttribute('aria-label',`结束录音，已录制${recordTime()}`)}
  }
  const mods=JSON.stringify([s.models,s.model]);modelOptions=s.models;chosenModel=s.model;
  if(mods!==modelsState){modelsState=mods;renderModelPicker()}

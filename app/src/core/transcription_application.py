@@ -138,6 +138,11 @@ class LocalFileTranscriptionApplicationService:
         except Exception as exc:  # noqa: BLE001
             if was_cancelled(exc):
                 raise _failure("CANCELLED") from exc
+            from .audio.converter import InputMediaError
+            if isinstance(exc, InputMediaError):
+                failure = LocalFileTranscriptionError(LocalFileTranscriptionFailureV1('INVALID_ARGUMENT', str(exc)))
+                failure.reason_code = exc.reason_code
+                raise failure from exc
             from .engines.local_native import IncompleteTranscription
             from .engines.asr_resource import ASRResourceBusy
             if isinstance(exc, (IncompleteTranscription, ASRResourceBusy)):

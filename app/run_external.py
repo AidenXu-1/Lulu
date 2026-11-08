@@ -29,6 +29,9 @@ def _assert_packaged_profile() -> None:
 def main() -> int:
     _assert_packaged_profile()
     if len(sys.argv) == 4 and sys.argv[1:3] == ["--install-lulu", "--source-volume"]:
+        from src.edition import is_experience
+        if is_experience():
+            raise RuntimeError("开发体验版请拖入个人应用程序目录，不替换稳定版")
         from src.core.agent_entry.installer_ui import run_installer
         return run_installer(Path(sys.argv[3]))
     from src.main import main as gui_main

@@ -6,10 +6,11 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtMultimedia import QMediaPlayer
 from .audio_output import create_audio_output as QAudioOutput
 from PySide6.QtWidgets import (
-    QDialog, QDoubleSpinBox, QFileDialog, QHBoxLayout, QLabel, QListWidget,
+    QDoubleSpinBox, QFileDialog, QHBoxLayout, QLabel, QListWidget,
     QPlainTextEdit, QPushButton, QProgressBar, QSplitter, QVBoxLayout, QWidget,
     QScrollArea, QFrame, QAbstractSpinBox, QLayout,
 )
+from .theme import TextScaledDialog as QDialog
 
 from ..core.synthesis.segment_project import SegmentProject, ProjectCancelled
 from . import theme as T

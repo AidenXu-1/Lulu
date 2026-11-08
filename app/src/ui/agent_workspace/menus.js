@@ -97,7 +97,10 @@ document.addEventListener('pointerdown', event => {
   if (active && !active.menu.contains(event.target) && !active.anchor.contains(event.target)) closeMenu();
 }, true);
 document.addEventListener('scroll', event => {
-  if (active && !active.menu.contains(event.target)) closeMenu();
+  // Editor/chat scrolling does not move an action anchored in the library.
+  // This also covers delayed scroll restoration after opening a document.
+  if (active && (event.target === document ||
+      (event.target instanceof Element && event.target.contains(active.anchor)))) closeMenu();
 }, true);
 window.addEventListener('resize', () => closeMenu());
 document.addEventListener('close', () => closeMenu(), true);

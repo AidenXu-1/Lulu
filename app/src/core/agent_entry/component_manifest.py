@@ -14,6 +14,7 @@ from .canonical_app_tree import canonical_app_tree_identity
 from .delivery_identity import (
     MANIFEST_SCHEMA as EXTERNAL_SCHEMA, MANIFEST_NAME,
     delivery_app_tree_identity, delivery_app_tree_records, verify_final_signature,
+    _identity_from_records,
     strict_json, verify_delivery_marker, DELIVERY_MARKER, LINK_POLICY,
 )
 
@@ -384,12 +385,23 @@ def verify_component_manifest(app_bundle: Path, manifest_path: Path) -> dict[str
     expected_records = payload.get("components")
     if type(expected_records) is not list or not expected_records:
         raise _fail("AGENT_ENTRY_COMPONENT_MISMATCH")
-    actual_records = _records_for(app, manifest)
+    if external:
+        # One coherent read supplies both comparisons. Re-reading every bundled
+        # framework here made each fresh GUI scan the same large App twice.
+        # Keep directories for the identity and the closed link/signature checks.
+        verify_delivery_marker(app)
+        tree_records = delivery_app_tree_records(app)
+        actual_records = [dict(record, role=_role(str(record["path"])))
+                          for record in tree_records if record["type"] != "directory"]
+        tree_identity = _identity_from_records(tree_records)
+    else:
+        actual_records = _records_for(app, manifest)
+        tree_identity = _identity_for(app, manifest)
     _verify_required_components(actual_records, str(catalog["path"]))
     if actual_records != expected_records:
         raise _fail("AGENT_ENTRY_COMPONENT_MISMATCH")
     if (
-        _identity_for(app, manifest)["sha256"]
+        tree_identity["sha256"]
         != payload.get("app_component_set_digest")
     ):
         raise _fail("AGENT_ENTRY_COMPONENT_MISMATCH")

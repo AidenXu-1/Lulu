@@ -64,6 +64,11 @@ def execute(argv, runtime):
     except FileNotFoundError as exc:
         raise LocalTranscriptionJobError('NOT_FOUND','WORKSPACE_ITEM_NOT_FOUND') from exc
     except (ValueError,TypeError,UnicodeError,KeyError) as exc:
+        from ..core.synthesis.voices import VoiceDeletionError, VoiceLibraryError
+        if isinstance(exc, VoiceDeletionError):
+            raise LocalTranscriptionJobError('CONFLICT','VOICE_DELETE_INCOMPLETE') from exc
+        if isinstance(exc, VoiceLibraryError):
+            raise LocalTranscriptionJobError('CONFLICT','VOICE_LIBRARY_UNREADABLE') from exc
         raise LocalTranscriptionJobError('INVALID_ARGUMENT','WORKSPACE_REQUEST_INVALID') from exc
     except OSError as exc:
         raise LocalTranscriptionJobError('INTERNAL_ERROR','WORKSPACE_STORAGE_UNAVAILABLE') from exc

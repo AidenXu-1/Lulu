@@ -218,10 +218,51 @@ class WorkspaceInteractionTests(NativeLiveTests):
         self.assertNotIn('isolated-secret', self.page.credential_status.text())
         self.page.credentials.reject()
 
+    def test_collection_login_opens_directly_and_cancels_without_saving_late_result(self):
+        self.steady()
+        entered, release = threading.Event(), threading.Event()
+        writes, messages = [], []
+        self.service.secret_write = writes.append
+
+        class FakeLogin(LiveLoginRequest):
+            def run(worker):
+                entered.set()
+                release.wait(4)
+                worker.received.emit('sessionid=isolated-fixture')
+
+        with patch('src.ui.live_login.LiveLoginRequest', FakeLogin):
+            self.assertTrue(self.page.collection_browser_login('/fixture/Edge', messages.append))
+            try:
+                self.until(entered.is_set)
+                self.assertFalse(self.page.credentials.isVisible())
+                self.assertEqual(self.controller.login_worker.browser_path, '/fixture/Edge')
+                self.assertFalse(self.page.collection_browser_login(None, messages.append))
+                self.assertTrue(self.page.collection_browser_login(None, messages.append, cancel=True))
+            finally:
+                release.set()
+            self.until(lambda: not self.controller.has_pending_work)
+        self.assertEqual(writes, [])
+        self.assertIn('已取消登录', messages[-1])
+
+        release.set()
+        with patch('src.ui.live_login.LiveLoginRequest', FakeLogin):
+            self.assertTrue(self.page.collection_browser_login('/fixture/Edge', messages.append))
+            self.until(lambda: self.page._configured and not self.controller.has_pending_work)
+        self.assertEqual(writes, ['sessionid=isolated-fixture'])
+        self.assertEqual(messages[-1], '登录信息已保存')
+        self.assertFalse(self.page.credentials.isVisible())
+
     def test_small_access_card_scrolls_and_escape_restores_focus(self):
         self.page.resize(940, 640)
-        self.page.settings_button.setFocus()
-        self.page._settings()
+        self.seed(hosts=1, recordings=0)
+        host = self.page.data['rows'][0]['id']
+        self.service.index.write("UPDATE hosts SET live_error='login_required' WHERE id=?", (host,))
+        self.page.refresh()
+        self.until(lambda: self.page.data['rows'][0]['live_error'] == 'login_required')
+        entry = self.page.table.cellWidget(0, 5).findChild(QPushButton)
+        self.assertEqual(entry.text(), '抖音连接')
+        entry.setFocus()
+        entry.click()
         self.page.advanced_toggle.click()
         self.page._toggle_cookie_help()
         self.app.processEvents()
@@ -234,7 +275,7 @@ class WorkspaceInteractionTests(NativeLiveTests):
         QTest.keyClick(self.page.credentials.close_button, Qt.Key.Key_Escape)
         self.assertFalse(self.page.credentials.isVisible())
         self.assertEqual(self.page.credential.text(), '')
-        self.assertTrue(self.page.settings_button.hasFocus())
+        self.assertTrue(entry.hasFocus())
 
     def test_acknowledged_start_keeps_button_progress_and_total_consistent(self):
         self.seed(hosts=1, recordings=0)
@@ -283,6 +324,12 @@ class WorkspaceInteractionTests(NativeLiveTests):
         self.controller.dispatcher = slow
         try:
             self.page.pause_all.click()
+            self.assertTrue(self.page.action_confirmation.isVisible())
+            self.page.action_confirmation.reject()
+            self.assertEqual(calls, [])
+            self.assertEqual(self.page.data['monitoring'], 1)
+            self.page.pause_all.click()
+            self.page.action_confirmation.accept()
             self.until(entered.is_set)
             self.assertEqual(self.page.pause_all.text(), '暂停中…')
             self.assertFalse(self.page.pause_all.isEnabled())
