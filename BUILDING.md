@@ -1,6 +1,6 @@
 # 从源码构建 Lulu
 
-本版为 **4.3.4 / 20261109.1**，提供实际产品的完整第一方源码、资源、CLI、后台、Skill 与构建入口。第一方 MIT，第三方保留原许可。无需激活码、维护者私钥或维护者的个人资料。
+本版为 **4.3.4 / 20261109.2**，提供实际产品的完整第一方源码、资源、CLI、后台、Skill 与构建入口。第一方 MIT，第三方保留原许可。无需激活码、维护者私钥或维护者的个人资料。
 
 ## 环境与依赖
 
@@ -39,8 +39,8 @@ tar -xzf app/build/asr-sources/moss-source.tar.gz --strip-components=1 -C app/bu
 ```sh
 .venv/bin/python -B app/packaging/product_capability_gate.py   --repo "$PWD" --output /private/tmp/lulu-product-checks.json
 
-export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261109.1"
-export LULU_DIST_ROOT="$PWD/app/dist/phase10-production-20261109.1"
+export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261109.2"
+export LULU_DIST_ROOT="$PWD/app/dist/phase10-production-20261109.2"
 export LULU_PRODUCTION_RELEASE_AUTHORIZED=1
 export LULU_UPDATE_RELEASE=0
 export LULU_UPDATE_PUBLIC_KEY_PATH="$PWD/app/packaging/update-verification-key.pem"

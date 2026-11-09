@@ -1,7 +1,7 @@
 {
   "schema": 2,
   "version": "4.3.4",
-  "build": "20261109.1",
+  "build": "20261109.2",
   "product_release": "v4.3.4",
   "base_public_revision": "3f63af5307cc1f3998d052a2e8c9b8f5167463b6",
   "files": [
@@ -14,7 +14,7 @@
     {
       "path": "BUILDING.md",
       "size": 4555,
-      "sha256": "0bbe78dad94f2db34cac8101171d2fb215da46de07282017713652ef1f8a1568",
+      "sha256": "8b4c0c36b79e9ba33daa214d1f0a1ef554161becefa22b3e4cc889674e93beff",
       "mode": "100644"
     },
     {
@@ -25,8 +25,8 @@
     },
     {
       "path": "README.md",
-      "size": 4735,
-      "sha256": "cee98bc7af9275b403cc8d8edebf1a04c9710b5b161c734080d69272c5fb4d75",
+      "size": 4837,
+      "sha256": "b89192e61e065a82365c4c8862cc276d07ccdf96e951ef143af799a674507be6",
       "mode": "100644"
     },
     {
@@ -44,7 +44,7 @@
     {
       "path": "agent-skill/README.md",
       "size": 7103,
-      "sha256": "79e6db950ed259e3f2a45cf26d93cb94ede100d4ba5eb9ff42f871ac356f1e60",
+      "sha256": "358eae62259935976c5e4c9950949c5403ddd6c9665c159d2601f93ce49b5cac",
       "mode": "100644"
     },
     {
@@ -367,8 +367,8 @@
     },
     {
       "path": "app/packaging/product_capability_gate.py",
-      "size": 197425,
-      "sha256": "76023d793250f989f45aed2754368f2d02335fbc760e2d35f8216e5850efd16f",
+      "size": 197545,
+      "sha256": "04ba099b805af757be915cb721bb78cb0708f738d565bbe5bb6a761161a2d724",
       "mode": "100755"
     },
     {
@@ -1831,8 +1831,8 @@
     },
     {
       "path": "app/src/core/link_extraction_jobs.py",
-      "size": 14924,
-      "sha256": "a0ca4b17f78c17db03a66f6192fb148bd7b7b14976ed020384a598ceae54a149",
+      "size": 15189,
+      "sha256": "083a168f998956d4d928a11b6e4e1eac1cdcbe6f599c1027b1f00f44e70b1ee2",
       "mode": "100644"
     },
     {
@@ -3794,7 +3794,7 @@
     {
       "path": "app/src/version.py",
       "size": 2988,
-      "sha256": "8b402984e3679f503314ec726e6d32efb6de7e6369c2c7f76eff9e0c98eb0a87",
+      "sha256": "aede2219c38e85865a9c6a7fd440733212013ddc4810efc1c6f5ec25a5efe804",
       "mode": "100644"
     },
     {
@@ -4027,8 +4027,8 @@
     },
     {
       "path": "app/tests/test_cli_link_extraction.py",
-      "size": 19277,
-      "sha256": "f643b33b7bb95b0d1a97a575ff56552eec81e19da243e5a36a809b7f8456d267",
+      "size": 21009,
+      "sha256": "d9a9022e4a7f2b48f284328724d659e1c886f08866952c217bcfd62c728f64a2",
       "mode": "100644"
     },
     {

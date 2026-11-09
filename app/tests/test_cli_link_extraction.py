@@ -76,6 +76,40 @@ class LinkExtractionTests(unittest.TestCase):
         rows = result.get('result', result)['capabilities']
         self.assertEqual(sum(row['state'] == 'available' for row in rows if row['capability_id'].startswith('EXTRACT-')), 4)
 
+    def test_cover_download_resolves_system_temporary_directory_alias(self):
+        from contextlib import contextmanager
+        from src.core.collect.cover import CoverLocalizationService
+        from src.core.models import TranscriptCover
+        from tests.test_collection_p3c_cover import FakePlan, FakeResolver, FakeTransport
+        from tests.test_douyin_hd_cover import image, SMALL
+
+        staging = self.root / 'real-staging'
+        staging.mkdir()
+        alias = self.root / 'system-temp-alias'
+        alias.symlink_to(staging, target_is_directory=True)
+        payload = image(360, 481)
+        meta = TranscriptCover(platform='douyin', work_id='7675669869509070115',
+            url=SMALL, status='url_only').merge_meta({'title': '作者封面'})
+        self.service.runner = acquire
+
+        @contextmanager
+        def temporary(**_options):
+            yield str(alias)
+
+        def localizer(root):
+            return CoverLocalizationService(root, transport=FakeTransport(FakePlan(body=payload)),
+                resolver=FakeResolver())
+
+        with patch('src.core.link_extraction_jobs.tempfile.TemporaryDirectory', temporary), \
+                patch('src.core.extraction.metadata', return_value=meta), \
+                patch('src.core.collect.cover.CoverLocalizationService', side_effect=localizer):
+            jid = self.run_plan(self.prepare('cover,data'))
+        self.assertEqual(self.store.get_job(jid).state, JobState.SUCCEEDED)
+        _code, result = self.cli('jobs', 'receipt', '--job-id', jid)
+        items = result['result']['extraction']['items']
+        self.assertEqual(Path(items['cover']['path']).read_bytes(), payload)
+        self.assertEqual(items['data']['state'], 'succeeded')
+
     def test_changed_plan_duplicate_unknown_and_local_url_do_not_execute(self):
         plan = self.prepare()
         code, result = self.cli('extract', 'run', self.url, '--outputs', 'audio', '--destination', str(self.destination),

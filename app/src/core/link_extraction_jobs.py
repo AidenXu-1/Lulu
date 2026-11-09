@@ -203,7 +203,10 @@ class LinkExtractionJobs:
                         event_type='extract.' + kind, changed_at=self.now())
         try:
             with tempfile.TemporaryDirectory(prefix='lulu-extract-') as directory:
-                root = Path(directory)
+                # macOS temporary paths may pass through /var -> /private/var.
+                # Resolve our newly owned root before the cover service's strict
+                # no-symlink checks; staged contents and destinations stay guarded.
+                root = Path(directory).resolve(strict=True)
                 files, failures = self.runner(plan['source_url'], plan['outputs'], root, progress, cancelled, self.now())
                 for kind in plan['outputs']:
                     if cancelled():

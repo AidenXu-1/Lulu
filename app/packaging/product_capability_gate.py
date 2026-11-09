@@ -1071,6 +1071,7 @@ CAPABILITY_TESTS = (
     "tests.test_cli_all_local_asr.AllLocalAsrTests.test_all_three_models_reach_selected_pipeline_and_result",
     "tests.test_cli_link_extraction.LinkExtractionTests.test_each_output_and_combination_without_model_probe",
     "tests.test_cli_link_extraction.LinkExtractionTests.test_prepare_no_work_and_discovery_reports_real_service",
+    "tests.test_cli_link_extraction.LinkExtractionTests.test_cover_download_resolves_system_temporary_directory_alias",
     "tests.test_cli_link_extraction.LinkExtractionTests.test_changed_plan_duplicate_unknown_and_local_url_do_not_execute",
     "tests.test_cli_link_extraction.LinkExtractionTests.test_same_request_reuses_job_and_changed_request_is_rejected",
     "tests.test_cli_link_extraction.LinkExtractionTests.test_partial_and_all_failed_have_per_item_results",
