@@ -124,7 +124,7 @@ def acquire(source, chosen, root, progress, cancelled, observed_at):
                     raise metadata_error or DownloadFailure('EXTRACT_COVER_UNAVAILABLE', '此作品没有可获取的封面。')
                 service = CoverLocalizationService(root / 'covers')
                 receipt = service.localize(platform=cover.platform, work_id=cover.work_id,
-                    url=cover.url, is_cancelled=cancelled)
+                    url=cover.url, is_cancelled=cancelled, **cover.download_options)
                 if not _valid_cover_receipt(cover, receipt):
                     raise DownloadFailure('EXTRACT_COVER_FAILED', '封面获取失败，请稍后重试。')
                 return service.root / receipt.relative_path

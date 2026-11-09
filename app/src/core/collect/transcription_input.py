@@ -33,5 +33,6 @@ def download_collected_input(stable_key, work_dir: Path, progress, meta: dict, *
         author={"name": item.author_name},
         stats={"like":item.like,"favorite":item.collect,"share":item.share,"comment":item.comment})
     meta.update(TranscriptCover(platform="douyin", work_id=item.work_id,
-        url=item.cover_url, status="url_only" if item.cover_url else "not_requested").merge_meta(meta))
+        url=item.cover_url, variants=item.cover_variants,
+        status="url_only" if item.cover_url else "not_requested").merge_meta(meta))
     return Path(downloaded)

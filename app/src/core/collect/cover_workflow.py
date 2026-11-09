@@ -39,6 +39,7 @@ class CoverLocalizer(Protocol):
         platform: str,
         work_id: str,
         url: str,
+        variants: Sequence[str] = (),
         is_cancelled: Callable[[], bool] | None = None,
     ) -> CoverReceipt: ...
 
@@ -261,6 +262,7 @@ class CoverWorkflowService:
                 work_id=item.work_id,
                 url=item.cover_url,
                 is_cancelled=is_cancelled,
+                **({"variants": item.cover_variants} if item.cover_variants else {}),
             )
         except Exception:
             return self._failed(item, "cover_commit_failed")

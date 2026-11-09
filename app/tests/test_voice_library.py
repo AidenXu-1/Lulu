@@ -87,3 +87,7 @@ class VoiceLibraryTests(unittest.TestCase):
             c.child(c.edit,self.first)
         self.assertEqual(voices.INDEX.read_bytes(),before)
         self.assertTrue(Path(self.second.reference_audio_path).is_file())
+
+
+
+

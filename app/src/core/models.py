@@ -89,6 +89,35 @@ def _managed_cover_path(platform: str, value: object) -> str:
     return raw
 
 
+def _douyin_cover_resource(value: object) -> str:
+    """读取原样 URL 的资源身份；不生成或修改任何下载地址。"""
+    url = _https_cover_url(value)
+    if not url:
+        return ""
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").casefold()
+    if not (host == "douyinpic.com" or host.endswith(".douyinpic.com")):
+        return ""
+    path = parsed.path.removeprefix("/obj/").lstrip("/")
+    resource = path.split("~", 1)[0]
+    return resource if re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+", resource) else ""
+
+
+def same_douyin_cover_urls(primary: str, values: object, *, expected_uri: str = "") -> tuple[str, ...]:
+    """候选与基准地址必须指向同一图片，保留签名并限制探测数量。"""
+    identity = _douyin_cover_resource(primary)
+    if not identity or (expected_uri and identity != expected_uri) or not isinstance(values, (list, tuple)):
+        return ()
+    result = []
+    for value in values[:16]:
+        if (isinstance(value, str) and value != primary and value not in result
+                and _douyin_cover_resource(value) == identity):
+            result.append(value)
+        if len(result) == 4:
+            break
+    return tuple(result)
+
+
 @dataclass(frozen=True)
 class TranscriptCover:
     """单链接转录旁路的封面事实，不改变 Transcript 主结果。"""
@@ -99,6 +128,7 @@ class TranscriptCover:
     status: str = "not_requested"
     local_path: str = ""
     error_code: str = ""
+    variants: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         platform = str(self.platform or "").strip().casefold()
@@ -134,10 +164,16 @@ class TranscriptCover:
         object.__setattr__(self, "status", status)
         object.__setattr__(self, "local_path", local_path)
         object.__setattr__(self, "error_code", error_code)
+        object.__setattr__(self, "variants", same_douyin_cover_urls(url, self.variants)
+                           if platform == "douyin" else ())
 
     @property
     def eligible(self) -> bool:
         return bool(self.platform and self.work_id and self.url)
+
+    @property
+    def download_options(self) -> dict:
+        return {"variants": self.variants} if self.variants else {}
 
     @classmethod
     def from_meta(cls, meta: object) -> TranscriptCover:
@@ -153,6 +189,7 @@ class TranscriptCover:
             status=data.get("cover_status", default_status),
             local_path=data.get("cover_local_path", ""),
             error_code=data.get("cover_error_code", ""),
+            variants=data.get("cover_variants", ()),
         )
 
     def merge_meta(self, meta: object) -> dict:
@@ -192,6 +229,10 @@ class TranscriptCover:
             merged["cover_error_code"] = self.error_code
         else:
             merged.pop("cover_error_code", None)
+        if self.variants:
+            merged["cover_variants"] = list(self.variants)
+        else:
+            merged.pop("cover_variants", None)
         return merged
 
 

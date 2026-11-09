@@ -27,7 +27,7 @@ def _metadata_download(url, directory, progress, meta, *, link_media_mode='audio
         extractor._apply_douyin_work_meta(meta, share_url=url, play_url=play, fallback_work_id=work_id)
         meta.update(title=title, stats=stats, author=author)
         meta.update(TranscriptCover(platform='douyin', work_id=work_id, url=cover,
-            status='url_only').merge_meta(meta))
+            status='url_only', variants=TranscriptCover.from_meta(meta).variants).merge_meta(meta))
     else:
         import yt_dlp
         from .audio.download_runtime import public_download_options
@@ -232,7 +232,8 @@ def acquire_source(source, *, execution_policy, engine_name, enable_link_downloa
             else:
                 try:
                     receipt = cover_workflow.localize(platform=cover.platform,
-                        work_id=cover.work_id, url=cover.url, is_cancelled=cover_cancelled)
+                        work_id=cover.work_id, url=cover.url, is_cancelled=cover_cancelled,
+                        **cover.download_options)
                 except Exception:
                     check()
                     receipt = None
@@ -245,7 +246,8 @@ def acquire_source(source, *, execution_policy, engine_name, enable_link_downloa
                         assets['cover'] = publish_asset(local, policy.media_directory)
                         asset('cover', 'ready', assets['cover'])
                         meta = TranscriptCover(platform=cover.platform, work_id=cover.work_id,
-                            url=cover.url, status='downloaded', local_path=receipt.relative_path).merge_meta(meta)
+                            url=cover.url, status='downloaded', local_path=receipt.relative_path,
+                            variants=cover.variants).merge_meta(meta)
                     except OSError:
                         failures.append('封面无法保存到所选目录')
             checkpoint()

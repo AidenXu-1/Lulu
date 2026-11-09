@@ -353,11 +353,38 @@ class _CoverRetryWorker(QThread):
 
     def run(self) -> None:
         try:
+            items = []
+            for item in self._items:
+                if (item.platform == "douyin" and not self._cancel
+                        and not str(item.last_error_code).endswith("cover_commit_uncertain")):
+                    from ..core.collect.douyin_fetch import fetch_item_with_page_fallback
+
+                    def check_cancel(*_):
+                        if self._cancel:
+                            raise InterruptedError("封面重试已取消")
+
+                    try:
+                        fresh = fetch_item_with_page_fallback(item.work_id, check_cancel,
+                                                              is_cancelled=lambda: self._cancel)
+                        if fresh.stable_key == item.stable_key and fresh.cover_url:
+                            item = replace(item, cover_url=fresh.cover_url,
+                                           cover_variants=fresh.cover_variants)
+                    except Exception:
+                        pass  # Source refresh is optional; the saved URL remains a fallback.
+                items.append(item)
             result = self._workflow.run(
-                CollectResult.complete(self._items),
+                CollectResult.complete(tuple(items)),
                 snapshot=CollectCoverPreferenceSnapshot(True),
                 is_cancelled=lambda: self._cancel,
             )
+            retained = []
+            for before, after, outcome in zip(self._items, result.collect_result.items, result.outcomes):
+                if (before.cover_status == "downloaded" and outcome.status in {"failed", "url_only"}
+                        and outcome.reason_code not in
+                        {"cover_path_blocked", "cover_commit_uncertain", "cover_busy"}):
+                    after = before
+                retained.append(after)
+            result = replace(result, collect_result=replace(result.collect_result, items=tuple(retained)))
             self.done.emit(result)
         except Exception:
             self.failed.emit()
@@ -493,42 +520,50 @@ class _MaterialDownloadWorker(QThread):
         self._cancel = True
 
     def _download_covers(self, items):
-        result = CollectResult.complete(items)
-        if (self._origin == "homepage_history_material" and len(items) == 1
-                and not self._snapshot.save_media and not items[0].cover_url
-                and _can_lookup_work_cover(items[0])):
-            from ..core.collect.douyin_fetch import fetch_item_with_page_fallback
+        refreshed = []
+        source_failures = {}
+        for item in items:
+            refresh_source = (
+                self._origin == "homepage_history_material"
+                and not self._cancel and _can_lookup_work_cover(item)
+                and (not item.cover_variants or (len(items) == 1 and not self._snapshot.save_media))
+            )
+            if refresh_source:
+                from ..core.collect.douyin_fetch import fetch_item_with_page_fallback
+                self.progress.emit((item.stable_key, "cover", "downloading"))
 
-            item = items[0]
-            self.progress.emit((item.stable_key, "cover", "downloading"))
+                def check_cancel(*_):
+                    if self._cancel:
+                        raise InterruptedError()
 
-            def check_cancel(*_):
-                if self._cancel:
-                    raise InterruptedError()
-
-            try:
-                check_cancel()
-                detail = fetch_item_with_page_fallback(
-                    item.work_id, check_cancel, is_cancelled=lambda: self._cancel
-                )
-            except Exception:
-                detail = None
-            if self._cancel or not (
-                detail and detail.stable_key == item.stable_key and detail.cover_url
-            ):
-                outcome = CoverItemOutcome(
-                    item.stable_key, "cancelled" if self._cancel else "failed",
-                    "" if self._cancel else "cover_source_refresh_failed",
-                )
-                return CoverWorkflowResult(result, (outcome,))
-            result = CollectResult.complete((replace(item, cover_url=detail.cover_url),))
+                try:
+                    detail = fetch_item_with_page_fallback(
+                        item.work_id, check_cancel, is_cancelled=lambda: self._cancel
+                    )
+                except Exception:
+                    detail = None
+                source_confirmed = bool(detail and detail.stable_key == item.stable_key and detail.cover_url)
+                if self._cancel or (not source_confirmed and not item.cover_url):
+                    source_failures[item.stable_key] = CoverItemOutcome(
+                        item.stable_key, "cancelled" if self._cancel else "failed",
+                        "" if self._cancel else "cover_source_refresh_failed",
+                    )
+                elif source_confirmed:
+                    item = replace(item, cover_url=detail.cover_url, cover_variants=detail.cover_variants)
+            refreshed.append(item)
+        result = CollectResult.complete(tuple(refreshed))
         for item in result.items:
             if item.cover_url:
                 self.progress.emit((item.stable_key, "cover", "downloading"))
-        return self._cover_workflow.run(
+        settled = self._cover_workflow.run(
             result, snapshot=CollectCoverPreferenceSnapshot(True),
             is_cancelled=lambda: self._cancel,
         )
+        if source_failures:
+            settled = replace(settled, outcomes=tuple(
+                source_failures.get(outcome.stable_key, outcome) for outcome in settled.outcomes
+            ))
+        return settled
 
     def run(self) -> None:
         from ..core.task import TaskExecutionPolicy
@@ -4309,7 +4344,9 @@ class CollectionPage(QWidget):
                 return 'downloading', ''
         path = self._existing_media_file(item) if kind == 'media' else self._managed_cover_file(item)
         if path is not None:
-            return 'ready', '点击查看；右键可在 Finder 中显示'
+            return 'ready', ('点击查看；右键可重新下载高清封面或在 Finder 中显示'
+                             if kind == 'cover' and item.platform == 'douyin'
+                             else '点击查看；右键可在 Finder 中显示')
         if kind == 'cover':
             status = str(getattr(item, 'cover_status', '') or '')
             if status == 'skipped_privacy':
@@ -4406,8 +4443,14 @@ class CollectionPage(QWidget):
             return
         menu = QMenu(self)
         reveal = menu.addAction('在 Finder 中显示')
-        if menu.exec(self.cursor().pos()) is reveal:
+        refresh = (menu.addAction('重新下载高清封面')
+                   if kind == 'cover' and item.platform == 'douyin'
+                   and self._cover_workflow is not None else None)
+        chosen = menu.exec(self.cursor().pos())
+        if chosen is reveal:
             subprocess.run(['open', '-R', str(path)], check=False)
+        elif refresh is not None and chosen is refresh:
+            self._retry_cover_item(item)
 
     def _set_material_runtime(
         self, stable_key: str, kind: str, state: str
@@ -4867,9 +4910,13 @@ class CollectionPage(QWidget):
             return
         menu = QMenu(button)
         reveal = menu.addAction("在 Finder 中显示")
+        refresh = (menu.addAction("重新下载高清封面")
+                   if item.platform == "douyin" and self._cover_workflow is not None else None)
         chosen = menu.exec(button.mapToGlobal(point))
         if chosen is reveal:
             subprocess.run(["open", "-R", str(path)], check=False)
+        elif refresh is not None and chosen is refresh:
+            self._retry_cover_item(item)
 
     @staticmethod
     def _cover_retry_eligible(item) -> bool:
@@ -4880,7 +4927,8 @@ class CollectionPage(QWidget):
                 status in {"not_requested", "url_only", "failed"}
                 or (
                     status == "downloaded"
-                    and CollectionPage._managed_cover_file(item) is None
+                    and (getattr(item, "platform", "") == "douyin"
+                         or CollectionPage._managed_cover_file(item) is None)
                 )
             )
             and getattr(item, "platform", "")
@@ -4997,19 +5045,25 @@ class CollectionPage(QWidget):
             except RepositoryError:
                 persistence_note = "；封面文件已处理，但作品主档更新失败"
         self._items = [updated.get(item.stable_key, item) for item in self._items]
+        outcomes = tuple(getattr(result, "outcomes", ()))
+        successful = {outcome.stable_key for outcome in outcomes
+                      if outcome.status in {"downloaded", "recovered_previous"}}
         downloaded = sum(
-            item.cover_status == "downloaded" for item in updated.values()
+            key in successful and item.cover_status == "downloaded" for key, item in updated.items()
         )
-        failed = sum(item.cover_status == "failed" for item in updated.values())
+        failed = sum(outcome.status == "failed" for outcome in outcomes)
+        retained = sum(key not in successful and item.cover_status == "downloaded"
+                       for key, item in updated.items())
         recovered = sum(
             outcome.status == "recovered_previous"
             for outcome in getattr(result, "outcomes", ())
         )
         self._render()
         recovered_note = f"，已恢复上一次封面 {recovered} 条" if recovered else ""
+        retained_note = f"，保留原封面 {retained} 条" if retained else ""
         self.status.setText(
-            f"封面重试完成：已保存 {downloaded} 条，仍未保存 {failed} 条"
-            f"{recovered_note}"
+            f"封面重试完成：已保存 {downloaded} 条，未完成 {failed} 条"
+            f"{recovered_note}{retained_note}"
             f"{persistence_note}。"
         )
 

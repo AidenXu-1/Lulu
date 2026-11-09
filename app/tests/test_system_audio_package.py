@@ -28,3 +28,4 @@ class SystemAudioPackageTests(unittest.TestCase):
             _,findings,_=scan(app,approved_executables={'Contents/MacOS/Lulu':'main_executable'},
                             profile='external_candidate',declared_resources=set())
             self.assertIn(paths[0],{f['value'] for f in findings})
+

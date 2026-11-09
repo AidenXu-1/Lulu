@@ -46,6 +46,7 @@ class SingleLinkCoverWorkflow(Protocol):
         platform: str,
         work_id: str,
         url: str,
+        variants: tuple[str, ...] = (),
         is_cancelled: Callable[[], bool] | None = None,
     ) -> object: ...
 
@@ -413,6 +414,7 @@ def _settle_single_link_cover(
             platform=current.platform,
             work_id=current.work_id,
             url=current.url,
+            variants=current.variants,
             status="url_only",
         ).merge_meta(meta)
 
@@ -423,6 +425,7 @@ def _settle_single_link_cover(
             work_id=current.work_id,
             url=current.url,
             is_cancelled=is_cancelled,
+            **current.download_options,
         )
     except Exception:
         receipt = None
@@ -437,6 +440,7 @@ def _settle_single_link_cover(
             platform=current.platform,
             work_id=current.work_id,
             url=current.url,
+            variants=current.variants,
             status="downloaded",
             local_path=str(getattr(receipt, "relative_path", "") or ""),
         ).merge_meta(meta)
@@ -446,6 +450,7 @@ def _settle_single_link_cover(
             platform=current.platform,
             work_id=current.work_id,
             url=current.url,
+            variants=current.variants,
             status="url_only",
         ).merge_meta(meta)
 
@@ -459,6 +464,7 @@ def _settle_single_link_cover(
         platform=current.platform,
         work_id=current.work_id,
         url=current.url,
+        variants=current.variants,
         status="failed",
         error_code=stable_reason,
     ).merge_meta(meta)

@@ -76,6 +76,39 @@ def _douyin_cover_url(video: object) -> str:
     return ""
 
 
+def _douyin_cover_variants(video: object) -> tuple[str, ...]:
+    """只保留同一作品中、与原选中封面具有相同 uri 的平台原始地址。"""
+    from ..models import same_douyin_cover_urls
+
+    primary = _douyin_cover_url(video)
+    if not primary or not isinstance(video, dict):
+        return ()
+    sources = [video.get(key) for key in
+               ("cover_original_scale", "cover", "origin_cover", "dynamic_cover")]
+    selected = next((source for source in sources if isinstance(source, dict)
+                     and isinstance(source.get("url_list"), (list, tuple))
+                     and primary in source["url_list"]), None)
+    uri = selected.get("uri") if selected else None
+    if not isinstance(uri, str) or not uri:
+        return ()
+    urls = []
+    for source in sources:
+        if not isinstance(source, dict) or source.get("uri") != uri:
+            continue
+        values = source.get("url_list")
+        if isinstance(values, (list, tuple)):
+            urls.extend(values[:4])
+    def original_first(value):
+        try:
+            path = urlsplit(value).path if isinstance(value, str) else ""
+        except ValueError:
+            return 1
+        return 0 if path in (f"/{uri}", f"/obj/{uri}") else 1
+
+    urls.sort(key=original_first)
+    return same_douyin_cover_urls(primary, urls, expected_uri=uri)
+
+
 @dataclass
 class CollectedItem:
     """一条采集到的作品。
@@ -114,11 +147,15 @@ class CollectedItem:
     source_method: str = "anonymous_public"
     risk_status: str = "ok"
     last_error_code: str = ""
+    cover_variants: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         self.platform = str(self.platform or "douyin").lower()
         self.aweme_id = str(self.aweme_id or "")
         self.work_id = str(self.work_id or "")
+        from ..models import same_douyin_cover_urls
+        self.cover_variants = (same_douyin_cover_urls(self.cover_url, self.cover_variants)
+                               if self.platform == "douyin" else ())
         if self.platform not in _PLATFORMS:
             raise ValueError(f"未知采集平台: {self.platform}")
         if self.platform == "douyin" and not self.work_id:
@@ -270,6 +307,7 @@ def from_aweme(aweme: dict) -> CollectedItem:
         content_kind=("image" if _int(aweme.get("aweme_type")) in DOUYIN_NON_VIDEO_TYPES
                       else "video"),
         cover_url=cover_url,
+        cover_variants=_douyin_cover_variants(video),
         cover_status="url_only" if cover_url else "not_requested",
     )
 

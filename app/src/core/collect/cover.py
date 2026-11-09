@@ -21,13 +21,14 @@ import ssl
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from typing import Any
 from urllib.parse import urljoin, urlsplit, urlunsplit
 import zlib
 
-from ..models import COVER_CDN_SUFFIXES
+from ..models import COVER_CDN_SUFFIXES, same_douyin_cover_urls
 
 
 MAX_COVER_BYTES = 20 * 1024 * 1024
@@ -1330,6 +1331,34 @@ def _error_code(exc: BaseException, fallback: str = "cover_io_failed") -> str:
     return fallback
 
 
+def _static_image_size(payload: bytes) -> tuple[int, int] | None:
+    """安全结构检查之外，实际解码确认格式、单帧和尺寸；仅用于高清候选。"""
+    from PySide6.QtCore import QByteArray, QBuffer, QIODevice
+    from PySide6.QtGui import QImageReader
+
+    mime, _extension = _validate_image(payload)
+    if mime == "image/png":
+        position = 8
+        while position < len(payload):
+            length = int.from_bytes(payload[position:position + 4], "big")
+            if payload[position + 4:position + 8] == b"acTL":
+                return None
+            position += 12 + length
+    data = QByteArray(payload)
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.OpenModeFlag.ReadOnly)
+    reader = QImageReader(buffer)
+    actual = bytes(reader.format())
+    if actual != {"image/jpeg": b"jpeg", "image/png": b"png", "image/webp": b"webp"}[mime]:
+        return None
+    width, height = reader.size().toTuple()
+    if (min(width, height) <= 0 or width * height > 32_000_000
+            or reader.supportsAnimation() or reader.imageCount() != 1):
+        return None
+    decoded = reader.read()
+    return (width, height) if not decoded.isNull() and decoded.size().toTuple() == (width, height) else None
+
+
 class CoverLocalizationService:
     """将封面写入构造时固定的受管根；失败只返回稳定、脱敏收据。"""
 
@@ -1590,15 +1619,98 @@ class CoverLocalizationService:
         platform: str,
         work_id: str,
         url: str,
+        variants: Sequence[str] = (),
         is_cancelled: Callable[[], bool] | None = None,
     ) -> CoverReceipt:
-        cancel = is_cancelled or (lambda: False)
+        verified = same_douyin_cover_urls(url, variants) if platform == "douyin" else ()
         deadline = self.clock() + self.total_timeout
+        receipt = self._localize_url(platform=platform, work_id=work_id, url=url,
+                                     is_cancelled=is_cancelled, variants=verified, deadline=deadline)
+        # A failed source must not hide a healthy URL for the exact same image.
+        retryable = {"cover_http_status", "cover_timeout", "cover_dns_failed", "cover_io_failed",
+                     "cover_truncated", "cover_type_mismatch", "cover_malformed"}
+        if verified and receipt.status == "failed" and receipt.reason_code in retryable:
+            for index, candidate in enumerate(verified):
+                if self.clock() >= deadline or (is_cancelled and is_cancelled()):
+                    break
+                alternative = self._localize_url(
+                    platform=platform, work_id=work_id, url=candidate,
+                    is_cancelled=is_cancelled, deadline=deadline, require_static=True,
+                    variants=verified[index + 1:])
+                if alternative.status != "failed" or alternative.reason_code not in retryable:
+                    return alternative
+        return receipt
+
+    def _prefer_static_variant(self, payload, mime, *, platform, work_id, variants, cancel, deadline):
+        """Probe with the unchanged safety kernel in disposable, isolated storage.
+
+        Only the chosen bytes are committed to the real managed cache. Reusing
+        the downloader keeps DNS, redirects, MIME and file safety identical.
+        """
+        try:
+            best_size = _static_image_size(payload)
+        except Exception:
+            return payload, mime
+        if best_size is None:
+            return payload, mime
+        for candidate in variants:
+            budget = min(8.0, deadline - self.clock() - 0.5)
+            if budget <= 0 or cancel():
+                break
+            try:
+                with tempfile.TemporaryDirectory(prefix="lulu-cover-variant-") as temporary:
+                    probe = CoverLocalizationService(
+                        Path(temporary).resolve(), transport=self.transport, resolver=self.resolver,
+                        proxy_provider=self.proxy_provider, clock=self.clock,
+                        connect_timeout=self.connect_timeout, read_timeout=self.read_timeout,
+                        total_timeout=budget, max_bytes=self.max_bytes, max_redirects=self.max_redirects)
+                    receipt = probe._localize_url(platform=platform, work_id=work_id, url=candidate,
+                        is_cancelled=cancel, require_static=True)
+                    if receipt.status != "downloaded":
+                        continue
+                    managed = _open_existing_managed_directory(probe.root, platform)
+                    if managed is None:
+                        continue
+                    try:
+                        current = _read_entry(managed.platform_fd,
+                            receipt.relative_path.rsplit("/", 1)[-1], self.max_bytes)
+                    finally:
+                        managed.close()
+                    size = _static_image_size(current)
+                    if size is None:
+                        continue
+                    width, height = size
+                    old_width, old_height = best_size
+                    # Require both dimensions to improve without changing the
+                    # composition; allow only integer-resize rounding (1%).
+                    if (width >= old_width and height >= old_height
+                            and width * height > old_width * old_height
+                            and abs(width * old_height - old_width * height)
+                            <= 0.01 * old_width * height):
+                        payload, mime, best_size = current, receipt.mime_type, size
+            except Exception:
+                continue
+        return payload, mime
+
+    def _localize_url(
+        self,
+        *,
+        platform: str,
+        work_id: str,
+        url: str,
+        is_cancelled: Callable[[], bool] | None = None,
+        variants: Sequence[str] = (),
+        require_static: bool = False,
+        deadline: float | None = None,
+    ) -> CoverReceipt:
+        cancel = is_cancelled or (lambda: False)
+        deadline = deadline if deadline is not None else self.clock() + self.total_timeout
         managed: _ManagedDirectory | None = None
         lock: _OwnedFile | None = None
         response: CoverTransportResponse | None = None
         temp: _OwnedFile | None = None
         primary_receipt: CoverReceipt | None = None
+        source_reads_finished = False
 
         def remaining() -> float:
             return deadline - self.clock()
@@ -1606,7 +1718,7 @@ class CoverLocalizationService:
         def check_stop() -> None:
             if cancel():
                 raise _CoverFailure("cover_cancelled")
-            if remaining() <= 0:
+            if remaining() <= 0 and not source_reads_finished:
                 raise _CoverFailure("cover_timeout")
 
         try:
@@ -1785,6 +1897,30 @@ class CoverLocalizationService:
             detected_mime, extension = _validate_image(payload)
             if detected_mime != mime:
                 raise _CoverFailure("cover_type_mismatch")
+            if require_static and _static_image_size(payload) is None:
+                raise _CoverFailure("cover_type_mismatch")
+            if variants:
+                chosen, chosen_mime = self._prefer_static_variant(
+                    payload, mime, platform=platform_key, work_id=work_key,
+                    variants=variants, cancel=cancel, deadline=deadline)
+                # Optional probes must not discard an already validated image
+                # when their network/decoding budget expires. No more network
+                # work follows; finish the protected local commit, or cancel.
+                source_reads_finished = True
+                check_stop()
+                if chosen != payload:
+                    _verify_owned(managed.platform_fd, temp)
+                    _unlink_owned_and_sync(managed, temp)
+                    temp = None
+                    temp, temp_fd = _create_owned(managed.platform_fd, f".{digest}.", ".part")
+                    try:
+                        _write_all(temp_fd, chosen)
+                        os.fsync(temp_fd)
+                    finally:
+                        os.close(temp_fd)
+                    payload, mime = chosen, chosen_mime
+                    detected_mime, extension = _validate_image(payload)
+                    written = len(payload)
             file_hash = hashlib.sha256(payload).hexdigest()
             target_name = f"{digest}.{extension}"
             existing = _entry_info(managed.platform_fd, target_name)

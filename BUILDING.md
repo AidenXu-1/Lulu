@@ -1,6 +1,6 @@
 # 从源码构建 Lulu
 
-本版为 **4.3.3 / 20261108.5**，提供实际产品的完整第一方源码、资源、CLI、后台、Skill 与构建入口。第一方 MIT，第三方保留原许可。无需激活码、维护者私钥或维护者的个人资料。
+本版为 **4.3.4 / 20261109.1**，提供实际产品的完整第一方源码、资源、CLI、后台、Skill 与构建入口。第一方 MIT，第三方保留原许可。无需激活码、维护者私钥或维护者的个人资料。
 
 ## 环境与依赖
 
@@ -39,8 +39,8 @@ tar -xzf app/build/asr-sources/moss-source.tar.gz --strip-components=1 -C app/bu
 ```sh
 .venv/bin/python -B app/packaging/product_capability_gate.py   --repo "$PWD" --output /private/tmp/lulu-product-checks.json
 
-export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261108.5"
-export LULU_DIST_ROOT="$PWD/app/dist/phase10-production-20261108.5"
+export LULU_BUILD_ROOT="$PWD/app/build/phase10-production-20261109.1"
+export LULU_DIST_ROOT="$PWD/app/dist/phase10-production-20261109.1"
 export LULU_PRODUCTION_RELEASE_AUTHORIZED=1
 export LULU_UPDATE_RELEASE=0
 export LULU_UPDATE_PUBLIC_KEY_PATH="$PWD/app/packaging/update-verification-key.pem"
@@ -63,8 +63,4 @@ Git 克隆使用公开祖先版本，源码 ZIP 通过 SOURCE_MANIFEST.json 校�
 
 ## 官方发行包的源码定位
 
-实际构建提交以包内构建身份和本地正式构建收据为准。发布源码与该产品实现逐文件核对，私人开发仓库不作为源码下载入口。
-
-`v4.3.3` 标签保留本次覆盖更新的源码快照；`main` 可以继续修订说明文档。核对官方 App 的原始构建身份时，以包内构建身份记录为准。
-
-本版沿用人工验收的正式包。运行源文件与此公开快照逐项一致；公开快照筛除了私人开发记录、退役内部入口及未列入固定检查的历史测试。包内原构建提交号与公开整理提交号可能不同，产品源码一致性由文件清单和发布检查记录核对，未推送私人开发 Git 历史。
+本版从冻结的公开产品源码构建。包内 `AUTHORSHIP.json`、`build_profile.json` 和 `product_source.json` 记录原始构建提交与完整目录树；发行标签保留相同的产品输入，发布验收说明可以在后续文档提交中补充。私人开发历史不推送到公开仓库。

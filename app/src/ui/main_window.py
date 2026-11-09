@@ -117,7 +117,8 @@ class _TranscriptCoverRetryWorker(QThread):
                 if item.work_id != original_cover.work_id or not item.cover_url:
                     raise RuntimeError("封面来源尚未确认")
                 meta = TranscriptCover(platform="douyin", work_id=item.work_id,
-                    url=item.cover_url, status="url_only").merge_meta(meta)
+                    url=item.cover_url, status="url_only",
+                    variants=getattr(item, "cover_variants", ())).merge_meta(meta)
 
             receipt_status = ""
 

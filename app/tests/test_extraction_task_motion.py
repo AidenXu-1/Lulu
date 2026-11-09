@@ -57,3 +57,5 @@ class TaskCreationProjectionTests(unittest.TestCase):
         result=LocalTranscriptionCliRuntime._gui_job_summary(job)
         self.assertNotIn('_display_created_at',frozen['gui_task'])
         return result
+
+

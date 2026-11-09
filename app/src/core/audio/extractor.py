@@ -364,6 +364,7 @@ def _douyin_public_detail_fallback(
         "work_id": identity,
         "create_time": item.create_time,
         "duration_ms": item.duration_ms,
+        "cover_variants": item.cover_variants,
     }
     cover_url = TranscriptCover(url=item.cover_url).url
     return (
@@ -515,10 +516,12 @@ def _douyin_work_facts(blobs: list[dict]) -> dict:
             if work_id:
                 video = value.get("video")
                 video = video if isinstance(video, dict) else {}
+                from ..collect.models import _douyin_cover_variants
                 return {
                     "work_id": work_id,
                     "create_time": integer(value.get("create_time")),
                     "duration_ms": integer(video.get("duration")),
+                    "cover_variants": _douyin_cover_variants(video),
                 }
             for child in value.values():
                 found = walk(child)
@@ -728,6 +731,11 @@ def _douyin_play_url(
         facts=matched_facts,
         fallback_work_id=cover_work_id,
     )
+    if meta is not None:
+        meta.update(TranscriptCover(platform="douyin", work_id=cover_work_id,
+                    url=cover_url, status="url_only",
+                    variants=(matched_facts.get("cover_variants", ())
+                              if matched_facts.get("work_id") == cover_work_id else ())).merge_meta(meta))
     return play, desc, stats, author, cover_work_id, cover_url
 
 
@@ -778,6 +786,7 @@ def _download_douyin(share_url: str, work_dir: Path, progress: ProgressCallback,
                 platform="douyin" if complete_identity else "",
                 work_id=trusted_work_id if complete_identity else "",
                 url=trusted_cover_url,
+                variants=TranscriptCover.from_meta(meta).variants,
                 status="url_only" if trusted_cover_url else "not_requested",
             ).merge_meta(meta)
         )
