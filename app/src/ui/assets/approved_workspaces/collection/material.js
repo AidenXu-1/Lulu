@@ -18,5 +18,6 @@ function materialMarkup(w,key){
     return '<div class="material-progress '+(!known?'indeterminate':'')+'" role="progressbar" aria-label="'+esc(name+'：'+label)+'" '+(known?'aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+percent+'"':'')+'><span>'+label+'</span><div class="material-track"><i style="transform:scaleX('+(known?percent/100:1)+')"></i></div></div>';
   }
   const ready=state==='ready',label=ready?'查看':'下载'+name;
-  return '<button class="asset-status '+(ready?'ready':'material-download')+' '+(state==='failed'?'failed':'')+'" data-asset="'+key+'" data-action="'+(ready?'view':'download')+'" aria-label="'+esc(label+'：'+w.title)+'" title="'+(ready?'查看已保存的'+name:state==='failed'?'下载未完成，点击只重试这项素材':'下载这条作品的'+name)+'"><i>'+icon(ready?'file':'download')+'</i><span'+(ready?'':' class="sr-only"')+'>'+label+'</span></button>';
+  const hint=ready?(key==='cover'&&w.coverCanRedownload?'查看封面；右键可重新下载高清封面':'查看已保存的'+name):state==='failed'?'下载未完成，点击只重试这项素材':'下载这条作品的'+name;
+  return '<button class="asset-status '+(ready?'ready':'material-download')+' '+(state==='failed'?'failed':'')+'" data-asset="'+key+'" data-action="'+(ready?'view':'download')+'" aria-label="'+esc(label+'：'+w.title)+'" title="'+hint+'"><i>'+icon(ready?'file':'download')+'</i><span'+(ready?'':' class="sr-only"')+'>'+label+'</span></button>';
 }

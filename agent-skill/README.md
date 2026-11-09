@@ -4,7 +4,7 @@
 
 [下载完整 Skill 包（ZIP）](https://github.com/AidenXu-1/lulu-agent/archive/refs/heads/main.zip) · [安装方法](#安装) · [Lulu 产品主页与 App 下载](https://github.com/AidenXu-1/Lulu)
 
-当前说明已按 **Lulu 4.3.4 / 20261109.2** 核对：支持逐作品提取任务、本地与云端批量转录，以及当前开放的采集、导出、素材与直播管理入口。对应正式版本及下载见 [Lulu 4.3.4](https://github.com/AidenXu-1/Lulu/releases/tag/v4.3.4)。CLI 已包含在 Lulu App 内；此仓库提供 AI 助手调用它所需的说明与校验脚本，无需另外下载 CLI。
+当前说明已按 **Lulu 4.3.4 / 20261109.3** 核对：支持逐作品提取任务、本地与云端批量转录，以及当前开放的采集、导出、素材与直播管理入口。对应正式版本及下载见 [Lulu 4.3.4](https://github.com/AidenXu-1/Lulu/releases/tag/v4.3.4)。CLI 已包含在 Lulu App 内；此仓库提供 AI 助手调用它所需的说明与校验脚本，无需另外下载 CLI。
 
 **Skill 与 App 独立更新。** 本次只同步调用说明，继续使用原有安装检查工具和 CLI 1.0.0 协议，无需重新打包或下载 App。不会替换 App 内的受管 Skill，也不改动文稿、模型、音色或任务。已单独安装的 Skill 需要按下方方法更新；更新 App 不会自动覆盖这个独立副本。
 

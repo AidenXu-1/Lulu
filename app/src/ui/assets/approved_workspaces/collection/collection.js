@@ -177,7 +177,7 @@ function paintSelection(){
 function updateRow(w,row){
   updateRowSelection(w,row);
   const cells=row._assetCells||(row._assetCells=Object.fromEntries(['text','media','cover'].map(key=>[key,$('[data-asset-cell="'+key+'"]',row)])));
-  ['text','media','cover'].forEach(function(key){const cell=cells[key],signature=w[key]+':'+w.kind+':'+(w[key+'Progress']??'unknown')+':'+(w[key+'Reason']??'');if(cell.dataset.assetState!==signature){if(key==='text'||!syncMaterialProgress(cell,w,key))cell.innerHTML=assetMarkup(w,key);cell.dataset.assetState=signature;}});
+  ['text','media','cover'].forEach(function(key){const cell=cells[key],signature=w[key]+':'+w.kind+':'+(w[key+'Progress']??'unknown')+':'+(w[key+'Reason']??'')+':'+(key==='cover'&&!!w.coverCanRedownload);if(cell.dataset.assetState!==signature){if(key==='text'||!syncMaterialProgress(cell,w,key))cell.innerHTML=assetMarkup(w,key);cell.dataset.assetState=signature;}});
 }
 function makeRow(w){
   const row=document.createElement('tr');row.dataset.work=w.id;
@@ -187,7 +187,17 @@ function makeRow(w){
   row.addEventListener('mousedown',function(e){if(e.shiftKey&&!e.target.closest('button,input'))e.preventDefault();});
   row.addEventListener('click',function(e){if(e.target.closest('button,input,[data-asset-cell]')||(!e.shiftKey&&window.getSelection().toString()))return;if(e.shiftKey)window.getSelection().removeAllRanges();toggleWork(w,e.shiftKey,!currentSelection().has(w.id));});
   row.addEventListener('click',function(e){const b=e.target.closest('[data-asset]');if(!b||b.disabled)return;assetAction(w,b.dataset.asset,b.dataset.action);});
-  row.addEventListener('contextmenu',function(e){const key=e.target.closest('[data-asset-cell]')?.dataset.assetCell;if(!['media','cover'].includes(key)||w[key]!=='ready')return;e.preventDefault();closePopovers();const menu=$('#coverMenu');menu.style.width='190px';menu.style.left=Math.max(12,Math.min(e.clientX,innerWidth-202))+'px';menu.style.top=Math.max(12,Math.min(e.clientY,innerHeight-66))+'px';$('#revealCover').onclick=()=>{menu.hidePopover();perform('reveal',{id:w.id,kind:key});};menu.showPopover();});
+  row.addEventListener('contextmenu',function(e){
+    const key=e.target.closest('[data-asset-cell]')?.dataset.assetCell,work=workById.get(w.id)||w;
+    if(!['media','cover'].includes(key)||work[key]!=='ready')return;
+    e.preventDefault();closePopovers();
+    const menu=$('#coverMenu'),refresh=$('#redownloadCover');
+    refresh.hidden=key!=='cover'||work.coverCanRedownload!==true;
+    refresh.onclick=async()=>{menu.hidePopover();const result=await perform('redownload_cover',{id:work.id});if(result)updateRecordState(result);};
+    $('#revealCover').onclick=()=>{menu.hidePopover();perform('reveal',{id:work.id,kind:key});};
+    menu.style.width='190px';menu.style.left=Math.max(12,Math.min(e.clientX,innerWidth-202))+'px';
+    menu.showPopover();menu.style.top=Math.max(12,Math.min(e.clientY,innerHeight-menu.offsetHeight-12))+'px';
+  });
   row.addEventListener('dblclick',function(e){const cell=e.target.closest('[data-asset-cell]'),key=cell?.dataset.assetCell;if(!['media','cover'].includes(key))return;currentSelection().add(w.id);updateRow(w,row);updateSelection();if(w[key]==='ready')perform('reveal',{id:w.id,kind:key});});
   return row;
 }

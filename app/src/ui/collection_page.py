@@ -4933,8 +4933,8 @@ class CollectionPage(QWidget):
             )
             and getattr(item, "platform", "")
             and getattr(item, "work_id", "")
-            and parsed.scheme == "https"
-            and parsed.hostname
+            and ((parsed.scheme == "https" and parsed.hostname)
+                 or _can_lookup_work_cover(item))
         )
 
     @staticmethod

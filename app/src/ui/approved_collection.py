@@ -71,6 +71,7 @@ class ApprovedCollection(CollectionPage):
                 'login':self._login, 'clear_login':self._clear_login,
                 'select_record':self._select_record, 'rename_record':self._rename_record,
                 'trash_records':self._trash_records, 'asset':self._asset, 'reveal':self._reveal,
+                'redownload_cover':self._redownload_cover,
                 'restore_legacy':self._restore_legacy,
                 'asset_detail':self._asset_detail, 'visible_works':self._visible_works,
                 'manuscript':self._manuscript, 'transcribe':self._transcribe,
@@ -161,6 +162,11 @@ class ApprovedCollection(CollectionPage):
             row[kind] = _material_status(state)
             row[kind + 'Progress'] = self._material_progress.get((key, kind))
             row[kind + 'Reason'] = reason
+        row['coverCanRedownload'] = bool(
+            row['cover'] == 'ready' and item.platform == 'douyin'
+            and self._cover_workflow is not None and self._cover_retry_worker is None
+            and self._cover_retry_eligible(item)
+        )
         return row
 
     def _work_rows(self):
@@ -634,6 +640,18 @@ class ApprovedCollection(CollectionPage):
             self._publish()
             return done(message='这份素材已不在保存位置')
         done(dict(name=path.name))
+
+    def _redownload_cover(self, done, *, id):
+        item = next((row for row in self._items if row.stable_key == id), None)
+        if (item is None or item.platform != 'douyin' or self._cover_workflow is None
+                or not self._cover_retry_eligible(item)):
+            raise ValueError('这条作品当前没有可重新下载的高清封面来源')
+        state, _reason = self._material_cell_state(item, 'cover', self._work_task_states())
+        if state != 'ready' or self._cover_retry_worker is not None:
+            return done(message='封面状态已变化或正在保存，请稍后再试')
+        self._retry_cover_item(item)
+        self._works_dirty = True
+        done(self._payload())
 
     def _asset_path(self,id,kind):
         item=next((item for item in self._items if item.stable_key==id),None)

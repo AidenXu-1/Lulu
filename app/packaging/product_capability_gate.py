@@ -16,6 +16,12 @@ import tempfile
 # These are deliberately real behavior tests, not string/constant checks. Keep the
 # list small enough for every build while representing every high-risk user seam.
 CAPABILITY_TESTS = (
+    'tests.test_approved_hd_cover.ApprovedHDCoverTests.test_visible_menu_downloads_hd_and_reopen_preserves_cached_result',
+    'tests.test_approved_hd_cover.ApprovedHDCoverTests.test_failed_redownload_keeps_old_cover_and_exported_file',
+    'tests.test_approved_hd_cover.ApprovedHDCoverTests.test_missing_url_can_refresh_only_the_verified_same_work',
+    'tests.test_approved_hd_cover.ApprovedHDCoverTests.test_non_douyin_cover_and_media_have_only_finder_action',
+    'tests.test_approved_hd_cover.ApprovedHDCoverTests.test_bridge_rechecks_identity_missing_file_and_busy_state',
+    'tests.test_approved_hd_cover.ApprovedHDCoverTests.test_menu_uses_current_material_state_after_refresh',
     'tests.test_douyin_hd_cover_stability.CoverStabilityTests.test_exhausted_optional_hd_budget_keeps_validated_small_image',
     'tests.test_douyin_hd_cover_stability.CoverStabilityTests.test_slow_post_download_check_keeps_validated_larger_image',
     'tests.test_douyin_hd_cover_stability.CoverStabilityTests.test_old_batch_refreshes_each_exact_work_and_saves_large_images',
