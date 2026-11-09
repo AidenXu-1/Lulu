@@ -41,5 +41,3 @@ class SidebarResponsivenessTests(unittest.TestCase):
                 self.assertEqual(set(updates),{gui})
                 self.assertFalse(page._transcribed_poll.isActive())
             finally:page.shutdown_workers();page.close();page.deleteLater()
-
-

@@ -293,4 +293,3 @@ class DownloadCauseTests(unittest.TestCase):
             with self.assertRaises(InterruptedError):
                 ui._fetch_managed_media(item, "video", Path(raw), cancelled)
         refresh.assert_called_once_with(item.work_id, is_cancelled=cancelled)
-

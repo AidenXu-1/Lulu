@@ -338,4 +338,3 @@ class ReleaseCollectionPageTests(unittest.TestCase):
         self.assertFalse(restored.trashed_records)
         self.assertFalse(restored.selected_record.item_trash)
         self.assertFalse(replies[0]['legacyRemoved'])
-

@@ -48,10 +48,3 @@ class TrashDisposalTests(unittest.TestCase):
         self.assertEqual(preview['audio_bytes'],len(b'original audio'))
         self.assertFalse(preview['audio_missing'])
         self.assertEqual(audio.read_bytes(),b'original audio')
-
-
-
-
-
-
-

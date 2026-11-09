@@ -31,5 +31,3 @@ class CollectedTranscriptionInputTests(unittest.TestCase):
         self.assertFalse(_video_item().is_image)
         other=CollectedItem(aweme_id='',platform='xiaohongshu',work_id='xhs1',aweme_type=163,content_kind='video')
         self.assertFalse(other.is_image)
-
-

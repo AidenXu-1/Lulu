@@ -61,11 +61,3 @@ class ProductionKeyPackagingTests(unittest.TestCase):
                     result = self.stage(temp, '0', key)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertFalse((Path(temp) / 'update_public_key.pem').exists())
-
-
-
-
-
-
-
-

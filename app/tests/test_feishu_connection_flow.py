@@ -63,4 +63,3 @@ class RoutingTests(unittest.TestCase):
         self.session.start();self.dialog=self.session.dialog;settle(self.dialog)
     def tearDown(self):
         settle(self.dialog);self.dialog.reject();self.panel.shutdown();self.host.close();self.host.deleteLater();APP.processEvents()
-

@@ -245,6 +245,3 @@ class CrossFlowTests(unittest.TestCase):
             query='', filter='all', page=1)['rows'] if row['ended'] is not None), None))
         self.call('pause', host_id=hid)
         return hid, record
-
-
-

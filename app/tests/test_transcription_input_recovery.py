@@ -56,6 +56,3 @@ class TranscriptionInputRecoveryTests(unittest.TestCase):
                 self.assertIn('原文件保留',error['message'])
                 self.assertNotIn('后续正式 CLI',error['human_action'])
                 self.assertEqual(source.read_bytes(),b'unchanged source')
-
-
-

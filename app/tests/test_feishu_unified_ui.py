@@ -160,5 +160,3 @@ class LastDestinationTests(unittest.TestCase):
             discover.assert_not_called()
             d.mode.setCurrentIndex(0);settle(d)
             discover.assert_called_once()
-
-

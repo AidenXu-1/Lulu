@@ -150,6 +150,3 @@ class TailGapTests(unittest.TestCase):
         self.service.index.write("UPDATE recordings SET reason='reconnect_timeout' WHERE id=?",(rid,))
         from src.core.live_recording.contracts import recording_message
         self.assertEqual(recording_message(self.call('detail',recording_id=rid)),'录制中断')
-
-
-
