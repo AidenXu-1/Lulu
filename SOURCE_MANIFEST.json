@@ -4099,8 +4099,8 @@
     },
     {
       "path": "app/tests/test_collected_transcription_input.py",
-      "size": 1901,
-      "sha256": "73192ad1473394669a9c648e574c65f5a9b928b1b817d794de4dae48f8c3da59",
+      "size": 1899,
+      "sha256": "4344b4ce1dd2645a9ad00e0dbcc5d5fc6bbb8f9774f720b7f63b8b40c31ac3bd",
       "mode": "100644"
     },
     {
@@ -4351,8 +4351,8 @@
     },
     {
       "path": "app/tests/test_extraction_task_motion.py",
-      "size": 2699,
-      "sha256": "1227f3032fcfdbe8f99ea5df0b3befa6dec38cf169794fd5920282bea8e81a19",
+      "size": 2697,
+      "sha256": "ef944813fd33038861ce2e144a2f110d3ab227f847f3a4ca46996ad63daf2c1c",
       "mode": "100644"
     },
     {
@@ -4381,8 +4381,8 @@
     },
     {
       "path": "app/tests/test_feishu_connection_flow.py",
-      "size": 3918,
-      "sha256": "09f085baaa1be00431bb1cc173a2410b8af88c79009ddc26002feb3f921c5282",
+      "size": 3917,
+      "sha256": "7ecbcf69cf36a78fda6a032eeec481c137a36539bef0befb1d7dc46b16ab3c59",
       "mode": "100644"
     },
     {
@@ -4393,8 +4393,8 @@
     },
     {
       "path": "app/tests/test_feishu_unified_ui.py",
-      "size": 7234,
-      "sha256": "19889168ebb4a1eb8d66d64eef5710b47bc092f7cad531c0b4ec647e38f72785",
+      "size": 7232,
+      "sha256": "e5f167777e254666adcfcc2da971e0ef3291d4e1dc06d6270af6ab9104be8de2",
       "mode": "100644"
     },
     {
@@ -4501,8 +4501,8 @@
     },
     {
       "path": "app/tests/test_homepage_reliability_ui.py",
-      "size": 16944,
-      "sha256": "1f1248e5dbf8c2e4bc2321a121639b67c1368e60513fe4daafb67d499780af8f",
+      "size": 16943,
+      "sha256": "110097f60332bc4b952a6f1afeba3ee878d3e6e1a9ffc9b1774e9f12ea034fe2",
       "mode": "100644"
     },
     {
@@ -4711,8 +4711,8 @@
     },
     {
       "path": "app/tests/test_live_recording_lifecycle.py",
-      "size": 7624,
-      "sha256": "81f8f429cf8e4131dc28106d9203f40f448a301f5f672d97f041222d05f2e641",
+      "size": 7621,
+      "sha256": "9123d2271a0af8c7662f714a82b1b765fcc24c27d773dd3a25e71e27b1c04076",
       "mode": "100644"
     },
     {
@@ -4723,8 +4723,8 @@
     },
     {
       "path": "app/tests/test_live_recording_regressions.py",
-      "size": 9773,
-      "sha256": "b12bedf221cdf8ee11e399c59bc56a57fb996f2e7e60ab098118edd215d8c827",
+      "size": 9770,
+      "sha256": "dbf74f1100f61eeb66af35e0c2221a6284d25d134523c44a32daa0e9f5e67285",
       "mode": "100644"
     },
     {
@@ -4765,8 +4765,8 @@
     },
     {
       "path": "app/tests/test_local_task_migration.py",
-      "size": 8064,
-      "sha256": "1b0b15d585e89686cc6b8f1eaffa810df0e92a28b372176bbed489c52177c8c8",
+      "size": 8037,
+      "sha256": "db3ff8530b3eefa2fcd358506194880d8b969829bf77b5dbda8e51b13127923f",
       "mode": "100644"
     },
     {
@@ -4999,8 +4999,8 @@
     },
     {
       "path": "app/tests/test_release_cross_review.py",
-      "size": 18815,
-      "sha256": "8a1f1988a0e56238a84e83ebee12ed029fa43803120840a8a53af005aa93456e",
+      "size": 18814,
+      "sha256": "4d4a2a1525e9f128714af07665599c71d5318e2e68c87038fc9d86523d324b2a",
       "mode": "100644"
     },
     {
@@ -5113,8 +5113,8 @@
     },
     {
       "path": "app/tests/test_sidebar_responsiveness.py",
-      "size": 1976,
-      "sha256": "a096ac264a6c59e5528a20419344fea283b95b2779d08af483994f658433ccda",
+      "size": 1974,
+      "sha256": "f8174732396cbddc13ba114ecbc5930ac587788c4a9041d7a080d0b315b0d967",
       "mode": "100644"
     },
     {
@@ -5173,8 +5173,8 @@
     },
     {
       "path": "app/tests/test_standalone_skill_verifier.py",
-      "size": 2672,
-      "sha256": "c248fc74e0a2d74ae7022208be80108a2d51c71c822b75940032354b171f1388",
+      "size": 2654,
+      "sha256": "4af74798e1da8ba402876f5f9bc7ae160e45ad35041913260a4f55e884d5d18b",
       "mode": "100644"
     },
     {
@@ -5191,8 +5191,8 @@
     },
     {
       "path": "app/tests/test_system_audio_package.py",
-      "size": 1702,
-      "sha256": "443219e429cf961bdb6d97a6fd732377e1420dc581a7b6e1ad048b5b3f499610",
+      "size": 1701,
+      "sha256": "7b5402befe0f9bb21603841c6a97694809d7446512ef98b22e78de053982736f",
       "mode": "100644"
     },
     {
@@ -5251,8 +5251,8 @@
     },
     {
       "path": "app/tests/test_transcription_input_recovery.py",
-      "size": 3515,
-      "sha256": "90789e9721dad638513557342797ef83353eeb959e0062a7dd664d067e4ee18d",
+      "size": 3512,
+      "sha256": "e1fc445a71676451c3f9f6b6f74cea0cf0d78ae9bb5a5c38eae83725f4385403",
       "mode": "100644"
     },
     {
@@ -5275,8 +5275,8 @@
     },
     {
       "path": "app/tests/test_trash_actions.py",
-      "size": 2435,
-      "sha256": "1abc3813bf5f8b2a20f075e1cc49d05900ec95abb000c17dca02233d0f671951",
+      "size": 2428,
+      "sha256": "640108f0dd732df9cf1f58279f36f5659ab1f8a528932a34ab9399956d6117d4",
       "mode": "100644"
     },
     {
@@ -5323,8 +5323,8 @@
     },
     {
       "path": "app/tests/test_update_bundled_keys.py",
-      "size": 3055,
-      "sha256": "3d129eb62dddd59305b1b129e18e1366d3ebb431203344eb48c7591a71148a65",
+      "size": 3047,
+      "sha256": "27f7a07f74a53910b64fff89c06a387cd388fb206f9061bab2609da38f121aff",
       "mode": "100644"
     },
     {
@@ -5401,8 +5401,8 @@
     },
     {
       "path": "app/tests/test_voice_library.py",
-      "size": 4252,
-      "sha256": "8bb81059de4a60c979176acd51e6c95eef542fbcc9f5a6eb4dbe00db8d59c5f9",
+      "size": 4248,
+      "sha256": "4c83ead86e254220f58b88e0ccdd8740fb8685cbbed26a091f961c7566140625",
       "mode": "100644"
     },
     {
